@@ -110,5 +110,15 @@ export function buildGraph(parsedStory: unknown, flows: Flow[]): StoryGraph {
       }
     }
   }
+  // A knot that only holds stitches has no content of its own to miss: it is
+  // reachable as soon as any of its stitches is.
+  for (const e of edgeList) {
+    if (e.kind === "fall") {
+      const knot = byId.get(e.from);
+      if (knot && !knot.reachable) {
+        knot.reachable = nodes.some((n) => n.kind === "stitch" && n.id.startsWith(`${e.from}.`) && n.reachable);
+      }
+    }
+  }
   return { nodes, edges: edgeList };
 }

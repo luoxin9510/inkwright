@@ -17,12 +17,13 @@ Always pass `vault=ink-games`. Never quit/restart the whole app: other sessions 
 
 ## Agent API (`src/api.ts`)
 `app.plugins.plugins.inkwright.api` — call via `obsidian vault=ink-games eval code='...api.<method>(...).then(JSON.stringify)'`; `api.help()` prints usage.
-Headless: `compile(path)`, `play(path, {from?, choices?})` (choices by index or text) → transcript, variables, visits, errors. Visible panel: `open`, `panel`, `choose`, `restart`, `startAt`.
+Headless: `compile(path)`, `graph(path)` (nodes/edges/unreachable), `play(path, {from?, choices?})` (choices by index or text) → transcript, variables, visits, errors. Visible panel: `open`, `panel`, `choose`, `restart`, `startAt`.
 The game vault has its own `CLAUDE.md` telling agents how to playtest; keep it in sync when the API changes.
 
 ## Layout
 - `src/compile/` pure logic: `paths` (INCLUDE scan/resolve, relative to the main story's folder), `include` (async preload → sync `CachedFileHandler`), `diagnostics` (parse `ERROR: 'file' line N: msg`, translate), `zh.ts` (zh table; each regex matches a real inkjs message), `compile.ts`.
 - `src/play/session.ts` — `PlaySession`: time-sliced `ContinueAsync` loop guard, restart rebuilds Story from JSON, per-step translated errors, EXTERNAL fallbacks on.
+- `src/compile/graph.ts` — divert graph from the parsed tree (duck-typed by `typeName`; minified class names). `src/graph/layout.ts` — layered layout. `src/views/GraphView.ts` — SVG view, pan/pinch zoom, node popover (open source / play from here).
 - `src/play/script.ts` — `playScript` (scripted play for the API; `pick` matches choices by index/text).
 - `src/play/inspect.ts` — variable panel data: names from `variablesState._globalVariables` (state JSON omits defaults), values via `variablesState[name]`, visit counts from state JSON (compile uses countAllVisits; compiler-generated path segments hidden).
 - `src/root.ts` — main-story lock rules, `LatestOnly`. `src/i18n.ts` — `T()` zh/en tables, language from `moment.locale()`.

@@ -83,4 +83,10 @@ describe("story graph", () => {
     const r = await compileStory("main.ink", async () => "-> nowhere");
     expect(r.graph).toBeNull();
   });
+
+  test("a container knot (stitches only) counts as reachable when one of its stitches is", async () => {
+    const r = await compileStory("main.ink", async () => "-> end.good\n=== end ===\n= good\nG -> END\n= bad\nB -> END");
+    const reach = Object.fromEntries(r.graph!.nodes.map((n) => [n.id, n.reachable]));
+    expect(reach).toMatchObject({ end: true, "end.good": true, "end.bad": false });
+  });
 });

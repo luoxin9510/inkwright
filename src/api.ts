@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import { compileStory, type Flow } from "./compile/compile";
+import type { GraphEdge, GraphNode } from "./compile/graph";
 import type { Diagnostic } from "./compile/diagnostics";
 import type { ReadFile } from "./compile/include";
 import { T } from "./i18n";
@@ -33,6 +34,15 @@ export interface CompileReport {
   files: string[];
 }
 
+export interface GraphReport {
+  ok: boolean;
+  diagnostics: ApiDiagnostic[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Knots/stitches no chain of diverts reaches from the start. */
+  unreachable: string[];
+}
+
 export interface PlayReport extends ScriptResult {
   ok: boolean;
   diagnostics: ApiDiagnostic[];
@@ -55,6 +65,8 @@ Paths are vault-relative, e.g. "游戏/雨夜来客/main.ink". Every method retu
 
 Headless (does not touch the visible panel):
   compile(path)                    -> { ok, diagnostics[{severity,file,line,message}], flows[{path,kind,file,line}], files }
+  graph(path)                      -> { ok, diagnostics, nodes[{id,kind,file,line,reachable}], edges[{from,to,kind,count}], unreachable[] }
+     node ids: knot / "knot.stitch", plus "@start" and "@end"; edge kind: divert | tunnel | thread | fall
   play(path, { from?, choices? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text}],
                                         choices, ended, errors, variables[{name,value}], visits[{path,count}], turns }
      from:    knot or "knot.stitch" to start at (default: the beginning)
@@ -84,6 +96,18 @@ export class InkwrightApi {
   async compile(path: string): Promise<CompileReport> {
     const r = await compileStory(path, this.host.readFile);
     return { ok: r.ok, diagnostics: plainDiagnostics(r.diagnostics), flows: r.flows, files: r.files };
+  }
+
+  async graph(path: string): Promise<GraphReport> {
+    const r = await compileStory(path, this.host.readFile);
+    const nodes = r.graph?.nodes ?? [];
+    return {
+      ok: r.ok,
+      diagnostics: plainDiagnostics(r.diagnostics),
+      nodes,
+      edges: r.graph?.edges ?? [],
+      unreachable: nodes.filter((n) => !n.reachable && n.kind !== "end").map((n) => n.id),
+    };
   }
 
   async play(path: string, options: ScriptOptions = {}): Promise<PlayReport> {

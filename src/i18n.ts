@@ -35,6 +35,20 @@ const zh = {
   startedMidway: "从中途开始:开头的代码没有运行,变量是初始值。",
   storyEnded: "故事已经结束,无法继续选择。",
   choiceNotFound: (want: string, available: string[]) => `找不到选项 "${want}"。当前可选:${available.join(" / ") || "(无)"}`,
+  graphName: "Knot 图谱",
+  openGraph: "打开 knot 图谱",
+  fit: "适应窗口",
+  openSource: "打开源码",
+  playFromHere: "从这里试玩",
+  legendVisited: "已访问",
+  legendUnreachable: "从开头走不到",
+  legendDivert: "跳转",
+  legendTunnel: "隧道",
+  legendThread: "线程",
+  graphStart: "开始",
+  graphEnd: "结束",
+  noGraph: "打开一个 .ink 文件(或锁定主剧本),编译成功后这里显示 knot 图谱。",
+  graphStale: "当前有编译错误,下面是上次编译成功时的图谱。",
 };
 
 export type Strings = typeof zh;
@@ -73,6 +87,20 @@ const en: Strings = {
   startedMidway: "Started midway: code before this point did not run; variables have their initial values.",
   storyEnded: "The story has ended; no more choices can be made.",
   choiceNotFound: (want, available) => `No choice matches "${want}". Available: ${available.join(" / ") || "(none)"}`,
+  graphName: "Knot graph",
+  openGraph: "Open knot graph",
+  fit: "Fit",
+  openSource: "Open source",
+  playFromHere: "Play from here",
+  legendVisited: "Visited",
+  legendUnreachable: "Not reachable from the start",
+  legendDivert: "Divert",
+  legendTunnel: "Tunnel",
+  legendThread: "Thread",
+  graphStart: "Start",
+  graphEnd: "End",
+  noGraph: "Open a .ink file (or lock a main story); the knot graph appears after a successful compile.",
+  graphStale: "There are compile errors; this is the graph from the last successful compile.",
 };
 
 const tables: Record<Language, Strings> = { zh, en };

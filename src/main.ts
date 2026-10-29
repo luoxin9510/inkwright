@@ -1,6 +1,8 @@
 import { Notice, Plugin, TFile, moment, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
+import type { StoryGraph } from "./compile/graph";
+import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphView";
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, type Paragraph, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
@@ -14,7 +16,7 @@ interface Settings {
   language: LanguageSetting;
 }
 
-export default class InkwrightPlugin extends Plugin implements PlayController {
+export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
   private config: Settings = { locked: null, language: "auto" };
   private latest = new LatestOnly();
   private timer: number | null = null;
@@ -26,6 +28,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   private last: Step | null = null;
   private flows: Flow[] = [];
   private startPoint: string | null = null;
+  private graph: StoryGraph | null = null;
+  private graphStale = false;
   /** Scriptable API for agents, e.g. via `obsidian eval`. See src/api.ts. */
   readonly api = new InkwrightApi(this);
 
@@ -38,10 +42,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
 
     this.registerView(INK_VIEW_TYPE, (leaf) => new InkView(leaf));
     this.registerView(PLAY_VIEW_TYPE, (leaf) => new PlayView(leaf, this));
+    this.registerView(GRAPH_VIEW_TYPE, (leaf) => new GraphView(leaf, this));
     this.registerExtensions(["ink"], INK_VIEW_TYPE);
 
     this.addRibbonIcon("play", T().openPlay, () => void this.openPlay());
     this.addCommand({ id: "open-play", name: T().openPlay, callback: () => void this.openPlay() });
+    this.addRibbonIcon("git-fork", T().openGraph, () => void this.openGraph());
+    this.addCommand({ id: "open-graph", name: T().openGraph, callback: () => void this.openGraph() });
     this.addCommand({ id: "lock-main", name: T().lockCurrent, callback: () => void this.lockCurrent() });
     this.addCommand({ id: "unlock-main", name: T().unlock, callback: () => void this.setLocked(null) });
 
@@ -102,18 +109,29 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   }
 
   async openDiagnostic(d: Diagnostic): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(d.file);
+    await this.openSource(d.file, d.line);
+  }
+
+  // --- GraphController ---
+
+  playFrom(path: string): void {
+    this.startAt(path);
+    void this.openPlay();
+  }
+
+  async openSource(path: string, line: number | null): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
-      new Notice(T().fileMissing + d.file);
+      new Notice(T().fileMissing + path);
       return;
     }
     const { workspace } = this.app;
     const leaf =
-      workspace.getLeavesOfType(INK_VIEW_TYPE).find((l) => (l.view as InkView).file?.path === d.file) ??
+      workspace.getLeavesOfType(INK_VIEW_TYPE).find((l) => (l.view as InkView).file?.path === path) ??
       workspace.getLeaf("tab");
     await leaf.openFile(file);
     workspace.revealLeaf(leaf);
-    if (d.line !== null && leaf.view instanceof InkView) leaf.view.goToLine(d.line);
+    if (line !== null && leaf.view instanceof InkView) leaf.view.goToLine(line);
   }
 
   // --- settings ---
@@ -130,6 +148,17 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   }
 
   // --- internals ---
+
+  async openGraph(): Promise<void> {
+    const { workspace } = this.app;
+    let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(GRAPH_VIEW_TYPE)[0] ?? null;
+    if (!leaf) {
+      leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({ type: GRAPH_VIEW_TYPE, active: true });
+    }
+    workspace.revealLeaf(leaf);
+    this.schedule();
+  }
 
   async openPlay(): Promise<void> {
     const { workspace } = this.app;
@@ -169,8 +198,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   }
 
   private schedule(): void {
-    // Nothing to show without a play panel, so skip compiling entirely.
-    if (this.app.workspace.getLeavesOfType(PLAY_VIEW_TYPE).length === 0) return;
+    // Nothing to show without a play panel or graph, so skip compiling entirely.
+    const { workspace } = this.app;
+    if (workspace.getLeavesOfType(PLAY_VIEW_TYPE).length + workspace.getLeavesOfType(GRAPH_VIEW_TYPE).length === 0) return;
     if (this.timer !== null) window.clearTimeout(this.timer);
     this.timer = window.setTimeout(() => void this.recompile(), 300);
   }
@@ -183,7 +213,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
 
   private async recompile(): Promise<void> {
     const root = this.targetRoot();
-    if (root !== this.root) this.startPoint = null;
+    if (root !== this.root) {
+      this.startPoint = null;
+      this.graph = null;
+    }
     this.root = root;
     if (root === null) {
       this.latest.invalidate();
@@ -201,6 +234,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
     this.files = result.files;
     this.diagnostics = result.diagnostics;
     this.flows = result.flows;
+    // On a failed compile keep showing the last good graph, marked as stale.
+    if (result.graph) this.graph = result.graph;
+    this.graphStale = result.graph === null && this.graph !== null;
     this.log = [];
     if (result.story) {
       // Keep the chosen start point across recompiles while it still exists.
@@ -248,6 +284,12 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
     const state = this.snapshot();
     for (const leaf of this.app.workspace.getLeavesOfType(PLAY_VIEW_TYPE)) {
       if (leaf.view instanceof PlayView) leaf.view.showState(state);
+    }
+    const visited = new Set((state.inspection?.visits ?? []).map((v) => v.path));
+    for (const leaf of this.app.workspace.getLeavesOfType(GRAPH_VIEW_TYPE)) {
+      if (leaf.view instanceof GraphView) {
+        leaf.view.showState({ graph: this.graph, stale: this.graphStale, visited, startPoint: this.startPoint });
+      }
     }
   }
 }
