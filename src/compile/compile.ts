@@ -1,4 +1,5 @@
 import { Compiler, CompilerOptions, type Story } from "inkjs/full";
+import { T } from "../i18n";
 import { parseRaw, translate, type Diagnostic } from "./diagnostics";
 import { CachedFileHandler, preload, type ReadFile } from "./include";
 import { resolveInclude } from "./paths";
@@ -26,7 +27,7 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
       files,
       diagnostics: [{
         severity: "error", file: rootPath, line: null,
-        message: `找不到主剧本:${rootPath}`, raw: "",
+        message: T().missingRoot(rootPath), raw: "",
       }],
     };
   }
@@ -39,7 +40,7 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
       file: p.file ? resolveInclude(rootPath, p.file) : rootPath,
       line: p.line,
       // TODO notes are the author's own words, not compiler errors to translate.
-      message: p.severity === "todo" ? `待办:${p.text}` : translate(p.text),
+      message: p.severity === "todo" ? T().todo(p.text) : translate(p.text),
       raw,
     });
   };

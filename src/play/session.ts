@@ -1,5 +1,6 @@
 import { Story } from "inkjs/full";
 import { translate } from "../compile/diagnostics";
+import { T } from "../i18n";
 
 export interface Paragraph {
   text: string;
@@ -91,7 +92,7 @@ export class PlaySession {
       }
       if (Date.now() > deadline) {
         this.halted = true;
-        this.errors.push(`剧本可能存在无限循环,已在 ${this.budget / 1000} 秒后停止运行。`);
+        this.errors.push(T().infiniteLoop(this.budget / 1000));
         break;
       }
     }

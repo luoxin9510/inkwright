@@ -1,3 +1,4 @@
+import { getLanguage } from "../i18n";
 import { zhTable } from "./zh";
 
 export type Severity = "error" | "warning" | "todo";
@@ -30,7 +31,9 @@ export function parseRaw(raw: string, fallback: Severity = "error"): ParsedMessa
   };
 }
 
+/** Chinese UI: translated text. English UI: inkjs's original message. */
 export function translate(text: string): string {
+  if (getLanguage() === "en") return text;
   for (const [re, fn] of zhTable) {
     const m = text.match(re);
     if (m) return fn(m);

@@ -35,7 +35,7 @@ export class PlayView extends ItemView {
   }
 
   getDisplayText(): string {
-    return T.playName;
+    return T().playName;
   }
 
   getIcon(): string {
@@ -57,7 +57,7 @@ export class PlayView extends ItemView {
     el.empty();
     const s = this.state;
     if (!s || s.root === null) {
-      el.createEl("p", { text: T.noRoot, cls: "ink-cn-hint" });
+      el.createEl("p", { text: T().noRoot, cls: "ink-cn-hint" });
       return;
     }
 
@@ -65,18 +65,18 @@ export class PlayView extends ItemView {
     const locked = s.locked !== null;
     bar.createSpan({
       cls: "ink-cn-root",
-      text: `${T.rootLabel}:${s.root}${locked ? T.lockedSuffix : ""}`,
+      text: T().rootLine(s.root, locked),
     });
-    bar.createEl("button", { text: T.restart }).onclick = () => this.controller.restart();
-    bar.createEl("button", { text: locked ? T.unlockShort : T.lock }).onclick = () =>
+    bar.createEl("button", { text: T().restart }).onclick = () => this.controller.restart();
+    bar.createEl("button", { text: locked ? T().unlockShort : T().lock }).onclick = () =>
       this.controller.toggleLock();
 
     if (s.diagnostics.length > 0) {
       const box = el.createDiv({ cls: "ink-cn-diagnostics" });
-      box.createEl("h4", { text: T.errors });
+      box.createEl("h4", { text: T().errors });
       for (const d of s.diagnostics) {
         const row = box.createDiv({ cls: `ink-cn-diag ink-cn-diag-${d.severity}` });
-        const where = d.line !== null ? ` ${T.line}${d.line}${T.lineUnit}` : "";
+        const where = d.line !== null ? ` ${T().lineAt(d.line)}` : "";
         row.createSpan({ cls: "ink-cn-diag-loc", text: `${d.file}${where}` });
         row.createDiv({ text: d.message });
         row.onclick = () => this.controller.openDiagnostic(d);
@@ -90,7 +90,7 @@ export class PlayView extends ItemView {
       story.createEl("p", { text: p.text });
     }
     for (const msg of s.runtimeErrors) story.createDiv({ cls: "ink-cn-diag ink-cn-diag-error", text: msg });
-    if (s.ended) story.createEl("p", { text: T.ended, cls: "ink-cn-ended" });
+    if (s.ended) story.createEl("p", { text: T().ended, cls: "ink-cn-ended" });
 
     const choices = el.createDiv({ cls: "ink-cn-choices" });
     for (const c of s.choices) {

@@ -1,4 +1,6 @@
-export const T = {
+export type Language = "zh" | "en";
+
+const zh = {
   editorName: "Ink 剧本",
   playName: "Ink 试玩",
   openPlay: "打开试玩面板",
@@ -8,14 +10,60 @@ export const T = {
   lock: "锁定为主剧本",
   unlockShort: "解除锁定",
   noRoot: "请先打开一个 .ink 文件,或锁定一个主剧本。",
-  rootLabel: "主剧本",
-  lockedSuffix: "(已锁定)",
   ended: "— 故事结束 —",
   errors: "编译问题",
-  line: "第",
-  lineUnit: "行",
   lockNotInk: "当前文件不是 .ink 文件。",
   locked: "已锁定主剧本:",
   unlocked: "已解除主剧本锁定。",
   fileMissing: "文件不存在:",
-} as const;
+  lineAt: (n: number) => `第 ${n} 行`,
+  rootLine: (root: string, locked: boolean) => `主剧本:${root}${locked ? "(已锁定)" : ""}`,
+  missingRoot: (path: string) => `找不到主剧本:${path}`,
+  todo: (text: string) => `待办:${text}`,
+  infiniteLoop: (seconds: number) => `剧本可能存在无限循环,已在 ${seconds} 秒后停止运行。`,
+};
+
+export type Strings = typeof zh;
+
+const en: Strings = {
+  editorName: "Ink story",
+  playName: "Ink player",
+  openPlay: "Open player",
+  lockCurrent: "Lock current file as main story",
+  unlock: "Unlock main story",
+  restart: "Restart",
+  lock: "Lock as main story",
+  unlockShort: "Unlock",
+  noRoot: "Open a .ink file, or lock a main story.",
+  ended: "— The End —",
+  errors: "Problems",
+  lockNotInk: "The current file is not a .ink file.",
+  locked: "Main story locked: ",
+  unlocked: "Main story unlocked.",
+  fileMissing: "File not found: ",
+  lineAt: (n) => `line ${n}`,
+  rootLine: (root, locked) => `Main story: ${root}${locked ? " (locked)" : ""}`,
+  missingRoot: (path) => `Main story not found: ${path}`,
+  todo: (text) => `TODO: ${text}`,
+  infiniteLoop: (seconds) => `The story seems to be stuck in an infinite loop; stopped after ${seconds} s.`,
+};
+
+const tables: Record<Language, Strings> = { zh, en };
+let current: Language = "zh";
+
+/** Chinese (simplified or traditional) gets Chinese; every other locale gets English. */
+export function pickLanguage(locale: string): Language {
+  return locale.toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+export function setLanguage(lang: Language): void {
+  current = lang;
+}
+
+export function getLanguage(): Language {
+  return current;
+}
+
+export function T(): Strings {
+  return tables[current];
+}

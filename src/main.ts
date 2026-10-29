@@ -1,9 +1,9 @@
-import { Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, moment, type WorkspaceLeaf } from "obsidian";
 import { compileStory } from "./compile/compile";
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, type Paragraph, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
-import { T } from "./i18n";
+import { T, pickLanguage, setLanguage } from "./i18n";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type PlayController } from "./views/PlayView";
 
@@ -23,16 +23,18 @@ export default class InkCnPlugin extends Plugin implements PlayController {
   private last: Step | null = null;
 
   async onload(): Promise<void> {
+    // Obsidian sets moment's locale to its interface language (a restart applies changes).
+    setLanguage(pickLanguage(moment.locale()));
     this.config = { locked: null, ...(await this.loadData()) };
 
     this.registerView(INK_VIEW_TYPE, (leaf) => new InkView(leaf));
     this.registerView(PLAY_VIEW_TYPE, (leaf) => new PlayView(leaf, this));
     this.registerExtensions(["ink"], INK_VIEW_TYPE);
 
-    this.addRibbonIcon("play", T.openPlay, () => void this.openPlay());
-    this.addCommand({ id: "open-play", name: T.openPlay, callback: () => void this.openPlay() });
-    this.addCommand({ id: "lock-main", name: T.lockCurrent, callback: () => void this.lockCurrent() });
-    this.addCommand({ id: "unlock-main", name: T.unlock, callback: () => void this.setLocked(null) });
+    this.addRibbonIcon("play", T().openPlay, () => void this.openPlay());
+    this.addCommand({ id: "open-play", name: T().openPlay, callback: () => void this.openPlay() });
+    this.addCommand({ id: "lock-main", name: T().lockCurrent, callback: () => void this.lockCurrent() });
+    this.addCommand({ id: "unlock-main", name: T().unlock, callback: () => void this.setLocked(null) });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -86,7 +88,7 @@ export default class InkCnPlugin extends Plugin implements PlayController {
   async openDiagnostic(d: Diagnostic): Promise<void> {
     const file = this.app.vault.getAbstractFileByPath(d.file);
     if (!(file instanceof TFile)) {
-      new Notice(T.fileMissing + d.file);
+      new Notice(T().fileMissing + d.file);
       return;
     }
     const { workspace } = this.app;
@@ -114,16 +116,16 @@ export default class InkCnPlugin extends Plugin implements PlayController {
   private async lockCurrent(): Promise<void> {
     const f = this.app.workspace.getActiveFile();
     if (!f || f.extension !== "ink") {
-      new Notice(T.lockNotInk);
+      new Notice(T().lockNotInk);
       return;
     }
     await this.setLocked(f.path);
-    new Notice(T.locked + f.path);
+    new Notice(T().locked + f.path);
   }
 
   private async setLocked(path: string | null): Promise<void> {
     await this.updateLock(path);
-    if (path === null) new Notice(T.unlocked);
+    if (path === null) new Notice(T().unlocked);
   }
 
   private async updateLock(path: string | null): Promise<void> {

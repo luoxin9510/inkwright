@@ -19,7 +19,7 @@ export class InkView extends TextFileView {
   }
 
   getDisplayText(): string {
-    return this.file?.basename ?? T.editorName;
+    return this.file?.basename ?? T().editorName;
   }
 
   getIcon(): string {
