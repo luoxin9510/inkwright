@@ -53,6 +53,15 @@ describe("translate", () => {
     ["Apparent loose end exists where the flow runs out. Do you need a '-> DONE' statement, choice or divert?", "故事在这里断头了:流程走到尽头却没有出口,需要加 -> DONE、-> END、选项或跳转"],
     ["ran out of content. Do you need a '-> DONE' or '-> END'?", "内容播完了,但故事没有结束:需要加 -> DONE 或 -> END"],
     ["Found tunnel onwards statement (->->), when expected end of flow (-> END or choice)", "出现了隧道返回 ->->,但当前并不在隧道里(这里应该是 -> END 或选项)"],
+    ["unexpectedly reached end of content. Do you need a '->->' to return from a tunnel?", "意外走到了内容结尾:隧道末尾是不是忘了写 ->-> 返回?"],
+    ["global variable assignments cannot refer to other variables, only literal values, constants and list items", "全局变量的初始值不能引用别的变量,只能是字面值、常量(CONST)或 LIST 项"],
+    ["initial value for a variable must be a number, constant, list or divert target", "变量的初始值必须是数字、常量、LIST 项或跳转目标,不能写算式"],
+    ["Functions may not contain choices, but saw '* null[ContentList(选)]'", "函数里不能有选项(* 或 +)"],
+    ["Return statements can only be used in knots that are declared as functions: == function 健康线 ==", "return 只能用在函数里,请把这个 knot 声明成函数:== function 健康线 =="],
+    ["RANDOM was called with minimum as 6 and maximum as 1. The maximum must be larger", "RANDOM 的最小值是 6、最大值是 1:最大值必须比最小值大"],
+    ["RANDOM should take 2 parameters: a minimum and a maximum integer", "RANDOM 需要 2 个参数:最小值和最大值(整数)"],
+    ["Expected the '=' for an assignment of a value, e.g. '= 5' (initial values are mandatory) but saw end of line", "缺少 '=' 和初始值:声明变量必须给初始值,例如 VAR 金币 = 5(实际是:行尾)"],
+    ["Expected closing parenthesis ')' for expression but saw '}'", "表达式缺少右括号 ')'(实际是:'}')"],
   ])("%s", (en, zh) => {
     expect(translate(en)).toBe(zh);
   });
