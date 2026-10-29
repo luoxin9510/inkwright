@@ -18,6 +18,11 @@ export interface ApiHost {
   choose(index: number): void;
   restart(): void;
   startAt(path: string | null): void;
+  back(): void;
+  saveGame(name?: string): Promise<{ id: string; name: string; savedAt: string } | null>;
+  loadGame(id: string): void;
+  deleteSave(id: string): Promise<void>;
+  savesForRoot(): { id: string; name: string; savedAt: string }[];
 }
 
 export interface ApiDiagnostic {
@@ -78,6 +83,11 @@ Visible play panel (the user sees what you do):
   choose(indexOrText)  make a choice in the panel
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
+  back()               undo the last choice in the panel
+  save(name?)          save the panel's progress for its main story -> { id, name, savedAt } | null
+  saves()              saves of the current main story [{ id, name, savedAt }], newest first
+  load(idOrName)       load a save into the panel
+  deleteSave(idOrName) delete a save
 
 CLI example:
   obsidian vault=ink-games eval code='app.plugins.plugins.inkwright.api.play("游戏/雨夜来客/main.ink",{choices:[1,"油灯"]}).then(JSON.stringify)'`;
@@ -164,5 +174,42 @@ export class InkwrightApi {
   startAt(path: string | null): PanelReport {
     this.host.startAt(path);
     return this.panel();
+  }
+
+  back(): PanelReport {
+    this.host.back();
+    return this.panel();
+  }
+
+  async save(name?: string): Promise<{ id: string; name: string; savedAt: string } | null> {
+    const slot = await this.host.saveGame(name);
+    return slot && { id: slot.id, name: slot.name, savedAt: slot.savedAt };
+  }
+
+  saves(): { id: string; name: string; savedAt: string }[] {
+    return this.host.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt }));
+  }
+
+  load(idOrName: string): PanelReport {
+    const slot = this.findSave(idOrName);
+    if (!slot) return this.withError(T().saveNotFound(idOrName));
+    this.host.loadGame(slot.id);
+    return this.panel();
+  }
+
+  async deleteSave(idOrName: string): Promise<{ id: string; name: string; savedAt: string }[]> {
+    const slot = this.findSave(idOrName);
+    if (slot) await this.host.deleteSave(slot.id);
+    return this.saves();
+  }
+
+  private findSave(idOrName: string) {
+    const all = this.host.savesForRoot();
+    return all.find((s) => s.id === idOrName) ?? all.find((s) => s.name === idOrName);
+  }
+
+  private withError(message: string): PanelReport {
+    const report = this.panel();
+    return { ...report, errors: [...report.errors, message] };
   }
 }

@@ -1,7 +1,7 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
 import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
-import { T } from "../i18n";
+import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import type { Choice, Paragraph } from "../play/session";
 
@@ -19,10 +19,16 @@ export interface PlayState {
   inspection: Inspection | null;
   flows: Flow[];
   startPoint: string | null;
+  canGoBack: boolean;
+  saves: { id: string; name: string; savedAt: string }[];
 }
 
 export interface PlayController {
   restart(): void;
+  back(): void;
+  saveGame(): Promise<unknown>;
+  loadGame(id: string): void;
+  deleteSave(id: string): Promise<void>;
   startAt(path: string | null): void;
   choose(index: number): void;
   toggleLock(): void;
@@ -32,6 +38,7 @@ export interface PlayController {
 export class PlayView extends ItemView {
   private state: PlayState | null = null;
   private inspectorOpen = false;
+  private savesOpen = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -77,9 +84,16 @@ export class PlayView extends ItemView {
     bar.createEl("button", { text: T().restart }).onclick = () => this.controller.restart();
     bar.createEl("button", { text: locked ? T().unlockShort : T().lock }).onclick = () =>
       this.controller.toggleLock();
+    if (s.hasStory) {
+      const back = bar.createEl("button", { text: T().back });
+      back.disabled = !s.canGoBack;
+      back.onclick = () => this.controller.back();
+      bar.createEl("button", { text: T().save }).onclick = () => void this.controller.saveGame();
+    }
 
     if (s.flows.length > 0) this.renderStartFrom(el, s);
     if (s.inspection) this.renderInspector(el, s.inspection);
+    if (s.hasStory && s.saves.length > 0) this.renderSaves(el, s);
 
     if (s.diagnostics.length > 0) {
       const box = el.createDiv({ cls: "inkwright-diagnostics" });
@@ -147,5 +161,22 @@ export class PlayView extends ItemView {
     select.value = s.startPoint ?? "";
     select.onchange = () => this.controller.startAt(select.value === "" ? null : select.value);
     if (s.startPoint !== null) el.createDiv({ cls: "inkwright-hint-small", text: T().startedMidway });
+  }
+
+  private renderSaves(el: HTMLElement, s: PlayState): void {
+    const box = el.createEl("details", { cls: "inkwright-inspector inkwright-saves" });
+    box.open = this.savesOpen;
+    box.addEventListener("toggle", () => {
+      this.savesOpen = box.open;
+    });
+    box.createEl("summary", { text: `${T().saves}(${s.saves.length})` });
+    for (const slot of s.saves) {
+      const row = box.createDiv({ cls: "inkwright-save-row" });
+      const info = row.createDiv({ cls: "inkwright-save-info" });
+      info.createDiv({ text: slot.name });
+      info.createDiv({ cls: "inkwright-save-time", text: new Date(slot.savedAt).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en") });
+      row.createEl("button", { text: T().load }).onclick = () => this.controller.loadGame(slot.id);
+      row.createEl("button", { text: T().delete }).onclick = () => void this.controller.deleteSave(slot.id);
+    }
   }
 }

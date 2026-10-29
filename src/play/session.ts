@@ -20,6 +20,15 @@ export interface Step {
   errors: string[];
 }
 
+/** Everything needed to resume a session later; plain JSON. */
+export interface SaveData {
+  /** inkjs story state (story.state.ToJson()). */
+  state: string;
+  /** Text shown so far, so the panel can be restored as it was. */
+  log: Paragraph[];
+  startPoint: string | null;
+}
+
 export interface SessionOptions {
   /** Max wall-clock time one step may run before it is treated as an infinite loop. */
   timeBudgetMs?: number;
@@ -35,6 +44,10 @@ export class PlaySession {
   private halted = false;
   /** Knot/stitch path the story starts from; null means the beginning. */
   startPoint: string | null = null;
+  /** Every paragraph shown since the start (or since the loaded save). */
+  log: Paragraph[] = [];
+  /** State before each choice, for back(). */
+  private history: { state: string; logLength: number }[] = [];
 
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
@@ -44,19 +57,64 @@ export class PlaySession {
 
   start(): Step {
     this.errors = [];
+    this.log = [];
+    this.history = [];
     return this.advance();
   }
 
   choose(index: number): Step {
     this.errors = [];
     if (this.halted) return this.snapshot([]);
+    this.history.push({ state: this.story.state.ToJson(), logLength: this.log.length });
     try {
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
+      this.history.pop();
       this.errors.push(translateRuntime(e instanceof Error ? e.message : String(e)));
       return this.snapshot([]);
     }
     return this.advance();
+  }
+
+  get canGoBack(): boolean {
+    return this.history.length > 0;
+  }
+
+  /** Undoes the last choice; null when there is nothing to undo. */
+  back(): Step | null {
+    const prev = this.history.pop();
+    if (!prev) return null;
+    this.story = this.attach(new Story(this.json));
+    this.story.state.LoadJson(prev.state);
+    this.log = this.log.slice(0, prev.logLength);
+    this.errors = [];
+    this.halted = false;
+    return this.snapshot([]);
+  }
+
+  /** A snapshot to resume from later; null while a halted loop left the story mid-step. */
+  save(): SaveData | null {
+    if (this.halted) return null;
+    return { state: this.story.state.ToJson(), log: this.log.map((p) => ({ ...p, tags: [...p.tags] })), startPoint: this.startPoint };
+  }
+
+  /** Resumes from a save. If it does not fit this story, reports an error and keeps the current state. */
+  load(save: SaveData): Step {
+    const story = this.attach(new Story(this.json));
+    try {
+      story.state.LoadJson(save.state);
+    } catch (e) {
+      this.story = this.attach(this.story);
+      this.errors = [T().loadFailed(e instanceof Error ? e.message : String(e))];
+      return this.snapshot([]);
+    }
+    this.story = story;
+    this.startPoint = save.startPoint;
+    this.log = save.log.map((p) => ({ ...p, tags: [...p.tags] }));
+    this.history = [];
+    this.errors = [];
+    this.halted = false;
+    return this.snapshot([]);
   }
 
   /** Current variables and visit counts; empty while a halted loop left the story mid-step. */
@@ -77,6 +135,8 @@ export class PlaySession {
   startAt(path: string | null): Step {
     this.startPoint = path;
     this.story = this.attach(new Story(this.json));
+    this.log = [];
+    this.history = [];
     this.errors = [];
     this.halted = false;
     if (path !== null) {
@@ -115,7 +175,10 @@ export class PlaySession {
       if (this.story.asyncContinueComplete) {
         const text = (this.story.currentText ?? "").replace(/\n+$/, "");
         const tags = this.story.currentTags ?? [];
-        if (text !== "" || tags.length > 0) paragraphs.push({ text, tags: [...tags] });
+        if (text !== "" || tags.length > 0) {
+          paragraphs.push({ text, tags: [...tags] });
+          this.log.push({ text, tags: [...tags] });
+        }
       }
       if (Date.now() > deadline) {
         this.halted = true;

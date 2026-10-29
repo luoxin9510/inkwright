@@ -49,6 +49,16 @@ const zh = {
   graphEnd: "结束",
   noGraph: "打开一个 .ink 文件(或锁定主剧本),编译成功后这里显示 knot 图谱。",
   graphStale: "当前有编译错误,下面是上次编译成功时的图谱。",
+  loadFailed: (msg: string) => `读档失败:这个存档可能和当前剧本对不上(${msg})`,
+  save: "存档",
+  back: "回退一步",
+  saves: "存档",
+  load: "读取",
+  delete: "删除",
+  saveName: (n: number) => `存档 ${n}`,
+  saved: "已存档:",
+  nothingToSave: "现在没有可以存档的进度。",
+  saveNotFound: (id: string) => `找不到存档 "${id}"`,
 };
 
 export type Strings = typeof zh;
@@ -101,6 +111,16 @@ const en: Strings = {
   graphEnd: "End",
   noGraph: "Open a .ink file (or lock a main story); the knot graph appears after a successful compile.",
   graphStale: "There are compile errors; this is the graph from the last successful compile.",
+  loadFailed: (msg) => `Could not load: the save may not match the current story (${msg})`,
+  save: "Save",
+  back: "Undo choice",
+  saves: "Saves",
+  load: "Load",
+  delete: "Delete",
+  saveName: (n) => `Save ${n}`,
+  saved: "Saved: ",
+  nothingToSave: "There is no progress to save right now.",
+  saveNotFound: (id) => `No save matches "${id}"`,
 };
 
 const tables: Record<Language, Strings> = { zh, en };

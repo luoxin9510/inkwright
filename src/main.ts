@@ -4,27 +4,34 @@ import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
 import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphView";
 import type { Diagnostic } from "./compile/diagnostics";
-import { PlaySession, type Paragraph, type Step } from "./play/session";
+import { PlaySession, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type PlayController, type PlayState } from "./views/PlayView";
 
+export interface SaveSlot extends SaveData {
+  id: string;
+  name: string;
+  savedAt: string;
+}
+
 interface Settings {
   locked: string | null;
   language: LanguageSetting;
+  /** Saves per main story path. */
+  saves: Record<string, SaveSlot[]>;
 }
 
 export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
-  private config: Settings = { locked: null, language: "auto" };
+  private config: Settings = { locked: null, language: "auto", saves: {} };
   private latest = new LatestOnly();
   private timer: number | null = null;
   private files: string[] = [];
   private diagnostics: Diagnostic[] = [];
   private root: string | null = null;
   private session: PlaySession | null = null;
-  private log: Paragraph[] = [];
   private last: Step | null = null;
   private flows: Flow[] = [];
   private startPoint: string | null = null;
@@ -35,7 +42,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   async onload(): Promise<void> {
     // Load settings first: the language (and command names below) depend on them.
-    this.config = { locked: null, language: "auto", ...(await this.loadData()) };
+    this.config = { locked: null, language: "auto", saves: {}, ...(await this.loadData()) };
     // Obsidian sets moment's locale to its interface language.
     setLanguage(resolveLanguage(this.config.language, moment.locale()));
     this.addSettingTab(new InkwrightSettingTab(this.app, this));
@@ -89,18 +96,62 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   startAt(path: string | null): void {
     this.startPoint = path;
     if (!this.session) return;
-    this.log = [];
     this.apply(this.session.startAt(path));
   }
 
   restart(): void {
     if (!this.session) return;
-    this.log = [];
     this.apply(this.session.restart());
   }
 
   choose(index: number): void {
     if (this.session) this.apply(this.session.choose(index));
+  }
+
+  back(): void {
+    const step = this.session?.back();
+    if (step) this.apply(step);
+  }
+
+  /** Saves the current play state of the current main story; null when there is nothing to save. */
+  async saveGame(name?: string): Promise<SaveSlot | null> {
+    const data = this.session?.save();
+    if (!data || this.root === null) {
+      new Notice(T().nothingToSave);
+      return null;
+    }
+    const list = (this.config.saves[this.root] ??= []);
+    const slot: SaveSlot = {
+      ...data,
+      id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name: name?.trim() || T().saveName(list.length + 1),
+      savedAt: new Date().toISOString(),
+    };
+    list.unshift(slot);
+    await this.saveData(this.config);
+    new Notice(T().saved + slot.name);
+    this.pushState();
+    return slot;
+  }
+
+  loadGame(id: string): void {
+    const slot = this.savesForRoot().find((s) => s.id === id);
+    if (!slot || !this.session) return;
+    const step = this.session.load(slot);
+    this.startPoint = this.session.startPoint;
+    this.apply(step);
+  }
+
+  async deleteSave(id: string): Promise<void> {
+    if (this.root === null) return;
+    this.config.saves[this.root] = this.savesForRoot().filter((s) => s.id !== id);
+    if (this.config.saves[this.root].length === 0) delete this.config.saves[this.root];
+    await this.saveData(this.config);
+    this.pushState();
+  }
+
+  savesForRoot(): SaveSlot[] {
+    return this.root === null ? [] : this.config.saves[this.root] ?? [];
   }
 
   toggleLock(): void {
@@ -224,7 +275,6 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       this.diagnostics = [];
       this.files = [];
       this.flows = [];
-      this.log = [];
       this.last = null;
       this.pushState();
       return;
@@ -237,7 +287,6 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     // On a failed compile keep showing the last good graph, marked as stale.
     if (result.graph) this.graph = result.graph;
     this.graphStale = result.graph === null && this.graph !== null;
-    this.log = [];
     if (result.story) {
       // Keep the chosen start point across recompiles while it still exists.
       if (this.startPoint !== null && !this.flows.some((f) => f.path === this.startPoint)) this.startPoint = null;
@@ -251,7 +300,6 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   }
 
   private apply(step: Step): void {
-    this.log.push(...step.paragraphs);
     this.last = step;
     this.pushState();
   }
@@ -264,13 +312,15 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       locked: this.config.locked,
       diagnostics: this.diagnostics,
       hasStory: this.session !== null,
-      log: this.log,
+      log: this.session?.log ?? [],
       choices: step?.choices ?? [],
       ended: step?.ended ?? false,
       runtimeErrors: step?.errors ?? [],
       inspection: this.session?.inspect() ?? null,
       flows: this.flows,
       startPoint: this.startPoint,
+      canGoBack: this.session?.canGoBack ?? false,
+      saves: this.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
     };
   }
 
