@@ -6,6 +6,7 @@ import type { ReadFile } from "./compile/include";
 import { T } from "./i18n";
 import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
+import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
 import type { Choice } from "./play/session";
 import type { PlayState } from "./views/PlayView";
 
@@ -81,6 +82,8 @@ Headless (does not touch the visible panel):
      from:    knot or "knot.stitch" to start at (default: the beginning)
      choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
+  explore(path, { language?, maxSteps? }) -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated }
+     plays every branch breadth-first (default limit 5000 choices); use it to check that all endings work
 
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
@@ -116,6 +119,13 @@ export class InkwrightApi {
   async exportWeb(path?: string): Promise<{ ok: boolean; path: string | null; diagnostics: ApiDiagnostic[] }> {
     const r = await this.host.exportWeb(path);
     return { ok: r.path !== null, path: r.path, diagnostics: plainDiagnostics(r.diagnostics) };
+  }
+
+  async explore(path: string, options: ExploreOptions = {}): Promise<ExploreResult & { ok: boolean; diagnostics: ApiDiagnostic[] }> {
+    const r = await compileStory(path, this.host.readFile);
+    const diagnostics = plainDiagnostics(r.diagnostics);
+    if (!r.story) return { ok: false, diagnostics, endings: [], errors: [], truncated: false };
+    return { ok: true, diagnostics, ...exploreStory(r.story, options) };
   }
 
   async compile(path: string): Promise<CompileReport> {
