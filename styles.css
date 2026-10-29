@@ -38,15 +38,17 @@
 .inkwright-hint-small { font-size: var(--font-smaller); color: var(--text-faint); margin-bottom: 8px; }
 
 /* inkwright: knot graph */
-.inkwright-graph { display: flex; flex-direction: column; padding: 0 !important; }
+.inkwright-graph { display: flex; flex-direction: column; }
+/* Beat Obsidian's own .view-content padding without !important. */
+.workspace-leaf-content .view-content.inkwright-graph { padding: 0; }
 .inkwright-graph-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--background-modifier-border); }
 .inkwright-graph-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--font-smaller); color: var(--text-muted); }
 .inkwright-graph-legend span::before { content: ""; display: inline-block; width: 18px; height: 10px; margin-right: 4px; vertical-align: middle; }
 .lg-visited::before { background: var(--interactive-accent); border-radius: 3px; }
 .lg-unreachable::before { border: 1.5px dashed var(--text-error); border-radius: 3px; }
-.lg-divert::before { border-top: 2px solid var(--text-muted); height: 0 !important; }
-.lg-tunnel::before { border-top: 2px dashed var(--color-orange); height: 0 !important; }
-.lg-thread::before { border-top: 2px dotted var(--color-cyan); height: 0 !important; }
+.inkwright-graph-legend .lg-divert::before { border-top: 2px solid var(--text-muted); height: 0; }
+.inkwright-graph-legend .lg-tunnel::before { border-top: 2px dashed var(--color-orange); height: 0; }
+.inkwright-graph-legend .lg-thread::before { border-top: 2px dotted var(--color-cyan); height: 0; }
 .inkwright-graph > .inkwright-hint-small { padding: 4px 12px 0; }
 .inkwright-graph-host { position: relative; flex: 1; min-height: 240px; overflow: hidden; touch-action: none; cursor: grab; }
 .inkwright-graph-host svg { width: 100%; height: 100%; display: block; }

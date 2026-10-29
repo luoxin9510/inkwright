@@ -1,6 +1,6 @@
 {
   "name": "inkwright",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Write, playtest and debug ink interactive fiction: live play panel, saves, knot graph, web export and bilingual stories. English and Chinese interface.",
   "license": "MIT",
   "private": true,
@@ -19,12 +19,11 @@
     "@eslint/js": "^9.39.5",
     "@eslint/json": "^0.14.0",
     "@types/node": "^22.0.0",
-    "builtin-modules": "^4.0.0",
     "esbuild": "^0.25.0",
     "eslint": "^9.39.5",
     "eslint-plugin-obsidianmd": "^0.4.2",
     "happy-dom": "^21.0.4",
-    "obsidian": "latest",
+    "obsidian": "1.14.4",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.72.1",
     "vitest": "^3.0.0"
