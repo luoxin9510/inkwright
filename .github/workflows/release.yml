@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write      # for build provenance attestations
+  attestations: write
 
 jobs:
   release:
@@ -22,6 +24,13 @@ jobs:
       - run: npm run build
       - name: Check the tag matches manifest.json
         run: test "$(node -p 'require("./manifest.json").version')" = "${GITHUB_REF_NAME}"
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
