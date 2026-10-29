@@ -4,6 +4,14 @@
 
 在 Obsidian 里编写、试玩和调试 [ink](https://github.com/inkle/ink) 互动小说的插件,中英双语界面。桌面端和手机端都能用。[English](README.md)
 
+![编辑器里的中英双语 ink 源码,右侧试玩面板正在玩英文版](docs/images/editor-and-play.png)
+
+## 安装
+
+在 Obsidian 里打开 设置 → 第三方插件 → 浏览,搜索 **Inkwright**,安装并启用。也可以打开[社区目录里的页面](https://community.obsidian.md/plugins/inkwright)。
+
+需要 Obsidian 1.13 或更新版本;旧版本会自动装上一个兼容的旧版插件。
+
 ## 功能
 
 - 在 vault 里直接打开、编辑 `.ink` 文件,带语法高亮。
@@ -41,13 +49,9 @@ npm run build     # 类型检查 + 打包出 main.js
 OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/inkwright npm run dev   # 监听构建,直接输出到 vault
 ```
 
-## 安装到 vault
+## 手动安装到 vault
 
 把 `main.js`、`manifest.json`、`styles.css` 复制到 `<vault>/.obsidian/plugins/inkwright/`,在 Obsidian 设置的"第三方插件"中启用。手机端通过你的 vault 同步方式把这个文件夹同步过去即可。
-
-## 从社区插件市场安装
-
-上架后:设置 → 第三方插件 → 浏览,搜索"Inkwright"。
 
 ## 通过 BRAT 安装(桌面和手机)
 

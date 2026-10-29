@@ -1,8 +1,21 @@
 # Inkwright
 
+[![CI](https://github.com/luoxin9510/inkwright/actions/workflows/ci.yml/badge.svg)](https://github.com/luoxin9510/inkwright/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/luoxin9510/inkwright)](https://github.com/luoxin9510/inkwright/releases/latest)
+
 **Write, playtest and debug [ink](https://github.com/inkle/ink) interactive fiction in Obsidian.** Works on desktop and mobile. Interface in English and Chinese.
 
+Think of it as Inky inside your vault: your story files sit next to your notes, character sheets and outlines, the play panel recompiles as you type, and the knot graph shows the shape of your branches. When the story is ready, export it as a single web page.
+
 [中文说明](README.zh.md)
+
+![Bilingual ink source in the editor, with the English version playing in the play panel](docs/images/editor-and-play.png)
+
+## Install
+
+In Obsidian, open **Settings → Community plugins → Browse**, search for **Inkwright**, then install and enable it. Or open the [listing in the community directory](https://community.obsidian.md/plugins/inkwright).
+
+Requires Obsidian 1.13 or later; older versions get the previous release automatically.
 
 ## Features
 
@@ -16,6 +29,8 @@
 - **Export as web page**: one self-contained `.html` file next to the story, playable in any browser, with undo and progress kept in the browser. Upload it anywhere (itch.io, GitHub Pages, …).
 - **Bilingual stories**: declare `VAR lang = "en"` (or `VAR 语言`) and write text as `{tr("Hello", "你好")}`-style calls; the play panel and exported pages get a language switch that replays the run in the other language without losing progress. Text left outside such a call is reported as a warning.
 - **Chinese interface and error messages** (the language follows Obsidian, or can be set in the settings).
+
+![Knot graph of a short story next to the play panel](docs/images/knot-graph.png)
 
 ## Usage
 
