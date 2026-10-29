@@ -1,0 +1,10 @@
+/* ink-cn: editor highlighting */
+.ink-tok-knot { color: var(--color-purple); font-weight: 600; }
+.ink-tok-stitch { color: var(--color-purple); }
+.ink-tok-choice { color: var(--color-orange); font-weight: 600; }
+.ink-tok-gather { color: var(--color-orange); }
+.ink-tok-divert { color: var(--color-blue); }
+.ink-tok-logic { color: var(--color-green); }
+.ink-tok-keyword { color: var(--color-red); font-weight: 600; }
+.ink-tok-tag { color: var(--color-cyan); }
+.ink-tok-comment { color: var(--text-faint); font-style: italic; }
