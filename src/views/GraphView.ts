@@ -15,7 +15,7 @@ export interface GraphState {
 }
 
 export interface GraphController {
-  openSource(file: string, line: number | null): void;
+  openSource(file: string, line: number | null): Promise<void>;
   playFrom(path: string): void;
 }
 
@@ -143,7 +143,7 @@ export class GraphView extends ItemView {
       g.addEventListener("click", (ev) => {
         if (this.dragged) return;
         ev.stopPropagation();
-        this.showPopover(n, ev as MouseEvent);
+        this.showPopover(n, ev);
       });
     }
   }
@@ -160,7 +160,7 @@ export class GraphView extends ItemView {
     if (n.file) {
       pop.createEl("button", { text: T().openSource }).onclick = () => {
         pop.remove();
-        this.controller.openSource(n.file!, n.line);
+        void this.controller.openSource(n.file!, n.line);
       };
     }
     pop.createEl("button", { text: T().playFromHere }).onclick = () => {
@@ -232,7 +232,7 @@ export class GraphView extends ItemView {
   }
 
   private fit(): void {
-    const host = this.contentEl.querySelector(".inkwright-graph-host") as HTMLElement | null;
+    const host = this.contentEl.querySelector<HTMLElement>(".inkwright-graph-host");
     if (!host || !this.layout) return;
     const { width, height } = host.getBoundingClientRect();
     if (width === 0 || height === 0) return;
