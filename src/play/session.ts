@@ -1,4 +1,4 @@
-import type { Story } from "inkjs/full";
+import { Story } from "inkjs/full";
 
 export interface Paragraph {
   text: string;
@@ -17,13 +17,24 @@ export interface Step {
   errors: string[];
 }
 
-export class PlaySession {
-  private errors: string[] = [];
+export interface SessionOptions {
+  /** Max wall-clock time one step may run before it is treated as an infinite loop. */
+  timeBudgetMs?: number;
+}
 
-  constructor(private readonly story: Story) {
-    story.onError = (message: string) => {
-      this.errors.push(message);
-    };
+const SLICE_MS = 20;
+
+export class PlaySession {
+  private story: Story;
+  private readonly json: string;
+  private readonly budget: number;
+  private errors: string[] = [];
+  private halted = false;
+
+  constructor(story: Story, options: SessionOptions = {}) {
+    this.json = story.ToJson() as string;
+    this.budget = options.timeBudgetMs ?? 2000;
+    this.story = this.attach(story);
   }
 
   start(): Step {
@@ -31,6 +42,7 @@ export class PlaySession {
   }
 
   choose(index: number): Step {
+    if (this.halted) return this.snapshot([]);
     try {
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
@@ -40,28 +52,49 @@ export class PlaySession {
     return this.advance();
   }
 
+  /** Starts over from a fresh Story, which also works after a halted loop. */
   restart(): Step {
-    this.story.ResetState();
+    this.story = this.attach(new Story(this.json));
     this.errors = [];
+    this.halted = false;
     return this.advance();
+  }
+
+  private attach(story: Story): Story {
+    story.onError = (message: string) => {
+      this.errors.push(message);
+    };
+    return story;
   }
 
   private advance(): Step {
     const paragraphs: Paragraph[] = [];
+    const deadline = Date.now() + this.budget;
     while (this.story.canContinue) {
-      const text = (this.story.Continue() ?? "").replace(/\n+$/, "");
-      const tags = this.story.currentTags ?? [];
-      if (text !== "" || tags.length > 0) paragraphs.push({ text, tags: [...tags] });
+      // Time-sliced so a looping story can be stopped instead of freezing Obsidian.
+      this.story.ContinueAsync(SLICE_MS);
+      if (this.story.asyncContinueComplete) {
+        const text = (this.story.currentText ?? "").replace(/\n+$/, "");
+        const tags = this.story.currentTags ?? [];
+        if (text !== "" || tags.length > 0) paragraphs.push({ text, tags: [...tags] });
+      }
+      if (Date.now() > deadline) {
+        this.halted = true;
+        this.errors.push(`剧本可能存在无限循环,已在 ${this.budget / 1000} 秒后停止运行。`);
+        break;
+      }
     }
     return this.snapshot(paragraphs);
   }
 
   private snapshot(paragraphs: Paragraph[]): Step {
-    const choices = this.story.currentChoices.map((c) => ({ index: c.index, text: c.text }));
+    const choices = this.halted
+      ? []
+      : this.story.currentChoices.map((c) => ({ index: c.index, text: c.text }));
     return {
       paragraphs,
       choices,
-      ended: choices.length === 0 && !this.story.canContinue,
+      ended: this.halted || (choices.length === 0 && !this.story.canContinue),
       errors: [...this.errors],
     };
   }

@@ -45,3 +45,27 @@ describe("PlaySession", () => {
     expect(step.errors.length).toBeGreaterThan(0);
   });
 });
+
+describe("PlaySession infinite-loop guard", () => {
+  test("a story that loops forever printing text stops with an error instead of hanging", async () => {
+    const s = new PlaySession(await story("-> a\n=== a ===\nhi\n-> a"), { timeBudgetMs: 200 });
+    const step = s.start();
+    expect(step.ended).toBe(true);
+    expect(step.errors.some((e) => e.includes("无限循环"))).toBe(true);
+  }, 5000);
+
+  test("a story that loops forever without output stops with an error instead of hanging", async () => {
+    const s = new PlaySession(await story("-> a\n=== a ===\n-> b\n=== b ===\n-> a"), { timeBudgetMs: 200 });
+    const step = s.start();
+    expect(step.ended).toBe(true);
+    expect(step.errors.some((e) => e.includes("无限循环"))).toBe(true);
+  }, 5000);
+
+  test("restart after a halted loop does not throw and halts again", async () => {
+    const s = new PlaySession(await story("-> a\n=== a ===\nhi\n-> a"), { timeBudgetMs: 100 });
+    s.start();
+    const step = s.restart();
+    expect(step.ended).toBe(true);
+    expect(step.errors.some((e) => e.includes("无限循环"))).toBe(true);
+  }, 5000);
+});
