@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseRaw, translate } from "../src/compile/diagnostics";
+import { parseRaw, translate, translateRuntime } from "../src/compile/diagnostics";
 
 describe("parseRaw", () => {
   test("error with file and line", () => {
@@ -50,10 +50,26 @@ describe("translate", () => {
     ["Error: Missing function binding for external: 'f' , and no fallback ink function found.", "外部函数 'f' 没有绑定:请写一个同名的 ink 函数作为替代"],
     ["Error: Missing function binding for externals: 'f', 'g' , and no fallback ink function found.", "外部函数 'f', 'g' 没有绑定:请写一个同名的 ink 函数作为替代"],
     ["Expected weave point but saw 'x'", "期望 weave point,但实际是:'x'"],
+    ["Apparent loose end exists where the flow runs out. Do you need a '-> DONE' statement, choice or divert?", "故事在这里断头了:流程走到尽头却没有出口,需要加 -> DONE、-> END、选项或跳转"],
+    ["ran out of content. Do you need a '-> DONE' or '-> END'?", "内容播完了,但故事没有结束:需要加 -> DONE 或 -> END"],
+    ["Found tunnel onwards statement (->->), when expected end of flow (-> END or choice)", "出现了隧道返回 ->->,但当前并不在隧道里(这里应该是 -> END 或选项)"],
   ])("%s", (en, zh) => {
     expect(translate(en)).toBe(zh);
   });
   test("unknown messages keep the original and get a hint", () => {
     expect(translate("Something unknown")).toBe("Something unknown(暂无中文翻译)");
+  });
+});
+
+describe("translateRuntime", () => {
+  test("strips the RUNTIME ERROR prefix and localizes the location", () => {
+    expect(translateRuntime("RUNTIME ERROR: 'main.ink' line 3: ran out of content. Do you need a '-> DONE' or '-> END'?"))
+      .toBe("运行错误(main.ink 第 3 行):内容播完了,但故事没有结束:需要加 -> DONE 或 -> END");
+  });
+  test("works without a file name", () => {
+    expect(translateRuntime("RUNTIME WARNING: line 2: Something unknown")).toBe("运行警告(第 2 行):Something unknown(暂无中文翻译)");
+  });
+  test("plain messages are translated as-is", () => {
+    expect(translateRuntime("Unresolved variable: x")).toBe(translate("Unresolved variable: x"));
   });
 });

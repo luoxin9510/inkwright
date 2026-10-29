@@ -31,6 +31,9 @@ export const zhTable: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/^Expected variable name but saw (.+)$/, (m) => `缺少变量名(实际是:${saw(m[1])})`],
   [/^Choice is completely empty\. Interpretting as a default fallback choice\./, () => "选项内容为空,会被当作默认兜底选项;如果是有意的,写成 * -> 可消除此警告"],
   [/^(?:Error: )?Missing function binding for externals?: '(.+)'\s+(?:,|\()/, (m) => `外部函数 '${m[1]}' 没有绑定:请写一个同名的 ink 函数作为替代`],
+  [/^Apparent loose end exists where the flow runs out\./, () => "故事在这里断头了:流程走到尽头却没有出口,需要加 -> DONE、-> END、选项或跳转"],
+  [/^ran out of content\./, () => "内容播完了,但故事没有结束:需要加 -> DONE 或 -> END"],
+  [/^Found tunnel onwards statement \(->->\), when expected end of flow/, () => "出现了隧道返回 ->->,但当前并不在隧道里(这里应该是 -> END 或选项)"],
   // Generic parser expectation; keep last so the specific entries above win.
   [/^Expected (.+?) but saw (.+)$/, (m) => `期望 ${m[1]},但实际是:${saw(m[2])}`],
 ];

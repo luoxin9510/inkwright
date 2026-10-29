@@ -1,5 +1,5 @@
 import { Story } from "inkjs/full";
-import { translate } from "../compile/diagnostics";
+import { translateRuntime } from "../compile/diagnostics";
 import { T } from "../i18n";
 
 export interface Paragraph {
@@ -50,7 +50,7 @@ export class PlaySession {
     try {
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
-      this.errors.push(translate(e instanceof Error ? e.message : String(e)));
+      this.errors.push(translateRuntime(e instanceof Error ? e.message : String(e)));
       return this.snapshot([]);
     }
     return this.advance();
@@ -68,7 +68,7 @@ export class PlaySession {
     // Like Inky: an EXTERNAL without a binding falls back to an ink function of the same name.
     story.allowExternalFunctionFallbacks = true;
     story.onError = (message: string) => {
-      this.errors.push(translate(message));
+      this.errors.push(translateRuntime(message));
     };
     return story;
   }
@@ -82,7 +82,7 @@ export class PlaySession {
         this.story.ContinueAsync(SLICE_MS);
       } catch (e) {
         this.halted = true;
-        this.errors.push(translate(e instanceof Error ? e.message : String(e)));
+        this.errors.push(translateRuntime(e instanceof Error ? e.message : String(e)));
         break;
       }
       if (this.story.asyncContinueComplete) {

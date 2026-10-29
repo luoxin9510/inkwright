@@ -75,3 +75,12 @@ describe("resolveLanguage", () => {
     expect(resolveLanguage("en", "zh-cn")).toBe("en");
   });
 });
+
+describe("runtime errors in English mode", () => {
+  test("are left untouched", async () => {
+    setLanguage("en");
+    const { translateRuntime } = await import("../src/compile/diagnostics");
+    const raw = "RUNTIME ERROR: 'main.ink' line 3: ran out of content. Do you need a '-> DONE' or '-> END'?";
+    expect(translateRuntime(raw)).toBe(raw);
+  });
+});
