@@ -1,0 +1,9 @@
+{
+  "id": "ink-cn",
+  "name": "Ink 中文",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "在 Obsidian 里编写和试玩 ink 互动小说,带中文界面与中文报错。",
+  "author": "luoxin9510",
+  "isDesktopOnly": false
+}
