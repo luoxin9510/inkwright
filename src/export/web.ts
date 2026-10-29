@@ -1,4 +1,5 @@
-import { T, getLanguage } from "../i18n";
+import { getLanguage, stringsFor, type Language } from "../i18n";
+import { STORY_LANGUAGES } from "../play/session";
 
 export interface WebPageOptions {
   title: string;
@@ -8,6 +9,8 @@ export interface WebPageOptions {
   runtime: string;
   /** Key for the player's progress in localStorage; use the main story path. */
   id: string;
+  /** The story's language variable when it is bilingual (PlaySession.languageVar). */
+  languageVar?: string | null;
 }
 
 /** Title from a `# title: ...` global tag, else the fallback. */
@@ -46,11 +49,20 @@ function scriptSafe(s: string): string {
 
 /** A self-contained HTML page that plays the story; progress is kept in the browser's localStorage. */
 export function buildWebPage(o: WebPageOptions): string {
-  const t = T();
-  const strings = { restart: t.restart, back: t.back, ended: t.ended };
-  // "<" only occurs inside JSON strings, where < is equivalent.
+  const strings = (lang: Language) => {
+    const t = stringsFor(lang);
+    return { restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage };
+  };
+  // "<" only occurs inside JSON strings, where \u003c is equivalent.
   const story = o.storyJson.replace(/</g, "\\u003c");
-  const config = JSON.stringify({ id: o.id, version: hash(o.storyJson), strings }).replace(/</g, "\\u003c");
+  const config = JSON.stringify({
+    id: o.id,
+    version: hash(o.storyJson),
+    ui: getLanguage(),
+    strings: { zh: strings("zh"), en: strings("en") },
+    languageVar: o.languageVar ?? null,
+    languages: STORY_LANGUAGES,
+  }).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="${getLanguage() === "zh" ? "zh-CN" : "en"}">
 <head>
@@ -65,7 +77,7 @@ export function buildWebPage(o: WebPageOptions): string {
 <div id="story"></div>
 <div id="choices"></div>
 <p id="end" hidden></p>
-<nav><button id="back" type="button"></button><button id="restart" type="button"></button></nav>
+<nav><button id="back" type="button"></button><button id="restart" type="button"></button><select id="language" hidden></select></nav>
 </main>
 <script type="application/json" id="ink-story">${story}</script>
 <script>${scriptSafe(o.runtime)}</script>
@@ -95,25 +107,54 @@ h1 { font-size: 1.5em; margin: 0 0 1.2em; }
 nav { margin-top: 3em; display: flex; gap: 12px; justify-content: center; }
 nav button { font: inherit; font-size: 0.8em; color: var(--muted); background: none; border: none;
   cursor: pointer; padding: 6px 10px; }
+nav select { font: inherit; font-size: 0.8em; color: var(--muted); background: none; border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; }
 nav button:disabled { opacity: 0.4; cursor: default; }
 `;
 
 // Plain ES2017 that runs in the exported page; it must not depend on anything from this module.
 const PLAYER = `(function () {
-  var cfg = INKWRIGHT, s = cfg.strings;
+  var cfg = INKWRIGHT, langVar = cfg.languageVar;
   var json = document.getElementById("ink-story").textContent;
   var story = new inkjs.Story(json);
   var storyEl = document.getElementById("story"), choicesEl = document.getElementById("choices");
   var endEl = document.getElementById("end"), backEl = document.getElementById("back");
-  var KEY = "inkwright:" + cfg.id;
+  var restartEl = document.getElementById("restart"), langEl = document.getElementById("language");
+  var KEY = "inkwright:" + cfg.id, LANG_KEY = "inkwright-language:" + cfg.id;
   var log = [];      // [{ text, kind }]; kind: "text" | "chosen" | "error"
   var history = [];  // [{ state, n }]: state before each choice, log length then
-  backEl.textContent = s.back;
-  endEl.textContent = s.ended;
-  document.getElementById("restart").textContent = s.restart;
+  var start = null;  // state at the beginning, to replay picks in another language
+  var picks = [];    // choice indexes since start
+  var replaying = false;
   story.onError = function (msg) { log.push({ text: msg, kind: "error" }); };
 
+  function storage(get, value) {
+    try {
+      if (get) return localStorage.getItem(value);
+      localStorage.setItem(value[0], value[1]);
+    } catch (e) { /* storage full or blocked: play on without saving */ }
+    return null;
+  }
+
+  function language() { return langVar ? String(story.variablesState[langVar]) : null; }
+
+  function applyLanguage() {
+    var pref = langVar && storage(true, LANG_KEY);
+    if (pref) story.variablesState[langVar] = pref;
+  }
+
+  function labels() {
+    var lang = language() || cfg.ui, s = cfg.strings[lang] || cfg.strings[cfg.ui];
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
+    backEl.textContent = s.back;
+    restartEl.textContent = s.restart;
+    endEl.textContent = s.ended;
+    langEl.title = s.language;
+    langEl.setAttribute("aria-label", s.language);
+  }
+
   function render() {
+    labels();
     storyEl.textContent = "";
     log.forEach(function (e) {
       var p = document.createElement("p");
@@ -131,6 +172,7 @@ const PLAYER = `(function () {
     });
     endEl.hidden = story.currentChoices.length > 0;
     backEl.disabled = history.length === 0;
+    if (langVar) langEl.value = language();
   }
 
   function advance() {
@@ -138,6 +180,7 @@ const PLAYER = `(function () {
       var text = story.Continue().replace(/\\n+$/, "");
       if (text !== "") log.push({ text: text, kind: "text" });
     }
+    if (replaying) return;
     persist();
     render();
   }
@@ -145,29 +188,64 @@ const PLAYER = `(function () {
   function choose(index, text) {
     history.push({ state: story.state.ToJson(), n: log.length });
     story.ChooseChoiceIndex(index);
+    picks.push(index);
     log.push({ text: text, kind: "chosen" });
     advance();
   }
 
+  function begin() {
+    story.ResetState();
+    applyLanguage();
+    start = story.state.ToJson();
+    log = [];
+    history = [];
+    picks = [];
+    advance();
+  }
+
+  // Replays the run from the start, so earlier text and the current choices use the new language.
+  function replay() {
+    if (!start) {  // progress saved before start was kept: only new text changes
+      applyLanguage();
+      persist();
+      render();
+      return;
+    }
+    var old = picks;
+    story.state.LoadJson(start);
+    applyLanguage();
+    start = story.state.ToJson();
+    log = [];
+    history = [];
+    picks = [];
+    replaying = true;
+    advance();
+    old.forEach(function (i) {
+      var c = story.currentChoices.filter(function (c) { return c.index === i; })[0];
+      if (c) choose(i, c.text);
+    });
+    replaying = false;
+    persist();
+    render();
+  }
+
   function persist() {
-    try {
-      localStorage.setItem(KEY, JSON.stringify({ version: cfg.version, state: story.state.ToJson(), log: log, history: history.slice(-50) }));
-    } catch (e) { /* storage full or blocked: play on without saving */ }
+    storage(false, [KEY, JSON.stringify({ version: cfg.version, state: story.state.ToJson(), log: log,
+      history: history.slice(-50), start: start, picks: picks })]);
   }
 
   function resume() {
     try {
-      var saved = JSON.parse(localStorage.getItem(KEY) || "null");
+      var saved = JSON.parse(storage(true, KEY) || "null");
       // Progress from an earlier export of the story may not fit this one.
       if (!saved || saved.version !== cfg.version) return false;
       story.state.LoadJson(saved.state);
       log = saved.log;
       history = saved.history;
+      start = saved.start;
+      picks = saved.picks;
       return true;
     } catch (e) {
-      story.ResetState();
-      log = [];
-      history = [];
       return false;
     }
   }
@@ -177,16 +255,27 @@ const PLAYER = `(function () {
     if (!h) return;
     story.state.LoadJson(h.state);
     log.length = h.n;
+    picks.pop();
     persist();
     render();
   };
-  document.getElementById("restart").onclick = function () {
-    story.ResetState();
-    log = [];
-    history = [];
-    advance();
+  restartEl.onclick = function () {
+    begin();
     window.scrollTo(0, 0);
   };
+  if (langVar) {
+    cfg.languages.forEach(function (l) {
+      var o = document.createElement("option");
+      o.value = l.code;
+      o.textContent = l.name;
+      langEl.appendChild(o);
+    });
+    langEl.hidden = false;
+    langEl.onchange = function () {
+      storage(false, [LANG_KEY, langEl.value]);
+      replay();
+    };
+  }
 
-  if (resume()) render(); else advance();
+  if (resume()) render(); else begin();
 })();`;

@@ -19,6 +19,7 @@ export interface ApiHost {
   restart(): void;
   startAt(path: string | null): void;
   back(): void;
+  setStoryLanguage(lang: string): void;
   saveGame(name?: string): Promise<{ id: string; name: string; savedAt: string } | null>;
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
@@ -64,6 +65,8 @@ export interface PanelReport extends Inspection {
   errors: string[];
   diagnostics: ApiDiagnostic[];
   flows: Flow[];
+  /** Language of a bilingual story; null when the story is not bilingual. */
+  language: string | null;
 }
 
 const HELP = `Inkwright agent API — app.plugins.plugins.inkwright.api
@@ -73,18 +76,20 @@ Headless (does not touch the visible panel):
   compile(path)                    -> { ok, diagnostics[{severity,file,line,message}], flows[{path,kind,file,line}], files }
   graph(path)                      -> { ok, diagnostics, nodes[{id,kind,file,line,reachable}], edges[{from,to,kind,count}], unreachable[] }
      node ids: knot / "knot.stitch", plus "@start" and "@end"; edge kind: divert | tunnel | thread | fall
-  play(path, { from?, choices? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text}],
+  play(path, { from?, choices?, language? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text}],
                                         choices, ended, errors, variables[{name,value}], visits[{path,count}], turns }
      from:    knot or "knot.stitch" to start at (default: the beginning)
      choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem
+     language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
 
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
-  panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, variables, visits, turns }
+  panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, language, variables, visits, turns }
   choose(indexOrText)  make a choice in the panel
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
   back()               undo the last choice in the panel
+  language("zh"|"en")  switch a bilingual story's language; replays the run so far in it
   save(name?)          save the panel's progress for its main story -> { id, name, savedAt } | null
   saves()              saves of the current main story [{ id, name, savedAt }], newest first
   load(idOrName)       load a save into the panel
@@ -162,6 +167,7 @@ export class InkwrightApi {
       errors: s.runtimeErrors,
       diagnostics: plainDiagnostics(s.diagnostics),
       flows: s.flows,
+      language: s.storyLanguage,
       ...insp,
     };
   }
@@ -188,6 +194,11 @@ export class InkwrightApi {
 
   back(): PanelReport {
     this.host.back();
+    return this.panel();
+  }
+
+  language(lang: string): PanelReport {
+    this.host.setStoryLanguage(lang);
     return this.panel();
   }
 

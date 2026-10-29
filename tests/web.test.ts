@@ -84,3 +84,45 @@ test("a save from a different story version is ignored", () => {
 });
 
 const T_END = "— The End —";
+
+const BILINGUAL = [
+  'VAR 语言 = "zh"',
+  '{双("开始。", "Start.")}',
+  '* [{双("左", "Left")}] {双("向左。", "Went left.")}',
+  '* [{双("右", "Right")}] {双("向右。", "Went right.")}',
+  "- -> END",
+  "=== function 双(zh, en) ===",
+  '{ 语言 == "en":',
+  "  ~ return en",
+  "}",
+  "~ return zh",
+].join("\n");
+
+test("a bilingual page switches language, replaying the run, and remembers it", () => {
+  setLanguage("zh");
+  const html = buildWebPage({ title: "T", storyJson: compileJson(BILINGUAL), runtime: INK_RUNTIME, id: "b", languageVar: "语言" });
+  mount(html);
+  const lang = document.querySelector("#language") as HTMLSelectElement;
+  expect(lang.hidden).toBe(false);
+  expect(lang.value).toBe("zh");
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(texts("#story p")).toEqual(["开始。", "左", "向左。"]);
+
+  lang.value = "en";
+  lang.dispatchEvent(new Event("change"));
+  expect(texts("#story p")).toEqual(["Start.", "Left", "Went left."]);
+  expect(document.querySelector("#restart")?.textContent).toBe("Restart");
+  expect(document.documentElement.lang).toBe("en");
+
+  // Reload: progress and language are kept; restart stays in English.
+  mount(html);
+  expect(texts("#story p")).toEqual(["Start.", "Left", "Went left."]);
+  (document.querySelector("#restart") as HTMLElement).click();
+  expect(texts("#story p")).toEqual(["Start."]);
+  expect(texts("#choices button")).toEqual(["Left", "Right"]);
+});
+
+test("a page for a story without a language variable has no language switch", () => {
+  mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
+  expect((document.querySelector("#language") as HTMLSelectElement).hidden).toBe(true);
+});

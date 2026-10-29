@@ -27,14 +27,30 @@ export interface SaveData {
   /** Text shown so far, so the panel can be restored as it was. */
   log: Paragraph[];
   startPoint: string | null;
+  /** State at the start point plus every choice since, so the run can be replayed in another language. */
+  start?: string;
+  picks?: number[];
 }
+
+/** Global variables a story can declare to be played in several languages ("zh" / "en"). */
+export const LANGUAGE_VARS = ["语言", "lang"];
+/** Languages a bilingual story can be played in, with their names in that language. */
+export const STORY_LANGUAGES = [{ code: "zh", name: "中文" }, { code: "en", name: "English" }];
 
 export interface SessionOptions {
   /** Max wall-clock time one step may run before it is treated as an infinite loop. */
   timeBudgetMs?: number;
+  /** Language to play a bilingual story in (see LANGUAGE_VARS); default: the story's own value. */
+  language?: string;
 }
 
 const SLICE_MS = 20;
+
+/** The story's language variable (one of LANGUAGE_VARS), or null when it is not bilingual. */
+export function findLanguageVar(story: Story): string | null {
+  const globals = (story.variablesState as unknown as { _globalVariables?: Map<string, unknown> })._globalVariables;
+  return LANGUAGE_VARS.find((name) => globals instanceof Map && globals.has(name)) ?? null;
+}
 
 export class PlaySession {
   private story: Story;
@@ -48,17 +64,58 @@ export class PlaySession {
   log: Paragraph[] = [];
   /** State before each choice, for back(). */
   private history: { state: string; logLength: number }[] = [];
+  /** The story's language variable, or null when it is not bilingual. */
+  readonly languageVar: string | null;
+  private preferredLanguage: string | null;
+  /** State at the start point; null after loading a save made without one. */
+  private startState: string | null = null;
+  /** Choices made since startState. */
+  private picks: number[] = [];
 
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
     this.budget = options.timeBudgetMs ?? 2000;
     this.story = this.attach(story);
+    this.languageVar = findLanguageVar(story);
+    this.preferredLanguage = options.language ?? null;
+    this.applyLanguage();
+  }
+
+  /** Current value of the language variable; null for a story that is not bilingual. */
+  get language(): string | null {
+    return this.languageVar === null ? null : String(this.story.variablesState[this.languageVar]);
+  }
+
+  /** Switches language and replays the run so far, so earlier text and current choices change too. */
+  setLanguage(lang: string): Step {
+    this.preferredLanguage = lang;
+    if (this.languageVar === null) return this.snapshot([]);
+    if (this.startState === null) {
+      // No replay data (old save): only text from now on changes.
+      this.applyLanguage();
+      return this.snapshot([]);
+    }
+    const picks = this.picks;
+    this.story = this.attach(new Story(this.json));
+    this.story.state.LoadJson(this.startState);
+    this.applyLanguage();
+    this.startState = this.story.state.ToJson();
+    this.log = [];
+    this.history = [];
+    this.picks = [];
+    this.errors = [];
+    this.halted = false;
+    let step = this.advance();
+    for (const pick of picks) step = this.choose(pick);
+    return { ...step, paragraphs: [] };
   }
 
   start(): Step {
     this.errors = [];
     this.log = [];
     this.history = [];
+    this.picks = [];
+    this.startState = this.story.state.ToJson();
     return this.advance();
   }
 
@@ -73,6 +130,7 @@ export class PlaySession {
       this.errors.push(translateRuntime(e instanceof Error ? e.message : String(e)));
       return this.snapshot([]);
     }
+    this.picks.push(index);
     return this.advance();
   }
 
@@ -87,6 +145,7 @@ export class PlaySession {
     this.story = this.attach(new Story(this.json));
     this.story.state.LoadJson(prev.state);
     this.log = this.log.slice(0, prev.logLength);
+    this.picks.pop();
     this.errors = [];
     this.halted = false;
     return this.snapshot([]);
@@ -95,7 +154,12 @@ export class PlaySession {
   /** A snapshot to resume from later; null while a halted loop left the story mid-step. */
   save(): SaveData | null {
     if (this.halted) return null;
-    return { state: this.story.state.ToJson(), log: this.log.map((p) => ({ ...p, tags: [...p.tags] })), startPoint: this.startPoint };
+    return {
+      state: this.story.state.ToJson(),
+      log: this.log.map((p) => ({ ...p, tags: [...p.tags] })),
+      startPoint: this.startPoint,
+      ...(this.startState === null ? {} : { start: this.startState, picks: [...this.picks] }),
+    };
   }
 
   /** Resumes from a save. If it does not fit this story, reports an error and keeps the current state. */
@@ -114,6 +178,12 @@ export class PlaySession {
     this.history = [];
     this.errors = [];
     this.halted = false;
+    this.startState = save.start ?? null;
+    this.picks = [...(save.picks ?? [])];
+    // Keep playing in the language chosen in this session, not the one the save was made in.
+    if (this.preferredLanguage !== null && this.language !== this.preferredLanguage) {
+      return this.setLanguage(this.preferredLanguage);
+    }
     return this.snapshot([]);
   }
 
@@ -135,8 +205,11 @@ export class PlaySession {
   startAt(path: string | null): Step {
     this.startPoint = path;
     this.story = this.attach(new Story(this.json));
+    this.applyLanguage();
     this.log = [];
     this.history = [];
+    this.picks = [];
+    this.startState = null;
     this.errors = [];
     this.halted = false;
     if (path !== null) {
@@ -148,7 +221,14 @@ export class PlaySession {
         return this.snapshot([]);
       }
     }
+    this.startState = this.story.state.ToJson();
     return this.advance();
+  }
+
+  private applyLanguage(): void {
+    if (this.languageVar !== null && this.preferredLanguage !== null) {
+      this.story.variablesState[this.languageVar] = this.preferredLanguage;
+    }
   }
 
   private attach(story: Story): Story {

@@ -3,7 +3,7 @@ import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
-import type { Choice, Paragraph } from "../play/session";
+import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
 
 export const PLAY_VIEW_TYPE = "inkwright-play";
 
@@ -20,6 +20,8 @@ export interface PlayState {
   flows: Flow[];
   startPoint: string | null;
   canGoBack: boolean;
+  /** Current language of a bilingual story; null when the story is not bilingual. */
+  storyLanguage: string | null;
   saves: { id: string; name: string; savedAt: string }[];
 }
 
@@ -31,6 +33,7 @@ export interface PlayController {
   deleteSave(id: string): Promise<void>;
   startAt(path: string | null): void;
   choose(index: number): void;
+  setStoryLanguage(lang: string): void;
   toggleLock(): void;
   openDiagnostic(d: Diagnostic): void;
 }
@@ -89,6 +92,14 @@ export class PlayView extends ItemView {
       back.disabled = !s.canGoBack;
       back.onclick = () => this.controller.back();
       bar.createEl("button", { text: T().save }).onclick = () => void this.controller.saveGame();
+    }
+    if (s.hasStory && s.storyLanguage !== null) {
+      const select = bar.createEl("select", { cls: "dropdown", attr: { "aria-label": T().storyLanguage, title: T().storyLanguage } });
+      for (const { code, name } of STORY_LANGUAGES) {
+        select.createEl("option", { text: name, value: code });
+      }
+      select.value = s.storyLanguage;
+      select.onchange = () => this.controller.setStoryLanguage(select.value);
     }
 
     if (s.flows.length > 0) this.renderStartFrom(el, s);

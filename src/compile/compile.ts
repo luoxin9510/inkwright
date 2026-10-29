@@ -4,6 +4,8 @@ import { parseRaw, translate, type Diagnostic } from "./diagnostics";
 import { CachedFileHandler, preload, type ReadFile } from "./include";
 import { buildGraph, type StoryGraph } from "./graph";
 import { resolveInclude } from "./paths";
+import { findUntranslated } from "./bilingual";
+import { findLanguageVar } from "../play/session";
 
 /** A place the player can start from: a knot or a stitch (functions excluded). */
 export interface Flow {
@@ -76,6 +78,14 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
   }
 
   const ok = !diagnostics.some((d) => d.severity === "error");
+  if (ok && story && findLanguageVar(story) !== null) {
+    for (const [file, source] of cache.files) {
+      for (const u of findUntranslated(source)) {
+        const message = u.kind === "empty" ? T().emptyTranslation : T().untranslated;
+        diagnostics.push({ severity: "warning", file, line: u.line, message, raw: "" });
+      }
+    }
+  }
   const flows = ok ? listFlows(compiler, rootPath) : [];
   const graph = ok ? buildGraph(compiler.parsedStory, flows) : null;
   return { ok, story: ok ? story : null, diagnostics, files, flows, graph };

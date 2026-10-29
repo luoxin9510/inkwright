@@ -60,6 +60,9 @@ const zh = {
   nothingToSave: "现在没有可以存档的进度。",
   saveNotFound: (id: string) => `找不到存档 "${id}"`,
   exportWeb: "导出为网页",
+  storyLanguage: "剧本语言",
+  untranslated: '这行有文字没写进双语函数(如 双("中文", "English")),切换语言时不会变。',
+  emptyTranslation: "双语函数里有一边是空字符串。",
   exported: "已导出网页:",
   exportFailed: "剧本有编译错误,无法导出。",
 };
@@ -125,6 +128,9 @@ const en: Strings = {
   nothingToSave: "There is no progress to save right now.",
   saveNotFound: (id) => `No save matches "${id}"`,
   exportWeb: "Export as web page",
+  storyLanguage: "Story language",
+  untranslated: 'This line has text outside a bilingual call (like 双("中文", "English")), so it will not change with the language.',
+  emptyTranslation: "One side of a bilingual call is an empty string.",
   exported: "Exported web page: ",
   exportFailed: "The story has compile errors and cannot be exported.",
 };
@@ -148,6 +154,10 @@ export function setLanguage(lang: Language): void {
 
 export function getLanguage(): Language {
   return current;
+}
+
+export function stringsFor(lang: Language): Strings {
+  return tables[lang];
 }
 
 export function T(): Strings {

@@ -4,7 +4,7 @@ import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
 import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphView";
 import type { Diagnostic } from "./compile/diagnostics";
-import { PlaySession, type SaveData, type Step } from "./play/session";
+import { PlaySession, findLanguageVar, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
@@ -24,10 +24,12 @@ interface Settings {
   language: LanguageSetting;
   /** Saves per main story path. */
   saves: Record<string, SaveSlot[]>;
+  /** Language bilingual stories are played in; null: each story's own default. */
+  storyLanguage: string | null;
 }
 
 export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
-  private config: Settings = { locked: null, language: "auto", saves: {} };
+  private config: Settings = { locked: null, language: "auto", saves: {}, storyLanguage: null };
   private latest = new LatestOnly();
   private timer: number | null = null;
   private files: string[] = [];
@@ -44,7 +46,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   async onload(): Promise<void> {
     // Load settings first: the language (and command names below) depend on them.
-    this.config = { locked: null, language: "auto", saves: {}, ...(await this.loadData()) };
+    this.config = { locked: null, language: "auto", saves: {}, storyLanguage: null, ...(await this.loadData()) };
     // Obsidian sets moment's locale to its interface language.
     setLanguage(resolveLanguage(this.config.language, moment.locale()));
     this.addSettingTab(new InkwrightSettingTab(this.app, this));
@@ -114,6 +116,12 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   back(): void {
     const step = this.session?.back();
     if (step) this.apply(step);
+  }
+
+  setStoryLanguage(lang: string): void {
+    this.config.storyLanguage = lang;
+    void this.saveData(this.config);
+    if (this.session) this.apply(this.session.setLanguage(lang));
   }
 
   /** Saves the current play state of the current main story; null when there is nothing to save. */
@@ -219,6 +227,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       storyJson: result.story.ToJson() as string,
       runtime: INK_RUNTIME,
       id: path,
+      languageVar: findLanguageVar(result.story),
     });
     await this.app.vault.adapter.write(out, html);
     new Notice(T().exported + out);
@@ -317,7 +326,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (result.story) {
       // Keep the chosen start point across recompiles while it still exists.
       if (this.startPoint !== null && !this.flows.some((f) => f.path === this.startPoint)) this.startPoint = null;
-      this.session = new PlaySession(result.story);
+      this.session = new PlaySession(result.story, { language: this.config.storyLanguage ?? undefined });
       this.apply(this.session.startAt(this.startPoint));
     } else {
       this.session = null;
@@ -347,6 +356,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       flows: this.flows,
       startPoint: this.startPoint,
       canGoBack: this.session?.canGoBack ?? false,
+      storyLanguage: this.session?.language ?? null,
       saves: this.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
     };
   }

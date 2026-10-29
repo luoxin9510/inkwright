@@ -12,6 +12,8 @@ export interface ScriptOptions {
   from?: string | null;
   /** Choices to make in order: an index, or text (exact match first, then substring). */
   choices?: Array<number | string>;
+  /** Language for a bilingual story ("zh" / "en"); default: the story's own. */
+  language?: string;
 }
 
 export interface ScriptResult extends Inspection {
@@ -30,7 +32,7 @@ export function pick(choices: Choice[], want: number | string): Choice | undefin
 
 /** Plays a story non-interactively, for agents and scripts. Stops at the first problem. */
 export function playScript(story: Story, options: ScriptOptions = {}): ScriptResult {
-  const session = new PlaySession(story);
+  const session = new PlaySession(story, { language: options.language });
   const transcript: TranscriptEntry[] = [];
   const errors: string[] = [];
   const record = (step: Step) => {
