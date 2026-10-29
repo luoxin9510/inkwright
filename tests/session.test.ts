@@ -84,3 +84,19 @@ describe("PlaySession errors", () => {
     expect(s.choose(99).errors[0]).toMatch(/暂无中文翻译|[一-鿿]/);
   });
 });
+
+describe("PlaySession external functions", () => {
+  test("a missing EXTERNAL binding becomes a step error instead of throwing", async () => {
+    const s = new PlaySession(await story("EXTERNAL f()\nBefore\n~ f()\nAfter\n-> END"));
+    const step = s.start();
+    expect(step.ended).toBe(true);
+    expect(step.errors.some((e) => e.includes("外部函数 'f' 没有绑定"))).toBe(true);
+  });
+
+  test("an ink function with the same name is used as the fallback", async () => {
+    const s = new PlaySession(await story("EXTERNAL f()\n{f()}\n-> END\n=== function f() ===\n~ return 7"));
+    const step = s.start();
+    expect(step.paragraphs.map((p) => p.text)).toEqual(["7"]);
+    expect(step.errors).toEqual([]);
+  });
+});

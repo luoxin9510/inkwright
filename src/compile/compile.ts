@@ -38,7 +38,8 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
       severity: p.severity,
       file: p.file ? resolveInclude(rootPath, p.file) : rootPath,
       line: p.line,
-      message: translate(p.text),
+      // TODO notes are the author's own words, not compiler errors to translate.
+      message: p.severity === "todo" ? `待办:${p.text}` : translate(p.text),
       raw,
     });
   };

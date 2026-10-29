@@ -64,6 +64,8 @@ export class PlaySession {
   }
 
   private attach(story: Story): Story {
+    // Like Inky: an EXTERNAL without a binding falls back to an ink function of the same name.
+    story.allowExternalFunctionFallbacks = true;
     story.onError = (message: string) => {
       this.errors.push(translate(message));
     };
@@ -75,7 +77,13 @@ export class PlaySession {
     const deadline = Date.now() + this.budget;
     while (this.story.canContinue) {
       // Time-sliced so a looping story can be stopped instead of freezing Obsidian.
-      this.story.ContinueAsync(SLICE_MS);
+      try {
+        this.story.ContinueAsync(SLICE_MS);
+      } catch (e) {
+        this.halted = true;
+        this.errors.push(translate(e instanceof Error ? e.message : String(e)));
+        break;
+      }
       if (this.story.asyncContinueComplete) {
         const text = (this.story.currentText ?? "").replace(/\n+$/, "");
         const tags = this.story.currentTags ?? [];

@@ -72,4 +72,11 @@ describe("compileStory", () => {
     expect(r.ok).toBe(false);
     expect(r.diagnostics[0].severity).toBe("error");
   });
+
+  test("TODO notes keep the author's own words and are not treated as untranslated errors", async () => {
+    const r = await compileStory("main.ink", memory({ "main.ink": "TODO: 写完这一章\n-> END" }));
+    const todo = r.diagnostics.find((d) => d.severity === "todo")!;
+    expect(todo.message).toBe("待办:写完这一章");
+    expect(r.ok).toBe(true);
+  });
 });
