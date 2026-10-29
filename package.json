@@ -2,6 +2,7 @@
   "name": "ink-cn",
   "version": "0.1.0",
   "description": "Write and play ink stories inside Obsidian, with Chinese UI and error messages.",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {

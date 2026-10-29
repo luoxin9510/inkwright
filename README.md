@@ -28,3 +28,13 @@ OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/ink-cn npm run dev   # 监�
 ## 安装到 vault
 
 把 `main.js`、`manifest.json`、`styles.css` 复制到 `<vault>/.obsidian/plugins/ink-cn/`,在 Obsidian 设置的"第三方插件"中启用。手机端通过你的 vault 同步方式把这个文件夹同步过去即可。
+
+## 通过 BRAT 安装(桌面和手机)
+
+1. 在社区插件市场安装并启用 **BRAT**(Obsidian42 - BRAT)。
+2. BRAT 设置 → "Add Beta plugin",填入 `luoxin9510/ink-cn`。
+3. 在第三方插件列表里启用"Ink 中文"。之后发布新版本时 BRAT 会自动更新。
+
+## 许可证
+
+MIT。剧本引擎使用 [inkjs](https://github.com/y-lohse/inkjs)(MIT)。
