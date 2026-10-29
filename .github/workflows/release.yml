@@ -21,9 +21,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
-      - run: npm run build
-      - name: Check the tag matches manifest.json
-        run: test "$(node -p 'require("./manifest.json").version')" = "${GITHUB_REF_NAME}"
+      # Builds main.js and checks the tag, manifest, package.json and versions.json agree.
+      - run: npm run check-release
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:

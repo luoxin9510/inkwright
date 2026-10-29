@@ -35,6 +35,7 @@ The game vault has its own `CLAUDE.md` telling agents how to playtest; keep it i
 - Any user-visible text goes through `T()` with both zh and en; tests enforce every en string differs from zh.
 - New zh error entries: get the exact inkjs text by compiling a broken story first, then add a test with that text.
 - Pure logic: write the failing test first. UI wiring: build, reload, then check `dev:errors` + a screenshot yourself before asking the user.
-- `npm run lint` — eslint with eslint-plugin-obsidianmd (the community review rules); must have 0 errors.
-- CI (`.github/workflows/ci.yml`): test + lint + build on every push/PR. `claude-review.yml`: independent Claude review on each PR.
+- `npm run lint` — the Obsidian community directory's checks: eslint-plugin-obsidianmd over `src/`, `package.json` (dependency replacements) and `manifest.json`, with `--max-warnings 0`, plus stylelint on `styles.css` (no `!important`). Must pass clean.
+- `npm run check-release` — manifest/package/versions.json versions agree (and match the tag in CI); `npm run build` is reproducible (the directory rebuilds and compares main.js).
+- CI (`.github/workflows/ci.yml`): test + lint + check-release on every push/PR; `main` is protected, so changes go through a PR and the `check` job must pass before merging. `claude-review.yml`: independent Claude review on each PR.
 - Release: bump `manifest.json`, `package.json`, `versions.json`; tag equals version without `v`; pushing the tag runs `release.yml`, which builds and creates a draft GitHub release with main.js, manifest.json, styles.css; publish the draft by hand.

@@ -1,8 +1,40 @@
 # Inkwright
 
+[![CI](https://github.com/luoxin9510/inkwright/actions/workflows/ci.yml/badge.svg)](https://github.com/luoxin9510/inkwright/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/luoxin9510/inkwright)](https://github.com/luoxin9510/inkwright/releases/latest)
+
 **Write, playtest and debug [ink](https://github.com/inkle/ink) interactive fiction in Obsidian.** Works on desktop and mobile. Interface in English and Chinese.
 
+Think of it as Inky inside your vault: your story files sit next to your notes, character sheets and outlines, the play panel recompiles as you type, and the knot graph shows the shape of your branches. When the story is ready, export it as a single web page.
+
 [中文说明](README.zh.md)
+
+![Bilingual ink source in the editor, with the English version playing in the play panel](docs/images/editor-and-play.png)
+
+## Why Inkwright?
+
+Writing a branching story is already a choose-your-own-adventure. The adventure should not be: alt-tab to Inky, copy the file over, lose the outline, forget which knot you were in, alt-tab back.
+
+- **Your story lives where your notes live.** Character sheets, maps, the timeline, the 3 a.m. plot twist you typed on your phone: all one `[[link]]` away from the script.
+- **Write a line, play the line.** Save, and the play panel has already recompiled. No build step, no ceremony.
+- **See the spaghetti before your readers do.** The knot graph draws every branch and outlines in red the knots no path can reach. (Every writer has that one perfect ending nobody will ever see.)
+- **Works on the train.** Desktop and mobile, same vault, same saves.
+- **One file to ship.** Export a single `.html`, drop it on itch.io, go to bed.
+- **One story, two languages.** Write `{tr("Hello", "你好")}` once; readers switch languages mid-story without losing their place, and the plugin nags you about untranslated lines more reliably than any editor.
+- **Robots welcome.** A JSON API lets your coding agent play every ending while you make tea.
+
+```ink
+=== you ===
+You have a story in your head and a vault full of notes.
+* [Keep alt-tabbing between three apps] -> still_alt_tabbing
+* [Install Inkwright] -> happily_ever_after
+```
+
+## Install
+
+In Obsidian, open **Settings → Community plugins → Browse**, search for **Inkwright**, then install and enable it. Or open the [listing in the community directory](https://community.obsidian.md/plugins/inkwright).
+
+Requires Obsidian 1.13 or later; older versions get the previous release automatically.
 
 ## Features
 
@@ -16,6 +48,8 @@
 - **Export as web page**: one self-contained `.html` file next to the story, playable in any browser, with undo and progress kept in the browser. Upload it anywhere (itch.io, GitHub Pages, …).
 - **Bilingual stories**: declare `VAR lang = "en"` (or `VAR 语言`) and write text as `{tr("Hello", "你好")}`-style calls; the play panel and exported pages get a language switch that replays the run in the other language without losing progress. Text left outside such a call is reported as a warning.
 - **Chinese interface and error messages** (the language follows Obsidian, or can be set in the settings).
+
+![Knot graph of a short story next to the play panel](docs/images/knot-graph.png)
 
 ## Usage
 
@@ -66,6 +100,12 @@ OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/inkwright npm run dev   # w
 ```
 
 Releases are built by GitHub Actions when a version tag (e.g. `0.2.0`, no `v`) is pushed.
+
+## Thanks
+
+- **[inkle](https://www.inklestudios.com/)**, for creating [ink](https://www.inklestudios.com/ink/) and Inky, open-sourcing them under MIT, and showing with *80 Days*, *Heaven's Vault* and friends what a few `*` and `->` can do. Inkwright is an unofficial fan tool and not affiliated with inkle.
+- **[inkjs](https://github.com/y-lohse/inkjs)** by Yannick Lohse and contributors, the JavaScript port of ink that compiles and runs every story here.
+- **[Obsidian](https://obsidian.md)**, for a plugin API that lets an interactive fiction studio move into a note-taking app.
 
 ## License
 
