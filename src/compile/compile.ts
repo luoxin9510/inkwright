@@ -2,6 +2,7 @@ import { Compiler, CompilerOptions, type Story } from "inkjs/full";
 import { T } from "../i18n";
 import { parseRaw, translate, type Diagnostic } from "./diagnostics";
 import { CachedFileHandler, preload, type ReadFile } from "./include";
+import { buildGraph, type StoryGraph } from "./graph";
 import { resolveInclude } from "./paths";
 
 /** A place the player can start from: a knot or a stitch (functions excluded). */
@@ -18,6 +19,8 @@ export interface CompileResult {
   diagnostics: Diagnostic[];
   files: string[];
   flows: Flow[];
+  /** Knot/stitch divert graph; null when compilation failed. */
+  graph: StoryGraph | null;
 }
 
 function basename(p: string): string {
@@ -35,6 +38,7 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
       story: null,
       files,
       flows: [],
+      graph: null,
       diagnostics: [{
         severity: "error", file: rootPath, line: null,
         message: T().missingRoot(rootPath), raw: "",
@@ -72,7 +76,9 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
   }
 
   const ok = !diagnostics.some((d) => d.severity === "error");
-  return { ok, story: ok ? story : null, diagnostics, files, flows: ok ? listFlows(compiler, rootPath) : [] };
+  const flows = ok ? listFlows(compiler, rootPath) : [];
+  const graph = ok ? buildGraph(compiler.parsedStory, flows) : null;
+  return { ok, story: ok ? story : null, diagnostics, files, flows, graph };
 }
 
 interface ParsedFlow {
