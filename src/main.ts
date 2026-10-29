@@ -46,7 +46,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   async onload(): Promise<void> {
     // Load settings first: the language (and command names below) depend on them.
-    this.config = { locked: null, language: "auto", saves: {}, storyLanguage: null, ...(await this.loadData()) };
+    this.config = { locked: null, language: "auto", saves: {}, storyLanguage: null, ...((await this.loadData()) as Partial<Settings> | null) };
     // Obsidian sets moment's locale to its interface language.
     setLanguage(resolveLanguage(this.config.language, moment.locale()));
     this.addSettingTab(new InkwrightSettingTab(this.app, this));
@@ -192,7 +192,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       workspace.getLeavesOfType(INK_VIEW_TYPE).find((l) => (l.view as InkView).file?.path === path) ??
       workspace.getLeaf("tab");
     await leaf.openFile(file);
-    workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
     if (line !== null && leaf.view instanceof InkView) leaf.view.goToLine(line);
   }
 
@@ -229,7 +229,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       id: path,
       languageVar: findLanguageVar(result.story),
     });
-    await this.app.vault.adapter.write(out, html);
+    const existing = this.app.vault.getAbstractFileByPath(out);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, html);
+    else await this.app.vault.create(out, html);
     new Notice(T().exported + out);
     return { path: out, diagnostics: result.diagnostics };
   }
@@ -243,7 +245,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       leaf = workspace.getLeaf("tab");
       await leaf.setViewState({ type: GRAPH_VIEW_TYPE, active: true });
     }
-    workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
     this.schedule();
   }
 
@@ -254,7 +256,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       leaf = workspace.getRightLeaf(false);
       await leaf?.setViewState({ type: PLAY_VIEW_TYPE, active: true });
     }
-    if (leaf) workspace.revealLeaf(leaf);
+    if (leaf) void workspace.revealLeaf(leaf);
     this.schedule();
   }
 

@@ -35,4 +35,6 @@ The game vault has its own `CLAUDE.md` telling agents how to playtest; keep it i
 - Any user-visible text goes through `T()` with both zh and en; tests enforce every en string differs from zh.
 - New zh error entries: get the exact inkjs text by compiling a broken story first, then add a test with that text.
 - Pure logic: write the failing test first. UI wiring: build, reload, then check `dev:errors` + a screenshot yourself before asking the user.
-- Release: bump `manifest.json`, `package.json`, `versions.json`; tag equals version without `v`; attach main.js, manifest.json, styles.css.
+- `npm run lint` — eslint with eslint-plugin-obsidianmd (the community review rules); must have 0 errors.
+- CI (`.github/workflows/ci.yml`): test + lint + build on every push/PR. `claude-review.yml`: independent Claude review on each PR.
+- Release: bump `manifest.json`, `package.json`, `versions.json`; tag equals version without `v`; pushing the tag runs `release.yml`, which builds and creates a draft GitHub release with main.js, manifest.json, styles.css; publish the draft by hand.

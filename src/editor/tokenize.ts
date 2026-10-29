@@ -37,8 +37,8 @@ export function tokenizeLine(line: string): Token[] {
           kind: choice ? "choice" : "gather",
         });
       }
-      for (const m of body.matchAll(/(?:->|<-)[ \t]*[^\s\[\]{}|#]*/g)) {
-        tokens.push({ from: m.index!, to: m.index! + m[0].length, kind: "divert" });
+      for (const m of body.matchAll(/(?:->|<-)[ \t]*[^\s[\]{}|#]*/g)) {
+        tokens.push({ from: m.index, to: m.index + m[0].length, kind: "divert" });
       }
     }
     if (tagIdx >= 0) tokens.push({ from: tagIdx, to: codeEnd, kind: "tag" });

@@ -35,7 +35,7 @@ export interface PlayController {
   choose(index: number): void;
   setStoryLanguage(lang: string): void;
   toggleLock(): void;
-  openDiagnostic(d: Diagnostic): void;
+  openDiagnostic(d: Diagnostic): Promise<void>;
 }
 
 export class PlayView extends ItemView {
@@ -114,7 +114,7 @@ export class PlayView extends ItemView {
         const where = d.line !== null ? ` ${T().lineAt(d.line)}` : "";
         row.createSpan({ cls: "inkwright-diag-loc", text: `${d.file}${where}` });
         row.createDiv({ text: d.message });
-        row.onclick = () => this.controller.openDiagnostic(d);
+        row.onclick = () => void this.controller.openDiagnostic(d);
       }
     }
 

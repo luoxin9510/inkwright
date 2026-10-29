@@ -1,9 +1,10 @@
 {
   "id": "inkwright",
   "name": "Inkwright",
-  "version": "0.1.0",
-  "minAppVersion": "1.5.0",
-  "description": "Write, playtest and debug ink interactive fiction in your vault. INCLUDE support, live recompile, Chinese and English interface.",
+  "version": "0.2.0",
+  "minAppVersion": "1.7.2",
+  "description": "Write, playtest and debug ink interactive fiction: live play panel, saves, knot graph, web export and bilingual stories. English and Chinese interface.",
   "author": "luoxin9510",
-  "isDesktopOnly": false
+  "isDesktopOnly": false,
+  "authorUrl": "https://github.com/luoxin9510"
 }
