@@ -51,7 +51,7 @@ function scriptSafe(s: string): string {
 export function buildWebPage(o: WebPageOptions): string {
   const strings = (lang: Language) => {
     const t = stringsFor(lang);
-    return { restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage };
+    return { restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS) };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
   const story = o.storyJson.replace(/</g, "\\u003c");
@@ -62,6 +62,7 @@ export function buildWebPage(o: WebPageOptions): string {
     strings: { zh: strings("zh"), en: strings("en") },
     languageVar: o.languageVar ?? null,
     languages: STORY_LANGUAGES,
+    loopMs: LOOP_SECONDS * 1000,
   }).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="${getLanguage() === "zh" ? "zh-CN" : "en"}">
@@ -87,6 +88,9 @@ ${PLAYER}</script>
 </html>
 `;
 }
+
+/** How long one step may run in the exported player before it is treated as an infinite loop. */
+const LOOP_SECONDS = 2;
 
 const CSS = `
 :root { --bg: #fbfaf7; --fg: #222; --muted: #888; --accent: #7a4fd0; --line: #ddd; }
@@ -126,6 +130,7 @@ const PLAYER = `(function () {
   var start = null;  // state at the beginning, to replay picks in another language
   var picks = [];    // choice indexes since start
   var replaying = false;
+  var halted = false;  // the last step was stopped (loop or error); its state is not saved
   story.onError = function (msg) { log.push({ text: msg, kind: "error" }); };
 
   function storage(get, value) {
@@ -170,24 +175,51 @@ const PLAYER = `(function () {
       b.onclick = function () { choose(c.index, c.text); };
       choicesEl.appendChild(b);
     });
-    endEl.hidden = story.currentChoices.length > 0;
+    endEl.hidden = halted || story.currentChoices.length > 0;
     backEl.disabled = history.length === 0;
     if (langVar) langEl.value = language();
   }
 
+  function fail(e) { log.push({ text: String(e && e.message || e), kind: "error" }); }
+
+  // Time-sliced like the play panel, so a looping story is stopped instead of freezing the page.
   function advance() {
+    var deadline = Date.now() + cfg.loopMs;
+    halted = false;
     while (story.canContinue) {
-      var text = story.Continue().replace(/\\n+$/, "");
-      if (text !== "") log.push({ text: text, kind: "text" });
+      try {
+        story.ContinueAsync(20);
+      } catch (e) {
+        fail(e);
+        halted = true;
+        break;
+      }
+      if (story.asyncContinueComplete) {
+        var text = (story.currentText || "").replace(/\\n+$/, "");
+        if (text !== "") log.push({ text: text, kind: "text" });
+      }
+      if (Date.now() > deadline) {
+        log.push({ text: (cfg.strings[language() || cfg.ui] || cfg.strings[cfg.ui]).loop, kind: "error" });
+        halted = true;
+        break;
+      }
     }
     if (replaying) return;
-    persist();
+    // A stopped step is mid-run: keep the last good save, so a reload resumes before it.
+    if (!halted) persist();
     render();
   }
 
   function choose(index, text) {
-    history.push({ state: story.state.ToJson(), n: log.length });
-    story.ChooseChoiceIndex(index);
+    var before = story.state.ToJson();
+    try {
+      story.ChooseChoiceIndex(index);
+    } catch (e) {
+      fail(e);
+      if (!replaying) render();
+      return;
+    }
+    history.push({ state: before, n: log.length });
     picks.push(index);
     log.push({ text: text, kind: "chosen" });
     advance();
@@ -225,7 +257,7 @@ const PLAYER = `(function () {
       if (c) choose(i, c.text);
     });
     replaying = false;
-    persist();
+    if (!halted) persist();
     render();
   }
 
@@ -256,6 +288,7 @@ const PLAYER = `(function () {
     story.state.LoadJson(h.state);
     log.length = h.n;
     picks.pop();
+    halted = false;
     persist();
     render();
   };

@@ -122,6 +122,41 @@ test("a bilingual page switches language, replaying the run, and remembers it", 
   expect(texts("#choices button")).toEqual(["Left", "Right"]);
 });
 
+test("a looping story stops with an error instead of freezing the page", () => {
+  mount(buildWebPage({ title: "T", storyJson: compileJson("Start.\n- (top)\n~ temp x = 1\n-> top\n"), runtime: INK_RUNTIME, id: "loop" }));
+  expect(document.querySelector("#story p.error")?.textContent).toContain("loop");
+});
+
+test("a choice that loops is not saved: reloading resumes before it", () => {
+  const src = "Start.\n* [Loop] -> spin\n* [Fine] Ok.\n-> END\n=== spin ===\n- (top)\n~ temp x = 1\n-> top\n";
+  const html = buildWebPage({ title: "T", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "spin" });
+  mount(html);
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(document.querySelector("#story p.error")).not.toBeNull();
+  expect((document.querySelector("#end") as HTMLElement).hidden).toBe(true);
+  // Undo still gets back to the choice.
+  expect((document.querySelector("#back") as HTMLButtonElement).disabled).toBe(false);
+
+  mount(html);
+  expect(texts("#story p")).toEqual(["Start."]);
+  expect(texts("#choices button")).toEqual(["Loop", "Fine"]);
+});
+
+test("a choice that throws shows the error and leaves undo history unchanged", () => {
+  mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "throw" }));
+  const proto = (globalThis as unknown as { inkjs: { Story: { prototype: { ChooseChoiceIndex: () => void } } } }).inkjs.Story.prototype;
+  const original = proto.ChooseChoiceIndex;
+  proto.ChooseChoiceIndex = () => { throw new Error("boom"); };
+  try {
+    (document.querySelector("#choices button") as HTMLElement).click();
+  } finally {
+    proto.ChooseChoiceIndex = original;
+  }
+  expect(document.querySelector("#story p.error")?.textContent).toContain("boom");
+  expect((document.querySelector("#back") as HTMLButtonElement).disabled).toBe(true);
+  expect(texts("#choices button")).toEqual(["Left", "Right"]);
+});
+
 test("a page for a story without a language variable has no language switch", () => {
   mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
   expect((document.querySelector("#language") as HTMLSelectElement).hidden).toBe(true);
