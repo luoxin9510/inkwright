@@ -1,4 +1,5 @@
 export type Language = "zh" | "en";
+export type LanguageSetting = "auto" | Language;
 
 const zh = {
   editorName: "Ink 剧本",
@@ -21,6 +22,9 @@ const zh = {
   missingRoot: (path: string) => `找不到主剧本:${path}`,
   todo: (text: string) => `待办:${text}`,
   infiniteLoop: (seconds: number) => `剧本可能存在无限循环,已在 ${seconds} 秒后停止运行。`,
+  settingLanguage: "界面语言",
+  settingLanguageDesc: "命令面板里的命令名需要重新加载插件后才会更新。",
+  followObsidian: "跟随 Obsidian",
 };
 
 export type Strings = typeof zh;
@@ -46,6 +50,9 @@ const en: Strings = {
   missingRoot: (path) => `Main story not found: ${path}`,
   todo: (text) => `TODO: ${text}`,
   infiniteLoop: (seconds) => `The story seems to be stuck in an infinite loop; stopped after ${seconds} s.`,
+  settingLanguage: "Interface language",
+  settingLanguageDesc: "Command names in the command palette update after reloading the plugin.",
+  followObsidian: "Follow Obsidian",
 };
 
 const tables: Record<Language, Strings> = { zh, en };
@@ -54,6 +61,11 @@ let current: Language = "zh";
 /** Chinese (simplified or traditional) gets Chinese; every other locale gets English. */
 export function pickLanguage(locale: string): Language {
   return locale.toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+/** "auto" follows Obsidian's locale; an explicit choice wins. */
+export function resolveLanguage(setting: LanguageSetting, locale: string): Language {
+  return setting === "auto" ? pickLanguage(locale) : setting;
 }
 
 export function setLanguage(lang: Language): void {

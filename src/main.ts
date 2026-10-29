@@ -3,16 +3,18 @@ import { compileStory } from "./compile/compile";
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, type Paragraph, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
-import { T, pickLanguage, setLanguage } from "./i18n";
+import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
+import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type PlayController } from "./views/PlayView";
 
 interface Settings {
   locked: string | null;
+  language: LanguageSetting;
 }
 
 export default class InkwrightPlugin extends Plugin implements PlayController {
-  private config: Settings = { locked: null };
+  private config: Settings = { locked: null, language: "auto" };
   private latest = new LatestOnly();
   private timer: number | null = null;
   private files: string[] = [];
@@ -23,9 +25,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   private last: Step | null = null;
 
   async onload(): Promise<void> {
-    // Obsidian sets moment's locale to its interface language (a restart applies changes).
-    setLanguage(pickLanguage(moment.locale()));
-    this.config = { locked: null, ...(await this.loadData()) };
+    // Obsidian sets moment's locale to its interface language.
+    setLanguage(resolveLanguage(this.config.language, moment.locale()));
+    this.addSettingTab(new InkwrightSettingTab(this.app, this));
+    this.config = { locked: null, language: "auto", ...(await this.loadData()) };
 
     this.registerView(INK_VIEW_TYPE, (leaf) => new InkView(leaf));
     this.registerView(PLAY_VIEW_TYPE, (leaf) => new PlayView(leaf, this));
@@ -98,6 +101,19 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
     await leaf.openFile(file);
     workspace.revealLeaf(leaf);
     if (d.line !== null && leaf.view instanceof InkView) leaf.view.goToLine(d.line);
+  }
+
+  // --- settings ---
+
+  getLanguageSetting(): LanguageSetting {
+    return this.config.language;
+  }
+
+  async setLanguageSetting(value: LanguageSetting): Promise<void> {
+    this.config.language = value;
+    await this.saveData(this.config);
+    setLanguage(resolveLanguage(value, moment.locale()));
+    this.pushState();
   }
 
   // --- internals ---

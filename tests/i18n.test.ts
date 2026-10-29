@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { T, getLanguage, pickLanguage, setLanguage } from "../src/i18n";
+import { T, getLanguage, pickLanguage, resolveLanguage, setLanguage } from "../src/i18n";
 import { translate } from "../src/compile/diagnostics";
 import { compileStory } from "../src/compile/compile";
 import { PlaySession } from "../src/play/session";
@@ -62,5 +62,16 @@ describe("messages in English mode", () => {
     const r = await compileStory("main.ink", async () => "-> a\n=== a ===\nhi\n-> a");
     const step = new PlaySession(r.story!, { timeBudgetMs: 100 }).start();
     expect(step.errors.some((e) => e.includes("infinite loop"))).toBe(true);
+  });
+});
+
+describe("resolveLanguage", () => {
+  test("auto follows the Obsidian locale", () => {
+    expect(resolveLanguage("auto", "zh-cn")).toBe("zh");
+    expect(resolveLanguage("auto", "en")).toBe("en");
+  });
+  test("an explicit choice overrides the locale", () => {
+    expect(resolveLanguage("zh", "en")).toBe("zh");
+    expect(resolveLanguage("en", "zh-cn")).toBe("en");
   });
 });

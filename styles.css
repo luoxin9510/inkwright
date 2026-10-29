@@ -12,7 +12,7 @@
 /* inkwright: play panel */
 .inkwright-play { padding: 12px 16px; }
 .inkwright-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-.inkwright-root { flex: 1 1 100%; color: var(--text-muted); word-break: break-all; }
+.inkwright-root { flex: 1 1 100%; color: var(--text-muted); overflow-wrap: anywhere; }
 .inkwright-story p { margin: 0 0 0.8em; }
 .inkwright-ended { color: var(--text-faint); text-align: center; }
 .inkwright-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
