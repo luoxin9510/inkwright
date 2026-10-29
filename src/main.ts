@@ -25,10 +25,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   private last: Step | null = null;
 
   async onload(): Promise<void> {
+    // Load settings first: the language (and command names below) depend on them.
+    this.config = { locked: null, language: "auto", ...(await this.loadData()) };
     // Obsidian sets moment's locale to its interface language.
     setLanguage(resolveLanguage(this.config.language, moment.locale()));
     this.addSettingTab(new InkwrightSettingTab(this.app, this));
-    this.config = { locked: null, language: "auto", ...(await this.loadData()) };
 
     this.registerView(INK_VIEW_TYPE, (leaf) => new InkView(leaf));
     this.registerView(PLAY_VIEW_TYPE, (leaf) => new PlayView(leaf, this));
