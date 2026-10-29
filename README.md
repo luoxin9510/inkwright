@@ -9,7 +9,7 @@ Think of it as Inky inside your vault: your story files sit next to your notes, 
 
 [中文说明](README.zh.md)
 
-![Bilingual ink source in the editor, with the English version playing in the play panel](docs/images/editor-and-play.png)
+![Edit a line and the play panel updates; make a choice, switch the story to Chinese, then open the knot graph](docs/images/demo.gif)
 
 ## Why Inkwright?
 

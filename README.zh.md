@@ -4,7 +4,7 @@
 
 在 Obsidian 里编写、试玩和调试 [ink](https://github.com/inkle/ink) 互动小说的插件,中英双语界面。桌面端和手机端都能用。[English](README.md)
 
-![编辑器里的中英双语 ink 源码,右侧试玩面板正在玩英文版](docs/images/editor-and-play.png)
+![改一句剧本,试玩面板立刻更新;做个选择,把故事切到中文,再打开 knot 图谱](docs/images/demo.gif)
 
 ## 为什么要做 Inkwright
 
