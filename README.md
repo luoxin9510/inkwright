@@ -1,6 +1,8 @@
-# ink-cn
+# Inkwright
 
-在 Obsidian 里编写和试玩 [ink](https://github.com/inkle/ink) 互动小说的插件,带中文界面和中文编译报错。桌面端和手机端都能用。
+**Write, playtest and debug [ink](https://github.com/inkle/ink) interactive fiction in Obsidian.** Chinese and English interface.
+
+在 Obsidian 里编写、试玩和调试 [ink](https://github.com/inkle/ink) 互动小说的插件,中英双语界面。桌面端和手机端都能用。
 
 ## 功能(第一期)
 
@@ -22,18 +24,18 @@
 npm install
 npm test          # 单元测试
 npm run build     # 类型检查 + 打包出 main.js
-OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/ink-cn npm run dev   # 监听构建,直接输出到 vault
+OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/inkwright npm run dev   # 监听构建,直接输出到 vault
 ```
 
 ## 安装到 vault
 
-把 `main.js`、`manifest.json`、`styles.css` 复制到 `<vault>/.obsidian/plugins/ink-cn/`,在 Obsidian 设置的"第三方插件"中启用。手机端通过你的 vault 同步方式把这个文件夹同步过去即可。
+把 `main.js`、`manifest.json`、`styles.css` 复制到 `<vault>/.obsidian/plugins/inkwright/`,在 Obsidian 设置的"第三方插件"中启用。手机端通过你的 vault 同步方式把这个文件夹同步过去即可。
 
 ## 通过 BRAT 安装(桌面和手机)
 
 1. 在社区插件市场安装并启用 **BRAT**(Obsidian42 - BRAT)。
-2. BRAT 设置 → "Add Beta plugin",填入 `luoxin9510/ink-cn`。
-3. 在第三方插件列表里启用"Ink 中文"。之后发布新版本时 BRAT 会自动更新。
+2. BRAT 设置 → "Add Beta plugin",填入 `luoxin9510/inkwright`。
+3. 在第三方插件列表里启用"Inkwright"。之后发布新版本时 BRAT 会自动更新。
 
 ## 许可证
 

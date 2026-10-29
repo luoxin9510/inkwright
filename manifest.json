@@ -1,9 +1,9 @@
 {
-  "id": "ink-cn",
-  "name": "Ink 中文",
+  "id": "inkwright",
+  "name": "Inkwright",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "在 Obsidian 里编写和试玩 ink 互动小说,带中文界面与中文报错。",
+  "description": "Write, playtest and debug ink interactive fiction in your vault. INCLUDE support, live recompile, Chinese and English interface.",
   "author": "luoxin9510",
   "isDesktopOnly": false
 }

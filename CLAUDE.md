@@ -1,10 +1,10 @@
-# ink-cn
+# Inkwright (id: inkwright)
 
 Obsidian plugin: edit and play ink stories (inkjs), Chinese/English UI, desktop + mobile.
 
 ## Commands
 - `npm test` — vitest (Node). macOS has no `timeout`; wrap long runs with `perl -e 'alarm 90; exec @ARGV' npx vitest run`.
-- `npm run build` — tsc + esbuild → `main.js`. `OBSIDIAN_PLUGIN_DIR=<vault>/.obsidian/plugins/ink-cn npm run build` builds into a vault.
+- `npm run build` — tsc + esbuild → `main.js`. `OBSIDIAN_PLUGIN_DIR=<vault>/.obsidian/plugins/inkwright npm run build` builds into a vault.
 - Game vault: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/ink-games` (iCloud, used on phone too).
 
 ## Layout

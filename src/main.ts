@@ -11,7 +11,7 @@ interface Settings {
   locked: string | null;
 }
 
-export default class InkCnPlugin extends Plugin implements PlayController {
+export default class InkwrightPlugin extends Plugin implements PlayController {
   private config: Settings = { locked: null };
   private latest = new LatestOnly();
   private timer: number | null = null;

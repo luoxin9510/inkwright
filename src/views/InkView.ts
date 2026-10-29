@@ -3,7 +3,7 @@ import { TextFileView, type WorkspaceLeaf } from "obsidian";
 import { createInkState, replaceDocWithoutHistory } from "../editor/state";
 import { T } from "../i18n";
 
-export const INK_VIEW_TYPE = "ink-cn-editor";
+export const INK_VIEW_TYPE = "inkwright-editor";
 
 export class InkView extends TextFileView {
   private cm: EditorView | null = null;
@@ -27,7 +27,7 @@ export class InkView extends TextFileView {
   }
 
   async onOpen(): Promise<void> {
-    this.contentEl.addClass("ink-cn-editor");
+    this.contentEl.addClass("inkwright-editor");
     this.cm = new EditorView({ parent: this.contentEl, state: this.freshState(this.lastData) });
   }
 
