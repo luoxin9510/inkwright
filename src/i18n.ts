@@ -59,6 +59,9 @@ const zh = {
   saved: "已存档:",
   nothingToSave: "现在没有可以存档的进度。",
   saveNotFound: (id: string) => `找不到存档 "${id}"`,
+  exportWeb: "导出为网页",
+  exported: "已导出网页:",
+  exportFailed: "剧本有编译错误,无法导出。",
 };
 
 export type Strings = typeof zh;
@@ -121,6 +124,9 @@ const en: Strings = {
   saved: "Saved: ",
   nothingToSave: "There is no progress to save right now.",
   saveNotFound: (id) => `No save matches "${id}"`,
+  exportWeb: "Export as web page",
+  exported: "Exported web page: ",
+  exportFailed: "The story has compile errors and cannot be exported.",
 };
 
 const tables: Record<Language, Strings> = { zh, en };

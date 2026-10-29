@@ -7,6 +7,8 @@ import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
+import INK_RUNTIME from "virtual:ink-runtime";
+import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type PlayController, type PlayState } from "./views/PlayView";
@@ -58,6 +60,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "open-graph", name: T().openGraph, callback: () => void this.openGraph() });
     this.addCommand({ id: "lock-main", name: T().lockCurrent, callback: () => void this.lockCurrent() });
     this.addCommand({ id: "unlock-main", name: T().unlock, callback: () => void this.setLocked(null) });
+    this.addCommand({ id: "export-web", name: T().exportWeb, callback: () => void this.exportWeb() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -196,6 +199,30 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     await this.saveData(this.config);
     setLanguage(resolveLanguage(value, moment.locale()));
     this.pushState();
+  }
+
+  /** Writes the story as a standalone web page next to it; defaults to the current main story. */
+  async exportWeb(path: string | null = this.targetRoot()): Promise<{ path: string | null; diagnostics: Diagnostic[] }> {
+    if (path === null) {
+      new Notice(T().noRoot);
+      return { path: null, diagnostics: [] };
+    }
+    const result = await compileStory(path, this.readFile);
+    if (!result.story) {
+      new Notice(T().exportFailed);
+      return { path: null, diagnostics: result.diagnostics };
+    }
+    const out = exportFileName(path);
+    const fallback = out.slice(out.lastIndexOf("/") + 1).replace(/\.html$/, "");
+    const html = buildWebPage({
+      title: storyTitle(result.story.globalTags, fallback),
+      storyJson: result.story.ToJson() as string,
+      runtime: INK_RUNTIME,
+      id: path,
+    });
+    await this.app.vault.adapter.write(out, html);
+    new Notice(T().exported + out);
+    return { path: out, diagnostics: result.diagnostics };
   }
 
   // --- internals ---

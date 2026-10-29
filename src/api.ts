@@ -22,6 +22,7 @@ export interface ApiHost {
   saveGame(name?: string): Promise<{ id: string; name: string; savedAt: string } | null>;
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
+  exportWeb(path?: string | null): Promise<{ path: string | null; diagnostics: Diagnostic[] }>;
   savesForRoot(): { id: string; name: string; savedAt: string }[];
 }
 
@@ -89,6 +90,10 @@ Visible play panel (the user sees what you do):
   load(idOrName)       load a save into the panel
   deleteSave(idOrName) delete a save
 
+Export:
+  exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
+                       -> { ok, path, diagnostics }; path defaults to the panel's main story
+
 CLI example:
   obsidian vault=ink-games eval code='app.plugins.plugins.inkwright.api.play("游戏/雨夜来客/main.ink",{choices:[1,"油灯"]}).then(JSON.stringify)'`;
 
@@ -101,6 +106,11 @@ export class InkwrightApi {
 
   help(): string {
     return HELP;
+  }
+
+  async exportWeb(path?: string): Promise<{ ok: boolean; path: string | null; diagnostics: ApiDiagnostic[] }> {
+    const r = await this.host.exportWeb(path);
+    return { ok: r.path !== null, path: r.path, diagnostics: plainDiagnostics(r.diagnostics) };
   }
 
   async compile(path: string): Promise<CompileReport> {
