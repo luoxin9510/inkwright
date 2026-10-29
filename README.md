@@ -101,6 +101,12 @@ OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/inkwright npm run dev   # w
 
 Releases are built by GitHub Actions when a version tag (e.g. `0.2.0`, no `v`) is pushed.
 
+## Thanks
+
+- **[inkle](https://www.inklestudios.com/)**, for creating [ink](https://www.inklestudios.com/ink/) and Inky, open-sourcing them under MIT, and showing with *80 Days*, *Heaven's Vault* and friends what a few `*` and `->` can do. Inkwright is an unofficial fan tool and not affiliated with inkle.
+- **[inkjs](https://github.com/y-lohse/inkjs)** by Yannick Lohse and contributors, the JavaScript port of ink that compiles and runs every story here.
+- **[Obsidian](https://obsidian.md)**, for a plugin API that lets an interactive fiction studio move into a note-taking app.
+
 ## License
 
 MIT. The story engine is [inkjs](https://github.com/y-lohse/inkjs) (MIT); ink is by [inkle](https://www.inklestudios.com/ink/).

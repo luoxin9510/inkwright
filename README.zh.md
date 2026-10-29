@@ -79,6 +79,12 @@ OBSIDIAN_PLUGIN_DIR=/path/to/vault/.obsidian/plugins/inkwright npm run dev   # �
 2. BRAT 设置 → "Add Beta plugin",填入 `luoxin9510/inkwright`。
 3. 在第三方插件列表里启用"Inkwright"。之后发布新版本时 BRAT 会自动更新。
 
+## 致谢
+
+- **[inkle](https://www.inklestudios.com/)**:感谢他们创造了 [ink](https://www.inklestudios.com/ink/) 和 Inky,并以 MIT 协议开源,还用《80 天环游地球》(*80 Days*)、《天国的拱顶》(*Heaven's Vault*)等作品证明了几个 `*` 和 `->` 能讲出多好的故事。Inkwright 是爱好者做的非官方工具,与 inkle 没有隶属关系。
+- **[inkjs](https://github.com/y-lohse/inkjs)**:Yannick Lohse 和贡献者们做的 ink JavaScript 移植版,本插件里每个剧本都是靠它编译和运行的。
+- **[Obsidian](https://obsidian.md)**:它的插件接口让一个互动小说工作室能直接搬进笔记软件里。
+
 ## 许可证
 
 MIT。剧本引擎使用 [inkjs](https://github.com/y-lohse/inkjs)(MIT)。
