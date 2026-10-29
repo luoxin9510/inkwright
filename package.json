@@ -8,7 +8,8 @@
   "scripts": {
     "test": "vitest run",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
-    "dev": "node esbuild.config.mjs"
+    "dev": "node esbuild.config.mjs",
+    "check-ink": "esbuild scripts/check-ink.ts --bundle --platform=node --format=esm --outfile=.cache/check-ink.mjs --log-level=error && node .cache/check-ink.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.8.0",
