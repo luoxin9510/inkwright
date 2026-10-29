@@ -16,5 +16,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Same checks as the Obsidian community directory review: eslint-plugin-obsidianmd on
+      # src/, package.json and manifest.json, CSS lint, versions and a reproducible build.
       - run: npm run lint
-      - run: npm run build
+      - run: npm run check-release

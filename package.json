@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "check-ink": "esbuild scripts/check-ink.ts --bundle --platform=node --format=esm --outfile=.cache/check-ink.mjs --log-level=error && node .cache/check-ink.mjs",
-    "lint": "eslint src"
+    "lint": "eslint . --max-warnings 0 && stylelint styles.css",
+    "check-release": "node scripts/check-release.mjs"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.8.0",
@@ -24,6 +25,7 @@
     "eslint-plugin-obsidianmd": "^0.4.2",
     "happy-dom": "^21.0.4",
     "obsidian": "1.14.4",
+    "stylelint": "^17.16.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.72.1",
     "vitest": "^3.0.0"
