@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { LatestOnly, applyVaultEvent, isDependency, resolveRoot } from "../src/root";
+import { LatestOnly, applyVaultEvent, isDependency, nextRoot, resolveRoot } from "../src/root";
 
 describe("resolveRoot", () => {
   test("uses the active .ink file when nothing is locked", () => {
@@ -46,5 +46,29 @@ describe("LatestOnly", () => {
   });
   test("a lone run returns its value", async () => {
     expect(await new LatestOnly().run(async () => 1)).toBe(1);
+  });
+});
+
+describe("nextRoot", () => {
+  test("switching to a non-ink file keeps the current story", () => {
+    expect(nextRoot("main.ink", "note.md", null)).toBe("main.ink");
+  });
+  test("focus moving to a non-file leaf keeps the current story", () => {
+    expect(nextRoot("main.ink", null, null)).toBe("main.ink");
+  });
+  test("opening another ink file switches to it", () => {
+    expect(nextRoot("main.ink", "other.ink", null)).toBe("other.ink");
+  });
+  test("a lock always wins", () => {
+    expect(nextRoot("other.ink", "x.ink", "main.ink")).toBe("main.ink");
+  });
+});
+
+describe("LatestOnly.invalidate", () => {
+  test("invalidate discards an in-flight run", async () => {
+    const l = new LatestOnly();
+    const p = l.run(() => new Promise<string>((r) => setTimeout(() => r("old"), 20)));
+    l.invalidate();
+    expect(await p).toBeNull();
   });
 });

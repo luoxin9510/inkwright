@@ -1,4 +1,5 @@
 import { Story } from "inkjs/full";
+import { translate } from "../compile/diagnostics";
 
 export interface Paragraph {
   text: string;
@@ -38,15 +39,17 @@ export class PlaySession {
   }
 
   start(): Step {
+    this.errors = [];
     return this.advance();
   }
 
   choose(index: number): Step {
+    this.errors = [];
     if (this.halted) return this.snapshot([]);
     try {
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
-      this.errors.push(e instanceof Error ? e.message : String(e));
+      this.errors.push(translate(e instanceof Error ? e.message : String(e)));
       return this.snapshot([]);
     }
     return this.advance();
@@ -62,7 +65,7 @@ export class PlaySession {
 
   private attach(story: Story): Story {
     story.onError = (message: string) => {
-      this.errors.push(message);
+      this.errors.push(translate(message));
     };
     return story;
   }

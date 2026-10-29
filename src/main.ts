@@ -2,7 +2,7 @@ import { Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
 import { compileStory } from "./compile/compile";
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, type Paragraph, type Step } from "./play/session";
-import { LatestOnly, applyVaultEvent, isDependency, resolveRoot } from "./root";
+import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { T } from "./i18n";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type PlayController } from "./views/PlayView";
@@ -34,7 +34,11 @@ export default class InkCnPlugin extends Plugin implements PlayController {
     this.addCommand({ id: "lock-main", name: T.lockCurrent, callback: () => void this.lockCurrent() });
     this.addCommand({ id: "unlock-main", name: T.unlock, callback: () => void this.setLocked(null) });
 
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.schedule()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      // Focusing the play panel itself must not restart the story.
+      if (leaf?.view instanceof PlayView) return;
+      if (this.targetRoot() !== this.root) this.schedule();
+    }));
     const touch = (path: string) => {
       if (isDependency(path, this.files)) this.schedule();
     };
@@ -49,7 +53,13 @@ export default class InkCnPlugin extends Plugin implements PlayController {
       touch(oldPath);
     }));
 
-    this.app.workspace.onLayoutReady(() => this.schedule());
+    this.app.workspace.onLayoutReady(() => {
+      const locked = this.config.locked;
+      if (locked !== null && !(this.app.vault.getAbstractFileByPath(locked) instanceof TFile)) {
+        void this.updateLock(null);
+      }
+      this.schedule();
+    });
   }
 
   onunload(): void {
@@ -74,8 +84,18 @@ export default class InkCnPlugin extends Plugin implements PlayController {
   }
 
   async openDiagnostic(d: Diagnostic): Promise<void> {
-    await this.app.workspace.openLinkText(d.file, "");
-    if (d.line !== null) this.app.workspace.getActiveViewOfType(InkView)?.goToLine(d.line);
+    const file = this.app.vault.getAbstractFileByPath(d.file);
+    if (!(file instanceof TFile)) {
+      new Notice(T.fileMissing + d.file);
+      return;
+    }
+    const { workspace } = this.app;
+    const leaf =
+      workspace.getLeavesOfType(INK_VIEW_TYPE).find((l) => (l.view as InkView).file?.path === d.file) ??
+      workspace.getLeaf("tab");
+    await leaf.openFile(file);
+    workspace.revealLeaf(leaf);
+    if (d.line !== null && leaf.view instanceof InkView) leaf.view.goToLine(d.line);
   }
 
   // --- internals ---
@@ -113,7 +133,13 @@ export default class InkCnPlugin extends Plugin implements PlayController {
     this.schedule();
   }
 
+  private targetRoot(): string | null {
+    return nextRoot(this.root, this.app.workspace.getActiveFile()?.path ?? null, this.config.locked);
+  }
+
   private schedule(): void {
+    // Nothing to show without a play panel, so skip compiling entirely.
+    if (this.app.workspace.getLeavesOfType(PLAY_VIEW_TYPE).length === 0) return;
     if (this.timer !== null) window.clearTimeout(this.timer);
     this.timer = window.setTimeout(() => void this.recompile(), 300);
   }
@@ -125,9 +151,10 @@ export default class InkCnPlugin extends Plugin implements PlayController {
   };
 
   private async recompile(): Promise<void> {
-    const root = resolveRoot(this.app.workspace.getActiveFile()?.path ?? null, this.config.locked);
+    const root = this.targetRoot();
     this.root = root;
     if (root === null) {
+      this.latest.invalidate();
       this.session = null;
       this.diagnostics = [];
       this.files = [];

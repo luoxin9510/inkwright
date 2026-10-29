@@ -17,4 +17,5 @@ export const T = {
   lockNotInk: "当前文件不是 .ink 文件。",
   locked: "已锁定主剧本:",
   unlocked: "已解除主剧本锁定。",
+  fileMissing: "文件不存在:",
 } as const;

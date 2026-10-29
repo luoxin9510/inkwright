@@ -97,5 +97,7 @@ export class PlayView extends ItemView {
       choices.createEl("button", { text: c.text, cls: "ink-cn-choice" }).onclick = () =>
         this.controller.choose(c.index);
     }
+    // Keep the newest text and choices in view, especially on small screens.
+    choices.scrollIntoView({ block: "end" });
   }
 }

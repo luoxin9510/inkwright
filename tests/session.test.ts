@@ -69,3 +69,18 @@ describe("PlaySession infinite-loop guard", () => {
     expect(step.errors.some((e) => e.includes("无限循环"))).toBe(true);
   }, 5000);
 });
+
+describe("PlaySession errors", () => {
+  test("errors belong to the step that produced them", async () => {
+    const s = new PlaySession(await story("Hello\n* [Go] Went\n  -> END"));
+    s.start();
+    expect(s.choose(99).errors.length).toBeGreaterThan(0);
+    expect(s.choose(0).errors).toEqual([]);
+  });
+
+  test("errors are passed through the Chinese translation", async () => {
+    const s = new PlaySession(await story("Hello\n* [Go] Went\n  -> END"));
+    s.start();
+    expect(s.choose(99).errors[0]).toMatch(/暂无中文翻译|[一-鿿]/);
+  });
+});
