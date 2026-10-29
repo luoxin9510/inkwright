@@ -130,6 +130,7 @@ const PLAYER = `(function () {
   var start = null;  // state at the beginning, to replay picks in another language
   var picks = [];    // choice indexes since start
   var replaying = false;
+  var halted = false;  // the last step was stopped (loop or error); its state is not saved
   story.onError = function (msg) { log.push({ text: msg, kind: "error" }); };
 
   function storage(get, value) {
@@ -174,7 +175,7 @@ const PLAYER = `(function () {
       b.onclick = function () { choose(c.index, c.text); };
       choicesEl.appendChild(b);
     });
-    endEl.hidden = story.currentChoices.length > 0;
+    endEl.hidden = halted || story.currentChoices.length > 0;
     backEl.disabled = history.length === 0;
     if (langVar) langEl.value = language();
   }
@@ -184,11 +185,13 @@ const PLAYER = `(function () {
   // Time-sliced like the play panel, so a looping story is stopped instead of freezing the page.
   function advance() {
     var deadline = Date.now() + cfg.loopMs;
+    halted = false;
     while (story.canContinue) {
       try {
         story.ContinueAsync(20);
       } catch (e) {
         fail(e);
+        halted = true;
         break;
       }
       if (story.asyncContinueComplete) {
@@ -197,11 +200,13 @@ const PLAYER = `(function () {
       }
       if (Date.now() > deadline) {
         log.push({ text: (cfg.strings[language() || cfg.ui] || cfg.strings[cfg.ui]).loop, kind: "error" });
+        halted = true;
         break;
       }
     }
     if (replaying) return;
-    persist();
+    // A stopped step is mid-run: keep the last good save, so a reload resumes before it.
+    if (!halted) persist();
     render();
   }
 
@@ -252,7 +257,7 @@ const PLAYER = `(function () {
       if (c) choose(i, c.text);
     });
     replaying = false;
-    persist();
+    if (!halted) persist();
     render();
   }
 
@@ -283,6 +288,7 @@ const PLAYER = `(function () {
     story.state.LoadJson(h.state);
     log.length = h.n;
     picks.pop();
+    halted = false;
     persist();
     render();
   };
