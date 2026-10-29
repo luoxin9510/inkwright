@@ -1,12 +1,13 @@
 import { Notice, Plugin, TFile, moment, type WorkspaceLeaf } from "obsidian";
-import { compileStory } from "./compile/compile";
+import { InkwrightApi } from "./api";
+import { compileStory, type Flow } from "./compile/compile";
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, type Paragraph, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
-import { PLAY_VIEW_TYPE, PlayView, type PlayController } from "./views/PlayView";
+import { PLAY_VIEW_TYPE, PlayView, type PlayController, type PlayState } from "./views/PlayView";
 
 interface Settings {
   locked: string | null;
@@ -23,6 +24,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
   private session: PlaySession | null = null;
   private log: Paragraph[] = [];
   private last: Step | null = null;
+  private flows: Flow[] = [];
+  private startPoint: string | null = null;
+  /** Scriptable API for agents, e.g. via `obsidian eval`. See src/api.ts. */
+  readonly api = new InkwrightApi(this);
 
   async onload(): Promise<void> {
     // Load settings first: the language (and command names below) depend on them.
@@ -74,6 +79,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
 
   // --- PlayController ---
 
+  startAt(path: string | null): void {
+    this.startPoint = path;
+    if (!this.session) return;
+    this.log = [];
+    this.apply(this.session.startAt(path));
+  }
+
   restart(): void {
     if (!this.session) return;
     this.log = [];
@@ -119,7 +131,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
 
   // --- internals ---
 
-  private async openPlay(): Promise<void> {
+  async openPlay(): Promise<void> {
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(PLAY_VIEW_TYPE)[0] ?? null;
     if (!leaf) {
@@ -163,7 +175,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
     this.timer = window.setTimeout(() => void this.recompile(), 300);
   }
 
-  private readFile = async (path: string): Promise<string> => {
+  readFile = async (path: string): Promise<string> => {
     const f = this.app.vault.getAbstractFileByPath(path);
     if (!(f instanceof TFile)) throw new Error("not a file: " + path);
     return this.app.vault.cachedRead(f);
@@ -171,12 +183,14 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
 
   private async recompile(): Promise<void> {
     const root = this.targetRoot();
+    if (root !== this.root) this.startPoint = null;
     this.root = root;
     if (root === null) {
       this.latest.invalidate();
       this.session = null;
       this.diagnostics = [];
       this.files = [];
+      this.flows = [];
       this.log = [];
       this.last = null;
       this.pushState();
@@ -186,10 +200,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
     if (result === null) return;
     this.files = result.files;
     this.diagnostics = result.diagnostics;
+    this.flows = result.flows;
     this.log = [];
     if (result.story) {
+      // Keep the chosen start point across recompiles while it still exists.
+      if (this.startPoint !== null && !this.flows.some((f) => f.path === this.startPoint)) this.startPoint = null;
       this.session = new PlaySession(result.story);
-      this.apply(this.session.start());
+      this.apply(this.session.startAt(this.startPoint));
     } else {
       this.session = null;
       this.last = null;
@@ -203,21 +220,34 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
     this.pushState();
   }
 
-  private pushState(): void {
+  /** What the play panel shows right now (also returned by the agent API). */
+  snapshot(): PlayState {
     const step = this.last;
+    return {
+      root: this.root,
+      locked: this.config.locked,
+      diagnostics: this.diagnostics,
+      hasStory: this.session !== null,
+      log: this.log,
+      choices: step?.choices ?? [],
+      ended: step?.ended ?? false,
+      runtimeErrors: step?.errors ?? [],
+      inspection: this.session?.inspect() ?? null,
+      flows: this.flows,
+      startPoint: this.startPoint,
+    };
+  }
+
+  /** Recompiles now (skipping the debounce) and resolves when the panel is up to date. */
+  async refresh(): Promise<void> {
+    if (this.timer !== null) window.clearTimeout(this.timer);
+    await this.recompile();
+  }
+
+  private pushState(): void {
+    const state = this.snapshot();
     for (const leaf of this.app.workspace.getLeavesOfType(PLAY_VIEW_TYPE)) {
-      if (!(leaf.view instanceof PlayView)) continue;
-      leaf.view.showState({
-        root: this.root,
-        locked: this.config.locked,
-        diagnostics: this.diagnostics,
-        hasStory: this.session !== null,
-        log: this.log,
-        choices: step?.choices ?? [],
-        ended: step?.ended ?? false,
-        runtimeErrors: step?.errors ?? [],
-        inspection: this.session?.inspect() ?? null,
-      });
+      if (leaf.view instanceof PlayView) leaf.view.showState(state);
     }
   }
 }

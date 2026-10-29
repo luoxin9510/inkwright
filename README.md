@@ -18,6 +18,15 @@
 - 命令"将当前文件锁定为主剧本" / "解除主剧本锁定",或用面板上的按钮。
 - 编辑后约 2 秒(Obsidian 自动保存)面板会自动更新,重新编译后故事从头开始。
 
+## 给 agent 用的接口(Agent API)
+
+插件在 Obsidian 里暴露 `app.plugins.plugins.inkwright.api`,可以通过 [Obsidian CLI](https://help.obsidian.md/cli) 的 `eval` 编译剧本、按选项序列自动试玩、读取变量和访问次数、驱动试玩面板,结果都是 JSON:
+
+```bash
+obsidian vault=<你的 vault> eval code='app.plugins.plugins.inkwright.api.help()'
+obsidian vault=<你的 vault> eval code='app.plugins.plugins.inkwright.api.play("游戏/main.ink",{choices:[0,"开门"]}).then(JSON.stringify)'
+```
+
 ## 开发
 
 ```bash

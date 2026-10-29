@@ -31,3 +31,8 @@
 .inkwright-inspector td { padding: 2px 4px; border-bottom: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; }
 .inkwright-inspector td:first-child { color: var(--text-accent); width: 45%; }
 .inkwright-inspector-empty { color: var(--text-faint); font-size: var(--font-smaller); }
+
+/* inkwright: start from */
+.inkwright-start { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; color: var(--text-muted); }
+.inkwright-start select { flex: 1; min-width: 0; min-height: 36px; }
+.inkwright-hint-small { font-size: var(--font-smaller); color: var(--text-faint); margin-bottom: 8px; }

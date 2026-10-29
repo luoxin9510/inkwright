@@ -1,4 +1,5 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
+import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T } from "../i18n";
 import type { Inspection } from "../play/inspect";
@@ -16,10 +17,13 @@ export interface PlayState {
   ended: boolean;
   runtimeErrors: string[];
   inspection: Inspection | null;
+  flows: Flow[];
+  startPoint: string | null;
 }
 
 export interface PlayController {
   restart(): void;
+  startAt(path: string | null): void;
   choose(index: number): void;
   toggleLock(): void;
   openDiagnostic(d: Diagnostic): void;
@@ -74,6 +78,7 @@ export class PlayView extends ItemView {
     bar.createEl("button", { text: locked ? T().unlockShort : T().lock }).onclick = () =>
       this.controller.toggleLock();
 
+    if (s.flows.length > 0) this.renderStartFrom(el, s);
     if (s.inspection) this.renderInspector(el, s.inspection);
 
     if (s.diagnostics.length > 0) {
@@ -128,5 +133,19 @@ export class PlayView extends ItemView {
     };
     table(T().variables, insp.variables.map((v) => [v.name, v.value]));
     table(T().visits, insp.visits.map((v) => [v.path, String(v.count)]));
+  }
+
+  private renderStartFrom(el: HTMLElement, s: PlayState): void {
+    const row = el.createDiv({ cls: "inkwright-start" });
+    row.createSpan({ text: T().startFrom });
+    const select = row.createEl("select", { cls: "dropdown" });
+    select.createEl("option", { value: "", text: T().beginning });
+    for (const f of s.flows) {
+      const label = f.kind === "stitch" ? `\u00a0\u00a0${f.path}` : f.path;
+      select.createEl("option", { value: f.path, text: label });
+    }
+    select.value = s.startPoint ?? "";
+    select.onchange = () => this.controller.startAt(select.value === "" ? null : select.value);
+    if (s.startPoint !== null) el.createDiv({ cls: "inkwright-hint-small", text: T().startedMidway });
   }
 }

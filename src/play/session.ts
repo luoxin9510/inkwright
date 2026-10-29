@@ -33,6 +33,8 @@ export class PlaySession {
   private readonly budget: number;
   private errors: string[] = [];
   private halted = false;
+  /** Knot/stitch path the story starts from; null means the beginning. */
+  startPoint: string | null = null;
 
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
@@ -60,14 +62,32 @@ export class PlaySession {
   /** Current variables and visit counts; empty while a halted loop left the story mid-step. */
   inspect(): Inspection {
     if (this.halted) return { variables: [], visits: [], turns: 0 };
-    return inspect(this.story);
+    const result = inspect(this.story);
+    // ChoosePathString (used by startAt) advances the turn index once; that is not a player choice.
+    if (this.startPoint !== null) result.turns = Math.max(0, result.turns - 1);
+    return result;
   }
 
-  /** Starts over from a fresh Story, which also works after a halted loop. */
+  /** Starts over from the current start point, with a fresh Story (works after a halted loop too). */
   restart(): Step {
+    return this.startAt(this.startPoint);
+  }
+
+  /** Starts over from a knot or stitch ("knot" / "knot.stitch"), or from the beginning when null. */
+  startAt(path: string | null): Step {
+    this.startPoint = path;
     this.story = this.attach(new Story(this.json));
     this.errors = [];
     this.halted = false;
+    if (path !== null) {
+      try {
+        this.story.ChoosePathString(path);
+      } catch (e) {
+        this.halted = true;
+        this.errors.push(translateRuntime(e instanceof Error ? e.message : String(e)));
+        return this.snapshot([]);
+      }
+    }
     return this.advance();
   }
 

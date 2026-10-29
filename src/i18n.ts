@@ -30,6 +30,11 @@ const zh = {
   visits: "访问次数",
   none: "(无)",
   turns: (n: number) => `已做出 ${n} 次选择`,
+  startFrom: "从这里开始",
+  beginning: "开头",
+  startedMidway: "从中途开始:开头的代码没有运行,变量是初始值。",
+  storyEnded: "故事已经结束,无法继续选择。",
+  choiceNotFound: (want: string, available: string[]) => `找不到选项 "${want}"。当前可选:${available.join(" / ") || "(无)"}`,
 };
 
 export type Strings = typeof zh;
@@ -63,6 +68,11 @@ const en: Strings = {
   visits: "Visit counts",
   none: "(none)",
   turns: (n) => `${n} choice${n === 1 ? "" : "s"} made`,
+  startFrom: "Start from",
+  beginning: "Beginning",
+  startedMidway: "Started midway: code before this point did not run; variables have their initial values.",
+  storyEnded: "The story has ended; no more choices can be made.",
+  choiceNotFound: (want, available) => `No choice matches "${want}". Available: ${available.join(" / ") || "(none)"}`,
 };
 
 const tables: Record<Language, Strings> = { zh, en };
