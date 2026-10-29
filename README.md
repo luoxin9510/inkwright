@@ -11,6 +11,25 @@ Think of it as Inky inside your vault: your story files sit next to your notes, 
 
 ![Bilingual ink source in the editor, with the English version playing in the play panel](docs/images/editor-and-play.png)
 
+## Why Inkwright?
+
+Writing a branching story is already a choose-your-own-adventure. The adventure should not be: alt-tab to Inky, copy the file over, lose the outline, forget which knot you were in, alt-tab back.
+
+- **Your story lives where your notes live.** Character sheets, maps, the timeline, the 3 a.m. plot twist you typed on your phone: all one `[[link]]` away from the script.
+- **Write a line, play the line.** Save, and the play panel has already recompiled. No build step, no ceremony.
+- **See the spaghetti before your readers do.** The knot graph draws every branch and outlines in red the knots no path can reach. (Every writer has that one perfect ending nobody will ever see.)
+- **Works on the train.** Desktop and mobile, same vault, same saves.
+- **One file to ship.** Export a single `.html`, drop it on itch.io, go to bed.
+- **One story, two languages.** Write `{tr("Hello", "你好")}` once; readers switch languages mid-story without losing their place, and the plugin nags you about untranslated lines more reliably than any editor.
+- **Robots welcome.** A JSON API lets your coding agent play every ending while you make tea.
+
+```ink
+=== you ===
+You have a story in your head and a vault full of notes.
+* [Keep alt-tabbing between three apps] -> still_alt_tabbing
+* [Install Inkwright] -> happily_ever_after
+```
+
 ## Install
 
 In Obsidian, open **Settings → Community plugins → Browse**, search for **Inkwright**, then install and enable it. Or open the [listing in the community directory](https://community.obsidian.md/plugins/inkwright).
