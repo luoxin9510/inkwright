@@ -22,7 +22,7 @@ export const zhTable: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/^Expected some kind of logic, conditional or sequence within braces: \{ \.\.\. \} but saw (.+)$/, (m) => `花括号 { } 里应该是逻辑、条件或序列(实际是:${saw(m[1])})`],
   [/^Expected closing brace '\}' for inline logic but saw (.+)$/, (m) => `缺少右花括号 '}'(实际是:${saw(m[1])})`],
   [/^Function call target not found: '-> (.+)'$/, (m) => `找不到被调用的函数 '${m[1]}'`],
-  [/^Function call to '(.+)' requires (\d+) arguments?, but got (\d+)$/, (m) => `函数 '${m[1]}' 需要 ${m[2]} 个参数,但传入了 ${m[3]} 个`],
+  [/^Function call to '(.+)' requires (\d+) arguments?, but (?:only )?got (\d+)$/, (m) => `函数 '${m[1]}' 需要 ${m[2]} 个参数,但传入了 ${m[3]} 个`],
   [/^should not have return statement outside of a knot$/, () => "return 只能写在函数里"],
   [/^Functions may not contain diverts, but saw '(.+)'$/, (m) => `函数里不能有跳转,但出现了 '${m[1]}'`],
   [/^Expected end of line but saw (.+)$/, (m) => `这一行应该结束了,但多出了:${m[1]}`],
@@ -43,6 +43,10 @@ export const zhTable: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/^RANDOM should take 2 parameters: a minimum and a maximum integer$/, () => "RANDOM 需要 2 个参数:最小值和最大值(整数)"],
   [/^Expected the '=' for an assignment of a value, e\.g\. '= 5' \(initial values are mandatory\) but saw (.+)$/, (m) => `缺少 '=' 和初始值:声明变量必须给初始值,例如 VAR 金币 = 5(实际是:${saw(m[1])})`],
   [/^Expected closing parenthesis '\)' for expression but saw (.+)$/, (m) => `表达式缺少右括号 ')'(实际是:${saw(m[1])})`],
+  [/^Expected end of line after knot name definition but saw (.+)$/, (m) => `knot 标题行后面不能再写别的内容(比如 tag),请换到下一行(实际是:${m[1]})`],
+  [/^List '(.+)' contains duplicate items called '(.+)'$/, (m) => `LIST '${m[1]}' 里有重复的值 '${m[2]}'`],
+  [/^Unexpected ','\. If you're trying to declare a new list, use the LIST keyword, not VAR/, () => "这里不应出现逗号:声明列表要用 LIST 而不是 VAR;给变量赋多个列表值要加括号,如 (火把, 绳索)"],
+  [/^Ambiguous item name '(.+?)' found in multiple sets, including (.+?) and (.+)$/, (m) => `名字 '${m[1]}' 有歧义:${m[2]} 和 ${m[3]} 里都有它,请写成 列表名.${m[1]}`],
   // Generic parser expectation; keep last so the specific entries above win.
   [/^Expected (.+?) but saw (.+)$/, (m) => `期望 ${m[1]},但实际是:${saw(m[2])}`],
 ];

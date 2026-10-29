@@ -62,6 +62,11 @@ describe("translate", () => {
     ["RANDOM should take 2 parameters: a minimum and a maximum integer", "RANDOM 需要 2 个参数:最小值和最大值(整数)"],
     ["Expected the '=' for an assignment of a value, e.g. '= 5' (initial values are mandatory) but saw end of line", "缺少 '=' 和初始值:声明变量必须给初始值,例如 VAR 金币 = 5(实际是:行尾)"],
     ["Expected closing parenthesis ')' for expression but saw '}'", "表达式缺少右括号 ')'(实际是:'}')"],
+    ["Function call to '播放音效' requires 2 arguments, but only got 1", "函数 '播放音效' 需要 2 个参数,但传入了 1 个"],
+    ["Expected end of line after knot name definition but saw ' # 场景:码头'", "knot 标题行后面不能再写别的内容(比如 tag),请换到下一行(实际是:' # 场景:码头')"],
+    ["List '门' contains duplicate items called '锁死'", "LIST '门' 里有重复的值 '锁死'"],
+    ["Unexpected ','. If you're trying to declare a new list, use the LIST keyword, not VAR", "这里不应出现逗号:声明列表要用 LIST 而不是 VAR;给变量赋多个列表值要加括号,如 (火把, 绳索)"],
+    ["Ambiguous item name '书房' found in multiple sets, including 人物 and 地点", "名字 '书房' 有歧义:人物 和 地点 里都有它,请写成 列表名.书房"],
   ])("%s", (en, zh) => {
     expect(translate(en)).toBe(zh);
   });
