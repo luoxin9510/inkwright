@@ -1,6 +1,6 @@
 {
   "name": "inkwright",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Write, playtest and debug ink interactive fiction: live play panel, saves, knot graph, web export and bilingual stories. English and Chinese interface.",
   "license": "MIT",
   "private": true,
