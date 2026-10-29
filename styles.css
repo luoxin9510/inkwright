@@ -22,3 +22,12 @@
 .inkwright-diag-error { border-left-color: var(--text-error); }
 .inkwright-diag-warning { border-left-color: var(--text-warning); }
 .inkwright-diag-loc { display: block; font-size: var(--font-smaller); color: var(--text-muted); }
+
+/* inkwright: variable inspector */
+.inkwright-inspector { margin-bottom: 12px; padding: 6px 8px; border: 1px solid var(--background-modifier-border); border-radius: 6px; }
+.inkwright-inspector summary { cursor: pointer; color: var(--text-muted); min-height: 32px; line-height: 32px; }
+.inkwright-inspector h5 { margin: 8px 0 4px; font-size: var(--font-smaller); color: var(--text-muted); }
+.inkwright-inspector table { width: 100%; border-collapse: collapse; font-family: var(--font-monospace); font-size: var(--font-smaller); }
+.inkwright-inspector td { padding: 2px 4px; border-bottom: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; }
+.inkwright-inspector td:first-child { color: var(--text-accent); width: 45%; }
+.inkwright-inspector-empty { color: var(--text-faint); font-size: var(--font-smaller); }

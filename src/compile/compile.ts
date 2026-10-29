@@ -46,7 +46,8 @@ export async function compileStory(rootPath: string, readFile: ReadFile): Promis
   };
 
   const options = new CompilerOptions(
-    basename(rootPath), [], false, onError, new CachedFileHandler(rootPath, cache),
+    // countAllVisits: the variable panel shows visit counts for every knot and stitch.
+    basename(rootPath), [], true, onError, new CachedFileHandler(rootPath, cache),
   );
 
   let story: Story | null = null;

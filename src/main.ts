@@ -216,6 +216,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController {
         choices: step?.choices ?? [],
         ended: step?.ended ?? false,
         runtimeErrors: step?.errors ?? [],
+        inspection: this.session?.inspect() ?? null,
       });
     }
   }

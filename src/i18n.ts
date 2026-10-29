@@ -25,6 +25,11 @@ const zh = {
   settingLanguage: "界面语言",
   settingLanguageDesc: "命令面板里的命令名需要重新加载插件后才会更新。",
   followObsidian: "跟随 Obsidian",
+  inspector: "变量与访问次数",
+  variables: "变量",
+  visits: "访问次数",
+  none: "(无)",
+  turns: (n: number) => `已做出 ${n} 次选择`,
 };
 
 export type Strings = typeof zh;
@@ -53,6 +58,11 @@ const en: Strings = {
   settingLanguage: "Interface language",
   settingLanguageDesc: "Command names in the command palette update after reloading the plugin.",
   followObsidian: "Follow Obsidian",
+  inspector: "Variables & visits",
+  variables: "Variables",
+  visits: "Visit counts",
+  none: "(none)",
+  turns: (n) => `${n} choice${n === 1 ? "" : "s"} made`,
 };
 
 const tables: Record<Language, Strings> = { zh, en };

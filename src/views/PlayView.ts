@@ -1,6 +1,7 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T } from "../i18n";
+import type { Inspection } from "../play/inspect";
 import type { Choice, Paragraph } from "../play/session";
 
 export const PLAY_VIEW_TYPE = "inkwright-play";
@@ -14,6 +15,7 @@ export interface PlayState {
   choices: Choice[];
   ended: boolean;
   runtimeErrors: string[];
+  inspection: Inspection | null;
 }
 
 export interface PlayController {
@@ -25,6 +27,7 @@ export interface PlayController {
 
 export class PlayView extends ItemView {
   private state: PlayState | null = null;
+  private inspectorOpen = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -71,6 +74,8 @@ export class PlayView extends ItemView {
     bar.createEl("button", { text: locked ? T().unlockShort : T().lock }).onclick = () =>
       this.controller.toggleLock();
 
+    if (s.inspection) this.renderInspector(el, s.inspection);
+
     if (s.diagnostics.length > 0) {
       const box = el.createDiv({ cls: "inkwright-diagnostics" });
       box.createEl("h4", { text: T().errors });
@@ -99,5 +104,29 @@ export class PlayView extends ItemView {
     }
     // Keep the newest text and choices in view, especially on small screens.
     choices.scrollIntoView({ block: "end" });
+  }
+
+  private renderInspector(el: HTMLElement, insp: Inspection): void {
+    const box = el.createEl("details", { cls: "inkwright-inspector" });
+    box.open = this.inspectorOpen;
+    box.addEventListener("toggle", () => {
+      this.inspectorOpen = box.open;
+    });
+    box.createEl("summary", { text: `${T().inspector} · ${T().turns(insp.turns)}` });
+    const table = (title: string, rows: [string, string][]) => {
+      box.createEl("h5", { text: title });
+      if (rows.length === 0) {
+        box.createDiv({ cls: "inkwright-inspector-empty", text: T().none });
+        return;
+      }
+      const t = box.createEl("table");
+      for (const [k, v] of rows) {
+        const tr = t.createEl("tr");
+        tr.createEl("td", { text: k });
+        tr.createEl("td", { text: v });
+      }
+    };
+    table(T().variables, insp.variables.map((v) => [v.name, v.value]));
+    table(T().visits, insp.visits.map((v) => [v.path, String(v.count)]));
   }
 }

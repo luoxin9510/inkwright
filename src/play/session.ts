@@ -1,6 +1,7 @@
 import { Story } from "inkjs/full";
 import { translateRuntime } from "../compile/diagnostics";
 import { T } from "../i18n";
+import { inspect, type Inspection } from "./inspect";
 
 export interface Paragraph {
   text: string;
@@ -54,6 +55,12 @@ export class PlaySession {
       return this.snapshot([]);
     }
     return this.advance();
+  }
+
+  /** Current variables and visit counts; empty while a halted loop left the story mid-step. */
+  inspect(): Inspection {
+    if (this.halted) return { variables: [], visits: [], turns: 0 };
+    return inspect(this.story);
   }
 
   /** Starts over from a fresh Story, which also works after a halted loop. */
