@@ -4,7 +4,8 @@ Obsidian plugin: edit and play ink stories (inkjs), Chinese/English UI, desktop 
 
 ## Commands
 - `npm test` — vitest (Node). macOS has no `timeout`; wrap long runs with `perl -e 'alarm 90; exec @ARGV' npx vitest run`.
-- `npm run check-ink -- <folder>` — compile + auto-play every main .ink under a folder (INCLUDEd chapters skipped); use it on vault content and tutorial examples.
+- `npm run check-ink -- <folder>` — compile + auto-play every main .ink under a folder (INCLUDEd chapters skipped); use it on vault content and tutorial examples. `--all` plays every branch (breadth-first, `src/play/explore.ts`) and lists the endings; `--lang zh|en` for bilingual stories.
+- `npm run export-web -- <main.ink> <out.html> [--lang zh|en] [--id key]` — the web export from the command line (used by the public games repo luoxin9510/ink-games).
 - `npm run build` — tsc + esbuild → `main.js`. `OBSIDIAN_PLUGIN_DIR=<vault>/.obsidian/plugins/inkwright npm run build` builds into a vault.
 - Game vault: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/ink-games` (iCloud, used on phone too).
 
@@ -17,7 +18,7 @@ Always pass `vault=ink-games`. Never quit/restart the whole app: other sessions 
 
 ## Agent API (`src/api.ts`)
 `app.plugins.plugins.inkwright.api` — call via `obsidian vault=ink-games eval code='...api.<method>(...).then(JSON.stringify)'`; `api.help()` prints usage.
-Headless: `compile(path)`, `graph(path)` (nodes/edges/unreachable), `play(path, {from?, choices?})` (choices by index or text) → transcript, variables, visits, errors. Visible panel: `open`, `panel`, `choose`, `restart`, `startAt`, `back`, `save`, `saves`, `load`, `deleteSave` (saves live in plugin data per main story). Export: `exportWeb(path?)` → standalone `.html` next to the story. Bilingual stories (`VAR 语言`/`VAR lang`, text via `{双("中文", "English")}`): `play(path, {language})`, panel `language(lang)`; switching replays the run (`PlaySession.setLanguage`), `src/compile/bilingual.ts` warns about bare text.
+Headless: `compile(path)`, `graph(path)` (nodes/edges/unreachable), `play(path, {from?, choices?})` (choices by index or text) → transcript, variables, visits, errors; `explore(path, {language?})` → every ending reached and runtime errors. Visible panel: `open`, `panel`, `choose`, `restart`, `startAt`, `back`, `save`, `saves`, `load`, `deleteSave` (saves live in plugin data per main story). Export: `exportWeb(path?)` → standalone `.html` next to the story. Bilingual stories (`VAR 语言`/`VAR lang`, text via `{双("中文", "English")}`): `play(path, {language})`, panel `language(lang)`; switching replays the run (`PlaySession.setLanguage`), `src/compile/bilingual.ts` warns about bare text.
 The game vault has its own `CLAUDE.md` telling agents how to playtest; keep it in sync when the API changes.
 
 ## Layout
@@ -38,4 +39,5 @@ The game vault has its own `CLAUDE.md` telling agents how to playtest; keep it i
 - `npm run lint` — the Obsidian community directory's checks: eslint-plugin-obsidianmd over `src/`, `package.json` (dependency replacements) and `manifest.json`, with `--max-warnings 0`, plus stylelint on `styles.css` (no `!important`). Must pass clean.
 - `npm run check-release` — manifest/package/versions.json versions agree (and match the tag in CI); `npm run build` is reproducible (the directory rebuilds and compares main.js).
 - CI (`.github/workflows/ci.yml`): test + lint + check-release on every push/PR; `main` is protected, so changes go through a PR and the `check` job must pass before merging. `claude-review.yml`: independent Claude review on each PR.
+- Release cadence: batch merged PRs and release about once a week, not after every PR.
 - Release: bump `manifest.json`, `package.json`, `versions.json`; tag equals version without `v`; pushing the tag runs `release.yml`, which builds and creates a draft GitHub release with main.js, manifest.json, styles.css; publish the draft by hand.
