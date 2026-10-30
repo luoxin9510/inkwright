@@ -5,8 +5,13 @@ import { GameEngine } from "../game/engine";
 import { PlaySession, type SaveData } from "./session";
 
 export interface ExploreOptions {
-  /** Max choices to make in total; endless loops stop here (default 5000). */
+  /** Max choices to make in total (default 5000). */
   maxSteps?: number;
+  /**
+   * A spot (the same choices offered) is played on from at most this many different states
+   * (default 10): a story whose resources differ on every path stays finite, a counting loop ends.
+   */
+  statesPerSpot?: number;
   /** Language for a bilingual story. */
   language?: string;
   /** Per-step loop guard, as in PlaySession (default 1000 ms). */
@@ -26,6 +31,8 @@ export interface ExploreResult {
   errors: { choices: string[]; message: string }[];
   /** True when maxSteps ran out before every branch was played. */
   truncated: boolean;
+  /** Spots reached in more states than statesPerSpot; the extra states were not played on. */
+  cappedSpots: number;
   /**
    * Game mode: how many check outcomes were walked, and failed checks after which nothing
    * changed (no variable, same choices): the story's "failure must have consequences" rule.
@@ -48,6 +55,8 @@ interface Move {
   choices: ChoiceRef[];
   choice: ChoiceRef;
   plan: Band[];
+  /** Whether the state this move starts from was fresh (not reached before) when it was queued. */
+  fromFresh: boolean;
 }
 
 /**
@@ -55,7 +64,8 @@ interface Move {
  * Breadth-first so that a loop (a sticky "again" choice) cannot use up the step budget
  * before the other branches are tried. In game mode every check met on a move is forced
  * to the planned outcome (success by default), and a sibling move is queued for each
- * other outcome, so both sides of every check get played.
+ * other outcome, so both sides of every check get played. A state reached before is not played
+ * on again, and a spot (the same choices offered) is played on from at most `statesPerSpot` states.
  */
 export function exploreStory(story: Story, options: ExploreOptions = {}): ExploreResult {
   const bands: Band[] = options.bands?.length ? options.bands : [3, 1];
@@ -80,17 +90,27 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   // The engine's own bookkeeping changes on every check; it is not a consequence.
   const hidden = new Set(engine ? [inkNames(engine.config).seed, inkNames(engine.config).rolls] : []);
   const variables = () => JSON.stringify(session.inspect().variables.filter((v) => !hidden.has(v.name)));
-  const result: ExploreResult = { endings: [], errors: [], truncated: false };
+  const result: ExploreResult = { endings: [], errors: [], truncated: false, cappedSpots: 0 };
   if (engine) result.checks = { walked: 0, noConsequence: [] };
   let steps = options.maxSteps ?? 5000;
+  const perSpot = options.statesPerSpot ?? 10;
 
   // A state reached before is not expanded again: poking around a room in a different order,
-  // or two branches that join with the same variables, lead to the same futures.
+  // or two branches that join with the same variables, lead to the same futures. A spot reached
+  // in ever new states (a resource that differs on every path, a counter) is expanded perSpot times.
   const seen = new Set<string>();
+  const spots = new Map<string, number>();
+  const capped = new Set<string>();
   const unseen = (save: SaveData): boolean => {
-    const key = stateKey(save.state);
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const key = stateKey(save.state, hidden);
+    if (seen.has(key.state)) return false;
+    seen.add(key.state);
+    const n = spots.get(key.spot) ?? 0;
+    if (n >= perSpot) {
+      capped.add(key.spot);
+      return false;
+    }
+    spots.set(key.spot, n + 1);
     return true;
   };
 
@@ -100,13 +120,13 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const start = session.save();
   if (first.ended) result.endings.push({ choices: [], lastText: session.log.at(-1)?.text ?? "" });
   else if (start && first.errors.length === 0 && unseen(start)) {
-    for (const choice of first.choices) queue.push({ save: start, path: [], choices: first.choices, choice, plan: [] });
+    for (const choice of first.choices) queue.push({ save: start, path: [], choices: first.choices, choice, plan: [], fromFresh: true });
   }
 
   for (let move = queue.shift(); move; move = queue.shift()) {
     if (steps-- <= 0) {
       result.truncated = true;
-      return result;
+      break;
     }
     session.load(move.save);
     const before = engine ? variables() : null;
@@ -138,27 +158,33 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     }
     const next = session.save();
     if (next) {
-      // A sibling move exists to show its outcome's path, so it goes on even into a state seen before.
+      // A sibling move exists to show its outcome's path, so it goes on once even into a state
+      // seen before (a retry that changes nothing); from there the usual rule holds again.
       const fresh = unseen(next);
-      if (fresh || move.plan.length > 0) {
-        for (const choice of step.choices) queue.push({ save: next, path, choices: step.choices, choice, plan: [] });
+      if (fresh || (move.plan.length > 0 && move.fromFresh)) {
+        for (const choice of step.choices) queue.push({ save: next, path, choices: step.choices, choice, plan: [], fromFresh: fresh });
       }
     }
   }
+  result.cappedSpots = capped.size;
   return result;
 }
 
 /**
- * The parts of a state that decide its future: without the turn counters, the text just shown
- * and the last random; object keys sorted, since inkjs writes visit counts and list items in
- * the order they were first touched.
+ * The parts of a state that decide its future: without the turn counters, the text just shown,
+ * the last random and the engine's own variables (`hidden`); object keys sorted, since inkjs
+ * writes visit counts and list items in the order they were first touched. The spot is the
+ * list of choice points offered.
  */
-function stateKey(state: string): string {
+function stateKey(state: string, hidden: Set<string>): { state: string; spot: string } {
   const j = JSON.parse(state) as Record<string, unknown>;
   delete j.turnIdx;
   delete j.turnIndices;
   delete j.previousRandom;
   delete j.storySeed;
+  const vars = j.variablesState as Record<string, unknown> | undefined;
+  for (const name of hidden) delete vars?.[name];
+  const spot: string[] = [];
   const flows = j.flows;
   if (flows && typeof flows === "object") {
     for (const flow of Object.values(flows as Record<string, Record<string, unknown>>)) {
@@ -166,9 +192,10 @@ function stateKey(state: string): string {
       // Thread numbers only count how many choice generations there were.
       const threads = (flow.callstack as { threads?: Record<string, unknown>[] } | undefined)?.threads;
       for (const thread of threads ?? []) delete thread.threadIndex;
+      for (const c of (flow.currentChoices as { originalChoicePath?: string }[] | undefined) ?? []) spot.push(c.originalChoicePath ?? "");
     }
   }
-  return JSON.stringify(canonical(j));
+  return { state: JSON.stringify(canonical(j)), spot: spot.join("\n") };
 }
 
 function canonical(v: unknown): unknown {

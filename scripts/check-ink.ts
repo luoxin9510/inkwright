@@ -3,7 +3,7 @@
 // With --all, play every branch instead (breadth-first) and list the endings reached; --lang zh|en
 // picks the language of a bilingual story. A story with a game note (game.md) next to it is
 // explored in game mode, once per character, walking the success and the failure of every check.
-// Usage: npm run check-ink -- <folder> [--quiet] [--all] [--lang zh|en] [--max-steps N]
+// Usage: npm run check-ink -- <folder> [--quiet] [--all] [--lang zh|en] [--max-steps N] [--states-per-spot N]
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
@@ -32,6 +32,8 @@ const langAt = process.argv.indexOf("--lang");
 const language = langAt >= 0 ? process.argv[langAt + 1] : undefined;
 const stepsAt = process.argv.indexOf("--max-steps");
 const maxSteps = stepsAt >= 0 ? Number(process.argv[stepsAt + 1]) : 20000;
+const spotAt = process.argv.indexOf("--states-per-spot");
+const statesPerSpot = spotAt >= 0 ? Number(process.argv[spotAt + 1]) : undefined;
 if (!root) {
   console.error("usage: check-ink <folder>");
   process.exit(2);
@@ -53,6 +55,7 @@ for (const file of files) {
   const problems = r.diagnostics.filter((d) => d.severity !== "todo");
   const runtime: string[] = [];
   const warnings: string[] = [];
+  const notes: string[] = [];
   let steps = 0;
   const endings: string[] = [];
   if (r.story && all) {
@@ -66,12 +69,13 @@ for (const file of files) {
       game = read.config;
     }
     const runs: { tag: string; x: ExploreResult }[] = game
-      ? game.characters.map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id, maxSteps }) }))
-      : [{ tag: "", x: exploreStory(r.story, { language, maxSteps }) }];
+      ? game.characters.map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id, maxSteps, statesPerSpot }) }))
+      : [{ tag: "", x: exploreStory(r.story, { language, maxSteps, statesPerSpot }) }];
     for (const { tag, x } of runs) {
       runtime.push(...x.errors.map((e) => `${tag}${e.message} (after: ${e.choices.join(" > ") || "start"})`));
       if (x.truncated) runtime.push(`${tag}stopped exploring after ${maxSteps} choices (endless loop, or raise --max-steps); not every branch was played`);
       endings.push(...x.endings.map((e) => `${tag}${e.lastText}  <- ${e.choices.join(" > ")}`));
+      if (x.cappedSpots > 0) notes.push(`${tag}${x.cappedSpots} spot(s) reached in more states than played on (${statesPerSpot ?? 10} each; raise --states-per-spot to play on more)`);
       for (const c of x.checks?.noConsequence ?? []) {
         warnings.push(`${tag}failing ${c.skill} ${c.difficulty} changes nothing (no variable, same choices): ${c.choices.join(" > ")}`);
       }
@@ -91,6 +95,7 @@ for (const file of files) {
   if (bad || problems.length > 0 || warnings.length > 0 || !quiet) {
     console.log(`${bad ? "FAIL" : problems.length || warnings.length ? "WARN" : "ok  "} ${rel} (${all ? `${endings.length} endings reached` : `${steps} choices played`})`);
     if (!quiet) for (const e of endings) console.log(`     [ending] ${e}`);
+    if (!quiet) for (const n of notes) console.log(`     [note] ${n}`);
     for (const d of problems) console.log(`     [${d.severity}] ${relative(".", d.file)}:${d.line ?? "?"} ${d.message}`);
     for (const w of warnings) console.log(`     [warning] ${w}`);
     for (const e of runtime) console.log(`     [runtime] ${e}`);
