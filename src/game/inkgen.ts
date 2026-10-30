@@ -52,6 +52,8 @@ export function generateInk(config: GameConfig): string {
     "",
     `EXTERNAL ${n.check}(${n.skillParam}, ${n.difficultyParam})`,
     "",
+    // The id is a string (0.4.0; engines generated before 0.4.0 took a list item and must be
+    // regenerated; the panel's "engine out of date" warning flags them).
     `// Loads a character's preset by id: ${n.select}("${config.characters[0]?.id ?? "id"}")`,
     `=== function ${n.select}(${n.whoParam}) ===`,
   );
