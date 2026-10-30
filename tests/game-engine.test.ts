@@ -6,6 +6,7 @@ import { PlaySession } from "../src/play/session";
 import { CONFIG } from "./fixtures/gameConfig";
 
 const STORY = `-> main
+VAR 语言 = "zh"
 ${generateInk(CONFIG)}
 === main ===
 走廊尽头的门虚掩着。
@@ -96,6 +97,50 @@ describe("GameEngine with a PlaySession", () => {
     expect(step.choices.length).toBe(3);
     session.choose(0);
     expect(engine.rolls.at(-1)?.band).toBe(4);
+  });
+
+  test("replaying the run in another language rolls the same dice and keeps one record per check", () => {
+    const engine = new GameEngine(CONFIG);
+    const session = new PlaySession(compile(), { setup: (story) => engine.setup(story, "阿波") });
+    session.start();
+    const outcome = session.choose(0).paragraphs[0].text;
+    const first = engine.rolls[0];
+    expect(first.index).toBe(0);
+    session.setLanguage("en");
+    expect(engine.rolls).toEqual([first]);
+    expect(session.log[2].text).toBe(outcome);
+  });
+
+  test("back and the same choice again rolls the same dice; the undone roll leaves the log", () => {
+    const engine = new GameEngine(CONFIG);
+    const session = new PlaySession(compile(), { setup: (story) => engine.setup(story, "阿波") });
+    session.start();
+    const outcome = session.choose(0).paragraphs[0].text;
+    const first = engine.rolls[0];
+    session.back();
+    expect(engine.rolls).toEqual([]);
+    expect(session.choose(0).paragraphs[0].text).toBe(outcome);
+    expect(engine.rolls).toEqual([first]);
+    session.choose(0);
+    expect(engine.rolls.map((r) => r.index)).toEqual([0, 1]);
+  });
+
+  test("a save carries the dice: another session replays the same rolls from it", () => {
+    const a = new GameEngine(CONFIG);
+    const sa = new PlaySession(compile(), { setup: (story) => a.setup(story, "阿波") });
+    sa.start();
+    sa.choose(0);
+    const save = sa.save();
+    if (!save) throw new Error("no save");
+    const b = new GameEngine(CONFIG);
+    const sb = new PlaySession(compile(), { setup: (story) => b.setup(story, "昕") });
+    sb.start();
+    sb.choose(0); // b's own run, with its own dice
+    sb.load(save);
+    expect(b.rolls).toEqual([]); // that roll belongs to another run
+    sb.setLanguage("en");
+    expect(b.rolls).toEqual(a.rolls);
+    expect(b.character()).toBe("阿波");
   });
 
   test("a forced band skips the dice (for walking every outcome)", () => {

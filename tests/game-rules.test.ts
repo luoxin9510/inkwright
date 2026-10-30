@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { chance, resolve, type RulesConfig } from "../src/game/dice";
+import { chance, resolve, type RulesConfig, seededDice } from "../src/game/dice";
 
 const twoD6: RulesConfig = { kind: "sum", dice: [6, 6] };
 const d20: RulesConfig = { kind: "sum", dice: [20], partialBelow: 0 };
@@ -70,5 +70,27 @@ describe("roll-under d100 (CoC style)", () => {
   });
   test("chance is the skill percentage", () => {
     expect(chance(d100, { level: 60, difficulty: 0 }).success).toBeCloseTo(0.6, 6);
+  });
+});
+
+describe("seededDice", () => {
+  const roll = (seed: number, index: number) => {
+    const rng = seededDice(seed, index);
+    return [rng(), rng(), rng()];
+  };
+
+  test("the same seed and check number give the same faces; another seed or number gives others", () => {
+    expect(roll(42, 3)).toEqual(roll(42, 3));
+    expect(roll(42, 3)).not.toEqual(roll(42, 4));
+    expect(roll(42, 3)).not.toEqual(roll(43, 3));
+    expect(roll(0, 0)).not.toEqual(roll(0, 1));
+  });
+
+  test("values are in [0, 1) and the dice of one check are not all alike", () => {
+    for (const v of roll(7, 0)) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(1);
+    }
+    expect(new Set(roll(1, 1)).size).toBeGreaterThan(1);
   });
 });

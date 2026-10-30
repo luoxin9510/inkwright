@@ -79,6 +79,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (isDependency(path, this.files)) this.schedule();
     };
     this.registerEvent(this.app.vault.on("modify", (f) => touch(f.path)));
+    // The game note is read from the metadata cache, which updates after `modify`: compile again then.
+    this.registerEvent(this.app.metadataCache.on("changed", (f) => touch(f.path)));
     this.registerEvent(this.app.vault.on("create", (f) => touch(f.path)));
     this.registerEvent(this.app.vault.on("delete", (f) => {
       void this.updateLock(applyVaultEvent(this.config.locked, { type: "delete", path: f.path }));

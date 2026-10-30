@@ -1,9 +1,9 @@
 import { InkList, type Story } from "inkjs/full";
 import { collectModifiers, inkNames, parseCheckTag, parseVoiceTag, type CheckTag, type GameConfig } from "./config";
-import { chance, resolve, type Band, type Chance, type CheckResult, type Rng } from "./dice";
+import { chance, resolve, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 
 export interface EngineOptions {
-  /** Random source for the dice (default Math.random). */
+  /** Random source for the dice; default: dice derived from the run's seed, so replays match. */
   rng?: Rng;
   /** When set, every check gets this band instead of rolling (explorers walk both outcomes this way). */
   force?: (check: CheckTag) => Band;
@@ -15,6 +15,8 @@ export interface EngineOptions {
 export interface RollRecord extends CheckResult {
   skill: string;
   chance: Chance;
+  /** Position of the check in its run: the story's roll counter before it. */
+  index: number;
 }
 
 /** What the panel shows on a choice that is a check. */
@@ -41,39 +43,47 @@ export interface HudView {
 /**
  * The rules engine for one game: binds the story's EXTERNAL check function (rolling with the
  * configured dice and the modifiers read from the story's state), loads the chosen character's
- * preset, and reads the state back for the panel. The story's variables stay the only state;
- * the engine keeps just the dice log.
+ * preset, and reads the state back for the panel. The story's variables stay the only state:
+ * the engine writes just a dice seed per run and a roll counter into them, so back, load and
+ * the language replay roll the same dice again; the log of faces is kept here, keyed by both.
  */
 export class GameEngine {
-  readonly rolls: RollRecord[] = [];
   private story: Story | null = null;
   private readonly bound = new WeakSet<Story>();
-  private readonly rng: Rng;
+  private readonly rng: Rng | null;
   private readonly force?: (check: CheckTag) => Band;
   private readonly keepRolls: number;
+  private log: { seed: number; record: RollRecord }[] = [];
 
   constructor(readonly config: GameConfig, options: EngineOptions = {}) {
-    this.rng = options.rng ?? Math.random;
+    this.rng = options.rng ?? null;
     this.force = options.force;
     this.keepRolls = options.keepRolls ?? 20;
   }
 
   /**
-   * Prepares a freshly built Story: binds the check function and loads `character`'s preset
-   * (a later LoadJson overrides it, which is what back/load/language replay want). Pass it as
-   * PlaySession's `setup` so every rebuilt Story gets the same treatment.
+   * Prepares a freshly built Story: binds the check function, seeds its dice and loads
+   * `character`'s preset (a later LoadJson overrides seed and preset, which is what back/load/
+   * language replay want). Pass it as PlaySession's `setup` so every rebuilt Story gets the same
+   * treatment; a Story seen before is left as it is.
    */
   setup(story: Story, character?: string): void {
     this.story = story;
+    if (this.bound.has(story)) return;
+    this.bound.add(story);
     const names = inkNames(this.config);
-    if (!this.bound.has(story)) {
-      story.BindExternalFunction(names.check, (skill: unknown, difficulty: unknown) => this.roll(skill, difficulty), false);
-      this.bound.add(story);
-    }
+    story.BindExternalFunction(names.check, (skill: unknown, difficulty: unknown) => this.roll(skill, difficulty), false);
+    if (this.has(names.seed)) this.write(names.seed, 1 + Math.floor(Math.random() * 0x7fffffff));
     const id = character ?? this.config.characters[0]?.id;
     if (id !== undefined && this.config.characters.some((c) => c.id === id)) {
       story.EvaluateFunction(names.select, [InkList.FromString(id, story)]);
     }
+  }
+
+  /** The checks rolled so far in the current run, as far as the state has got (after back: fewer). */
+  get rolls(): RollRecord[] {
+    const run = this.run();
+    return this.log.filter((e) => run === null || (e.seed === run.seed && e.record.index < run.count)).map((e) => e.record);
   }
 
   private roll(skillArg: unknown, difficultyArg: unknown): number {
@@ -84,15 +94,37 @@ export class GameEngine {
     const difficulty = Number(difficultyArg);
     const modifiers = known ? collectModifiers(this.config, skill, (n) => this.read(n)) : [];
     const input = { level, difficulty, modifiers };
+    const run = this.run();
+    const seed = run?.seed ?? 0;
+    const index = run?.count ?? (this.log.at(-1)?.record.index ?? -1) + 1;
+    const rng = this.rng ?? (run ? seededDice(seed, index) : Math.random);
     const forced = this.force?.({ skill, difficulty, red: false });
-    const result = resolve(this.config.rules, input, this.rng, forced);
-    this.rolls.push({ ...result, skill, chance: chance(this.config.rules, input) });
-    if (this.rolls.length > this.keepRolls) this.rolls.splice(0, this.rolls.length - this.keepRolls);
+    const result = resolve(this.config.rules, input, rng, forced);
+    if (run) this.write(inkNames(this.config).rolls, index + 1);
+    // Rolling check `index` again (back, replay) replaces its record; other runs' records go.
+    this.log = this.log.filter((e) => e.seed === seed && e.record.index < index);
+    this.log.push({ seed, record: { ...result, skill, index, chance: chance(this.config.rules, input) } });
+    if (this.log.length > this.keepRolls) this.log.splice(0, this.log.length - this.keepRolls);
     return result.band;
+  }
+
+  /** The run's dice seed and roll counter from the story's variables; null when the story lacks them. */
+  private run(): { seed: number; count: number } | null {
+    const names = inkNames(this.config);
+    if (!this.has(names.seed) || !this.has(names.rolls)) return null;
+    return { seed: Number(this.read(names.seed)), count: Number(this.read(names.rolls)) };
+  }
+
+  private has(name: string): boolean {
+    return this.story?.variablesState.GlobalVariableExistsWithName(name) ?? false;
   }
 
   private read(name: string): unknown {
     return this.story?.variablesState[name];
+  }
+
+  private write(name: string, value: number): void {
+    if (this.story) this.story.variablesState[name] = value;
   }
 
   /** Text form of a story value: ink lists print their items, primitives themselves. */

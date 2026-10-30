@@ -110,6 +110,8 @@ describe("generated ink", () => {
     expect(ink).toContain("VAR 恐惧_阿波 = 10");
     expect(ink).toContain("VAR 信任_阿波 = 60");
     expect(ink).toContain("EXTERNAL 检定(技能, 难度)");
+    expect(ink).toContain("VAR 骰子种子 = 0");
+    expect(ink).toContain("VAR 掷骰次数 = 0");
     const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(阿波)\n{检定(\"力量\", 10)} {检定(\"力量\", 14)} {检定(\"没有\", 8)}\n-> END\n");
     const story = new Story(c.Compile().ToJson() as string);
     story.allowExternalFunctionFallbacks = true;

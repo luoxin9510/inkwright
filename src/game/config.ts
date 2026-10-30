@@ -80,6 +80,9 @@ export interface InkNames {
   current: string;
   /** Function that loads a character's preset: `选主角(谁)`. */
   select: string;
+  /** VARs the engine writes so the dice follow the state: the run's seed and how many checks it rolled. */
+  seed: string;
+  rolls: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -88,6 +91,7 @@ export interface InkNames {
 
 export const DEFAULT_INK_NAMES: InkNames = {
   check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
+  seed: "骰子种子", rolls: "掷骰次数",
   skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
 };
 

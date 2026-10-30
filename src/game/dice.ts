@@ -112,6 +112,22 @@ export function chance(rules: RulesConfig, input: CheckInput): Chance {
   return { success: bands[3] + bands[4], bands };
 }
 
+/**
+ * Dice for check number `index` of the run with this seed: each face is a hash of (seed, index,
+ * die), so a rebuilt Story (back, load, language replay) rolls the same faces again without
+ * replaying a random stream.
+ */
+export function seededDice(seed: number, index: number): Rng {
+  let die = 0;
+  return () => {
+    let h = (Math.imul(seed | 0, 0x9e3779b1) ^ Math.imul(index + 1, 0x85ebca77) ^ Math.imul(++die, 0xc2b2ae3d)) >>> 0;
+    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+    h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+    h ^= h >>> 15;
+    return (h >>> 0) / 4294967296;
+  };
+}
+
 /** The expected roll, used by the generated ink fallback when there is no engine to roll. */
 export function averageRoll(rules: RulesConfig): number {
   return rules.kind === "sum" ? sum(rules.dice.map((s) => (s + 1) / 2)) : (rules.sides + 1) / 2;

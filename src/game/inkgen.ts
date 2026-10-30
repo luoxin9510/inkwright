@@ -21,6 +21,10 @@ export function generateInk(config: GameConfig): string {
     "",
     "// Resources",
     ...config.resources.map((r) => `VAR ${r.id} = ${r.initial}`),
+    "",
+    "// Dice: the engine sets these; saved with the state, so back/load/replay roll the same",
+    `VAR ${n.seed} = 0`,
+    `VAR ${n.rolls} = 0`,
   ];
   const companions = config.companionResources ?? [];
   if (companions.length > 0) {
