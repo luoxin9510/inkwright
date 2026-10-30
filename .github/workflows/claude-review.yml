@@ -1,6 +1,6 @@
 name: Claude review
 
-# An independent review of every pull request by Claude, posted as PR comments.
+# An independent review of the owner's pull requests by Claude, posted as PR comments.
 # Needs the Claude GitHub App installed on the repo and a CLAUDE_CODE_OAUTH_TOKEN
 # secret (from `claude setup-token`).
 
@@ -10,7 +10,12 @@ on:
 
 jobs:
   review:
-    if: github.event.pull_request.draft == false
+    # Only the repository owner's own PRs from this repository get a review: the token is the
+    # owner's, and forks could not use the secret anyway (the job would only waste minutes).
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login == github.repository_owner &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -45,6 +45,6 @@ PRD: `docs/game-engine-prd.md` — TTRPG-style rules engine on top of Inkwright 
 - Pure logic: write the failing test first. UI wiring: build, reload, then check `dev:errors` + a screenshot yourself before asking the user.
 - `npm run lint` — the Obsidian community directory's checks: eslint-plugin-obsidianmd over `src/`, `package.json` (dependency replacements) and `manifest.json`, with `--max-warnings 0`, plus stylelint on `styles.css` (no `!important`). Must pass clean.
 - `npm run check-release` — manifest/package/versions.json versions agree (and match the tag in CI); `npm run build` is reproducible (the directory rebuilds and compares main.js).
-- CI (`.github/workflows/ci.yml`): test + lint + check-release on every push/PR; `main` is protected, so changes go through a PR and the `check` job must pass before merging. `claude-review.yml`: independent Claude review on each PR.
+- CI (`.github/workflows/ci.yml`): test + lint + check-release on every push/PR; `main` is protected, so changes go through a PR and the `check` job must pass before merging. `claude-review.yml`: independent Claude review, only on the owner's own non-fork PRs (secret is the owner's token).
 - Release cadence: batch merged PRs and release about once a week, not after every PR.
 - Release: bump `manifest.json`, `package.json`, `versions.json`; tag equals version without `v`; pushing the tag runs `release.yml`, which builds and creates a draft GitHub release with main.js, manifest.json, styles.css; publish the draft by hand.
