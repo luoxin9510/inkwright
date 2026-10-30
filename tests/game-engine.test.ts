@@ -51,7 +51,7 @@ describe("GameEngine with a PlaySession", () => {
     const after = session.choose(0);
     expect(after.paragraphs[0].text).toBe("锁开了。"); // 3 + 4 + 5 = 12 >= 10
     expect(engine.rolls).toHaveLength(1);
-    expect(engine.rolls[0]).toMatchObject({ skill: "力量", difficulty: 10, rolls: [3, 4], total: 12, band: 3 });
+    expect(engine.rolls[0]).toMatchObject({ skill: "力量", difficulty: 10, rolls: [3, 4], total: 12, band: 3, turn: 0 });
     expect(engine.rolls[0].chance.success).toBeCloseTo(30 / 36, 6);
   });
 

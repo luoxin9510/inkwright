@@ -194,9 +194,9 @@ ${generateInk(CONFIG)}
 {洞察力 >= 3: 黑。 #voice:洞察力}
 * [撬 #check:力量:10]
     { 检定("力量", 10) >= 3:
-        开了。
+        开了。 #fx:flash
     - else:
-        断了。
+        断了。 #fx:flash
     }
     -> END
 * [走]
@@ -217,6 +217,12 @@ test("a game page shows the HUD, voices, check odds and the dice log, and switch
   expect(texts("#dice li")).toHaveLength(1);
   expect(document.querySelector("#dice summary")?.textContent).toBe("掷骰记录 (1)");
   expect(["开了。", "断了。"]).toContain(texts("#story p").at(-1));
+  // The roll shows as a card under the choice that made it, and the line's #fx:flash plays on the story.
+  const card = document.querySelector("#story .roll");
+  expect(card?.previousElementSibling?.className).toBe("chosen");
+  expect(card?.querySelectorAll(".die")).toHaveLength(2);
+  expect(card?.querySelector(".band")?.textContent).toMatch(/成功|失败/);
+  expect(document.querySelector("#story")?.classList.contains("fx-flash")).toBe(true);
 
   // Another character starts a new run with their preset.
   const who = document.querySelector("#character") as HTMLSelectElement;

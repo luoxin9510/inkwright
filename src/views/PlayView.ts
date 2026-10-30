@@ -5,6 +5,7 @@ import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
 import type { ChoiceCheck, HudView, RollRecord } from "../game/engine";
+import { fxOf, type Fx } from "../game/config";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
 export interface GameView {
@@ -16,6 +17,8 @@ export interface GameView {
   checks: (ChoiceCheck | null)[];
   /** Speaking skill per paragraph, aligned with `log`. */
   voices: (string | null)[];
+  /** The story's turn per paragraph, aligned with `log`; rolls are placed by it. */
+  turns: (number | null)[];
   rolls: RollRecord[];
 }
 
@@ -151,8 +154,34 @@ export class PlayView extends ItemView {
     if (!s.hasStory) return;
 
     const story = el.createDiv({ cls: "inkwright-story" });
+    // Text shown for the first time after a choice clicked here is scrolled to, its dice tumble
+    // and its effects play. When the text changed for another reason (back, restart, a save
+    // loaded, the panel opened on a run, another story), the choices are shown instead; a
+    // re-render with the same text (config reload, HUD update) leaves the scroll position alone.
+    const sameRun = s.root === this.shownRoot;
+    const grew = sameRun && s.log.length > this.shownLog;
+    const changed = !sameRun || s.log.length !== this.shownLog;
+    const from = this.shownLog;
+    const fresh = grew && this.afterChoice;
+    this.shownRoot = s.root;
+    this.shownLog = s.log.length;
+    this.afterChoice = false; // a choice renders exactly once (the step is synchronous)
+
+    // A roll shows as a card where its check happened: before the first paragraph of its turn.
+    const rollsByTurn = new Map<number, RollRecord[]>();
+    for (const r of s.game?.rolls ?? []) rollsByTurn.set(r.turn, [...(rollsByTurn.get(r.turn) ?? []), r]);
     const paras: HTMLElement[] = [];
+    const newCards: HTMLElement[] = [];
+    let lastTurn: number | null = null;
     s.log.forEach((p, i) => {
+      const turn = s.game?.turns[i] ?? null;
+      if (s.game && turn !== null && (i === 0 || turn !== lastTurn)) {
+        for (const r of rollsByTurn.get(turn) ?? []) {
+          const card = this.renderRoll(story, r, s.game);
+          if (fresh && i >= from) newCards.push(card);
+        }
+      }
+      lastTurn = turn;
       const voice = s.game?.voices[i] ?? null;
       const skill = voice ? s.game?.skills.find((k) => k.id === voice) : undefined;
       const para = story.createEl("p");
@@ -177,20 +206,67 @@ export class PlayView extends ItemView {
         this.controller.choose(c.index);
       };
     });
-    // After a choice here, bring the first new paragraph to the top so the player reads on
-    // downwards; when the text changed for another reason (back, restart, a save loaded, the
-    // panel opened on a run, another story), show the choices. A re-render with the same text
-    // (config reload, HUD update) leaves the scroll position alone.
-    const sameRun = s.root === this.shownRoot;
-    const grew = sameRun && s.log.length > this.shownLog;
-    const changed = !sameRun || s.log.length !== this.shownLog;
-    const from = this.shownLog;
-    this.shownRoot = s.root;
-    this.shownLog = s.log.length;
-    if (grew && this.afterChoice) paras[from].scrollIntoView({ block: "start" });
-    else if (changed) choices.scrollIntoView({ block: "end" });
-    // A choice renders exactly once (the step is synchronous), so the click is spent here.
-    this.afterChoice = false;
+    if (fresh) {
+      (newCards[0] ?? paras[from]).scrollIntoView({ block: "start" });
+      this.animateRolls(newCards);
+      this.playFx(story, s.log.slice(from).flatMap((p) => fxOf(p.tags)));
+    } else if (changed) {
+      choices.scrollIntoView({ block: "end" });
+    }
+  }
+
+  /** One resolved check as a card in the text: skill and difficulty, the faces, the sum, the outcome. */
+  private renderRoll(parent: HTMLElement, r: RollRecord, game: GameView): HTMLElement {
+    const card = parent.createDiv({ cls: `inkwright-roll inkwright-roll-${r.band}` });
+    const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
+    card.createSpan({ cls: "inkwright-roll-skill", text: `${name} ${r.difficulty}` });
+    const dice = card.createSpan({ cls: "inkwright-roll-dice" });
+    for (const face of r.rolls) dice.createSpan({ cls: "inkwright-die", text: String(face) });
+    const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
+    card.createSpan({ cls: "inkwright-roll-sum", text: `+${r.level}${mods} = ${r.total}` });
+    card.createSpan({ cls: "inkwright-roll-band", text: T().bands[r.band] });
+    return card;
+  }
+
+  private static get stillMotion(): boolean {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  /** The faces of new cards tumble for a moment before settling; the outcome shows once they have. */
+  private animateRolls(cards: HTMLElement[]): void {
+    if (cards.length === 0 || PlayView.stillMotion) return;
+    for (const card of cards) {
+      const dice = Array.from(card.querySelectorAll<HTMLElement>(".inkwright-die"));
+      const faces = dice.map((d) => d.textContent ?? "");
+      card.addClass("inkwright-rolling");
+      let ticks = 0;
+      const timer = window.setInterval(() => {
+        if (++ticks > 8) {
+          window.clearInterval(timer);
+          dice.forEach((d, i) => d.setText(faces[i]));
+          card.removeClass("inkwright-rolling");
+          return;
+        }
+        for (const d of dice) d.setText(String(1 + Math.floor(Math.random() * 6)));
+      }, 70);
+      this.registerInterval(timer);
+    }
+  }
+
+  /** Plays the effects of the new lines on the story, one after another. */
+  private playFx(target: HTMLElement, effects: Fx[]): void {
+    if (effects.length === 0 || PlayView.stillMotion) return;
+    effects.forEach((fx, i) => {
+      const play = () => {
+        const cls = `inkwright-fx-${fx}`;
+        const done = () => target.removeClass(cls);
+        target.addClass(cls);
+        target.addEventListener("animationend", done, { once: true });
+        window.setTimeout(done, 2500);
+      };
+      if (i === 0) play();
+      else window.setTimeout(play, i * 900);
+    });
   }
 
   /** The skill, difficulty and odds of a check choice, on the button. */

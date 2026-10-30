@@ -17,6 +17,8 @@ export interface RollRecord extends CheckResult {
   chance: Chance;
   /** Position of the check in its run: the story's roll counter before it. */
   index: number;
+  /** The story's turn when the check was rolled (-1 before the first choice), to place it in the text. */
+  turn: number;
   /** Set when the story named a skill the config does not have (a typo): rolled at level 0. */
   unknown?: true;
 }
@@ -112,7 +114,7 @@ export class GameEngine {
     if (run) this.write(inkNames(this.config).rolls, index + 1);
     // Rolling check `index` again (back, replay) replaces its record; other runs' records go.
     this.log = this.log.filter((e) => e.seed === seed && e.record.index < index);
-    const record: RollRecord = { ...result, skill, index, chance: chance(this.config.rules, input) };
+    const record: RollRecord = { ...result, skill, index, turn: this.story?.state.currentTurnIndex ?? -1, chance: chance(this.config.rules, input) };
     if (!known) record.unknown = true;
     this.log.push({ seed, record });
     if (this.log.length > this.keepRolls) this.log.splice(0, this.log.length - this.keepRolls);

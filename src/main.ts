@@ -452,6 +452,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       hud: game.hud(),
       checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
       voices: this.session.log.map((p) => game.voiceOf(p)),
+      turns: [...this.session.turns],
       rolls: game.rolls,
     };
   }
