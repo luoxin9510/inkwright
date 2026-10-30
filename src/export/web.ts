@@ -284,7 +284,7 @@ const PLAYER = `(function () {
     // there; when the text changed for another reason (back, restart, resume), the choices are shown.
     if (log.length > shown && afterChoice && storyEl.children[shown]) storyEl.children[shown].scrollIntoView({ block: "start" });
     else if (log.length !== shown) choicesEl.scrollIntoView({ block: "end" });
-    if (log.length !== shown) afterChoice = false;
+    afterChoice = false;  // a choice renders exactly once (advance is synchronous)
     shown = log.length;
   }
 

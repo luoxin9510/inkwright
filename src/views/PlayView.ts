@@ -189,7 +189,8 @@ export class PlayView extends ItemView {
     this.shownLog = s.log.length;
     if (grew && this.afterChoice) paras[from].scrollIntoView({ block: "start" });
     else if (changed) choices.scrollIntoView({ block: "end" });
-    if (changed) this.afterChoice = false;
+    // A choice renders exactly once (the step is synchronous), so the click is spent here.
+    this.afterChoice = false;
   }
 
   /** The skill, difficulty and odds of a check choice, on the button. */
