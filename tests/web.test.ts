@@ -79,7 +79,7 @@ test("the page plays, goes back, restarts and resumes from localStorage", () => 
   expect((document.querySelector("#back") as HTMLButtonElement).disabled).toBe(true);
 });
 
-test("after a choice the first new paragraph is scrolled to the top; after going back, the choices", () => {
+test("after a choice the first new paragraph is scrolled to the top; after going back or resuming, the choices", () => {
   const scrolled: { text: string | null; block: unknown }[] = [];
   const proto = Element.prototype as unknown as { scrollIntoView: (o: unknown) => void };
   const original = proto.scrollIntoView;
@@ -90,6 +90,12 @@ test("after a choice the first new paragraph is scrolled to the top; after going
     expect(scrolled.at(-1)).toEqual({ text: "Right", block: "start" });
     (document.querySelector("#back") as HTMLElement).click();
     expect(scrolled.at(-1)).toEqual({ text: "LeftRight", block: "end" });
+    // Resuming a run from localStorage shows the choices, not the first paragraph.
+    (document.querySelector("#choices button:nth-child(2)") as HTMLElement).click();
+    scrolled.length = 0;
+    mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
+    expect(texts("#story p")).toEqual(["Hello.", "Right", "You went right."]);
+    expect(scrolled.at(-1)).toEqual({ text: "", block: "end" });
   } finally {
     proto.scrollIntoView = original;
   }

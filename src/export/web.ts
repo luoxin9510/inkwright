@@ -145,6 +145,7 @@ const PLAYER = `(function () {
   var KEY = "inkwright:" + cfg.id, LANG_KEY = "inkwright-language:" + cfg.id;
   var log = [];      // [{ text, kind }]; kind: "text" | "chosen" | "error"
   var shown = 0;     // log entries rendered last time: the first new one is scrolled into view
+  var afterChoice = false; // a choice was clicked: the next text that arrives is scrolled to
   var history = [];  // [{ state, n }]: state before each choice, log length then
   var start = null;  // state at the beginning, to replay picks in another language
   var picks = [];    // choice indexes since start
@@ -280,9 +281,10 @@ const PLAYER = `(function () {
     backEl.disabled = history.length === 0;
     if (langVar) langEl.value = language();
     // After a choice, the first new paragraph goes to the top so the reader scrolls down from
-    // there; after going back or restarting, the choices are shown.
-    if (log.length > shown && storyEl.children[shown]) storyEl.children[shown].scrollIntoView({ block: "start" });
-    else if (log.length < shown) choicesEl.scrollIntoView({ block: "end" });
+    // there; when the text changed for another reason (back, restart, resume), the choices are shown.
+    if (log.length > shown && afterChoice && storyEl.children[shown]) storyEl.children[shown].scrollIntoView({ block: "start" });
+    else if (log.length !== shown) choicesEl.scrollIntoView({ block: "end" });
+    if (log.length !== shown) afterChoice = false;
     shown = log.length;
   }
 
@@ -320,6 +322,7 @@ const PLAYER = `(function () {
   }
 
   function choose(index, text) {
+    if (!replaying) afterChoice = true;
     var before = story.state.ToJson();
     try {
       story.ChooseChoiceIndex(index);

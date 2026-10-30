@@ -62,6 +62,8 @@ export class PlayView extends ItemView {
   /** Story and paragraph count last rendered, to scroll new text into view. */
   private shownRoot: string | null = null;
   private shownLog = 0;
+  /** Set when a choice button was clicked, so the next text that arrives is scrolled to. */
+  private afterChoice = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -170,16 +172,24 @@ export class PlayView extends ItemView {
       const button = choices.createEl("button", { text: c.text, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
-      button.onclick = () => this.controller.choose(c.index);
+      button.onclick = () => {
+        this.afterChoice = true;
+        this.controller.choose(c.index);
+      };
     });
-    // After a choice, bring the first new paragraph to the top so the player reads on
-    // downwards; after going back or restarting, show the choices. A re-render with the same
-    // text (config reload, HUD update) leaves the scroll position alone.
-    const shown = s.root === this.shownRoot ? this.shownLog : 0;
+    // After a choice here, bring the first new paragraph to the top so the player reads on
+    // downwards; when the text changed for another reason (back, restart, a save loaded, the
+    // panel opened on a run, another story), show the choices. A re-render with the same text
+    // (config reload, HUD update) leaves the scroll position alone.
+    const sameRun = s.root === this.shownRoot;
+    const grew = sameRun && s.log.length > this.shownLog;
+    const changed = !sameRun || s.log.length !== this.shownLog;
+    const from = this.shownLog;
     this.shownRoot = s.root;
     this.shownLog = s.log.length;
-    if (s.log.length > shown) paras[shown].scrollIntoView({ block: "start" });
-    else if (s.log.length < shown) choices.scrollIntoView({ block: "end" });
+    if (grew && this.afterChoice) paras[from].scrollIntoView({ block: "start" });
+    else if (changed) choices.scrollIntoView({ block: "end" });
+    if (changed) this.afterChoice = false;
   }
 
   /** The skill, difficulty and odds of a check choice, on the button. */
