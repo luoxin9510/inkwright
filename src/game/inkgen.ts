@@ -6,7 +6,8 @@ import { averageRoll } from "./dice";
  * variables, the character list, a function that loads a character's preset,
  * and a fallback for the engine's check function (no dice: the average roll),
  * so the story also plays in Inky or plain Inkwright. Stories call the check
- * with the skill's name as a string: `检定("力量", 12)`.
+ * with the skill's name as a string: `check("strength", 12)`. A bilingual game
+ * also gets its language variable and text function: `{t("中文", "English")}`.
  */
 export function generateInk(config: GameConfig): string {
   const n = inkNames(config);
@@ -26,6 +27,20 @@ export function generateInk(config: GameConfig): string {
     `VAR ${n.seed} = 0`,
     `VAR ${n.rolls} = 0`,
   ];
+  const [first, second] = config.languages ?? [];
+  if (first !== undefined && second !== undefined) {
+    lines.push(
+      "",
+      `// Text in the story's language: {${n.textFn}("${first}…", "${second}…")}; the play panel switches ${n.langVar}.`,
+      `VAR ${n.langVar} = "${first}"`,
+      "",
+      `=== function ${n.textFn}(${first}, ${second}) ===`,
+      `{ ${n.langVar} == "${second}":`,
+      `    ~ return ${second}`,
+      "}",
+      `~ return ${first}`,
+    );
+  }
   const companions = config.companionResources ?? [];
   if (companions.length > 0) {
     lines.push("", "// Companions");

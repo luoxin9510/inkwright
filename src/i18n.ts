@@ -22,6 +22,7 @@ const configZh: ConfigMessages = {
   unknownCompanionResource: (who, id) => `主角 "${who}" 有未定义的队友资源 "${id}"`,
   modifierSkill: (skill) => `修正规则指向未定义的技能 "${skill}"`,
   modifierStep: (resource) => `"${resource}" 的修正规则:step 必须为正数`,
+  languages: () => "languages 必须是两个不同的语言代码,例如 [zh, en]",
 };
 
 const configEn: ConfigMessages = {
@@ -41,6 +42,7 @@ const configEn: ConfigMessages = {
   unknownCompanionResource: (who, id) => `character "${who}" has an unknown companion resource "${id}"`,
   modifierSkill: (skill) => `modifier for an unknown skill "${skill}"`,
   modifierStep: (resource) => `modifier on "${resource}": step must be positive`,
+  languages: () => "languages must be two different language codes, e.g. [zh, en]",
 };
 
 const zh = {
@@ -117,6 +119,11 @@ const zh = {
   gameConfigProblem: (p: string) => `游戏配置有问题:${p}`,
   gameConfigUnusable: (p: string) => `游戏配置无法使用,已按普通剧本运行:${p}`,
   configProblem: (p: ConfigProblem): string => configZh[p.code](...p.args),
+  generateEngine: "生成游戏引擎 ink",
+  engineWritten: "已生成:",
+  noGameNote: "当前主剧本旁边没有 game.md。",
+  engineNotIncluded: (file: string) => `剧本没有 INCLUDE ${file},游戏的变量和检定函数不会生效。`,
+  engineStale: (file: string) => `${file} 和游戏配置不一致,请运行"生成游戏引擎 ink"命令。`,
 };
 
 export type Strings = typeof zh;
@@ -195,6 +202,11 @@ const en: Strings = {
   gameConfigProblem: (p) => `Game config problem: ${p}`,
   gameConfigUnusable: (p) => `Game config unusable, playing as a plain story: ${p}`,
   configProblem: (p) => configEn[p.code](...p.args),
+  generateEngine: "Generate game engine ink",
+  engineWritten: "Written: ",
+  noGameNote: "No game.md next to the current main story.",
+  engineNotIncluded: (file) => `The story does not INCLUDE ${file}; the game's variables and check function will be missing.`,
+  engineStale: (file) => `${file} does not match the game config; run "Generate game engine ink".`,
 };
 
 const tables: Record<Language, Strings> = { zh, en };

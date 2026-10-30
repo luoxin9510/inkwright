@@ -6,11 +6,13 @@ import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphV
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, findLanguageVar, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
-import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
+import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
+import { engineFile, localize, type ConfigProblem, type GameConfig } from "./game/config";
+import { generateInk } from "./game/inkgen";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
@@ -28,6 +30,13 @@ interface Settings {
   saves: Record<string, SaveSlot[]>;
   /** Language bilingual stories are played in; null: each story's own default. */
   storyLanguage: string | null;
+}
+
+/** What readGameNote found: the note, its config (null when unusable) and the warnings to show. */
+interface GameNoteRead {
+  note: TFile;
+  config: GameConfig | null;
+  warnings: string[];
 }
 
 export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
@@ -69,6 +78,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "lock-main", name: T().lockCurrent, callback: () => void this.lockCurrent() });
     this.addCommand({ id: "unlock-main", name: T().unlock, callback: () => void this.setLocked(null) });
     this.addCommand({ id: "export-web", name: T().exportWeb, callback: () => void this.exportWeb() });
+    this.addCommand({ id: "generate-engine", name: T().generateEngine, callback: () => void this.generateEngine() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -251,6 +261,31 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { path: out, diagnostics: result.diagnostics };
   }
 
+  /** Writes the game's engine ink (from its game note) next to the main story; defaults to the current one. */
+  async generateEngine(path: string | null = this.targetRoot()): Promise<{ path: string | null; problems: ConfigProblem[] }> {
+    if (path === null) {
+      new Notice(T().noRoot);
+      return { path: null, problems: [] };
+    }
+    const note = findGameNote(this.app, path);
+    if (!note) {
+      new Notice(T().noGameNote);
+      return { path: null, problems: [] };
+    }
+    const { config, problems } = loadGameConfig(this.app, note);
+    if (!config) {
+      new Notice(T().gameConfigUnusable(problems.map((p) => T().configProblem(p)).join("; ")));
+      return { path: null, problems };
+    }
+    const out = path.slice(0, path.lastIndexOf("/") + 1) + engineFile(config);
+    const ink = generateInk(config);
+    const existing = this.app.vault.getAbstractFileByPath(out);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, ink);
+    else await this.app.vault.create(out, ink);
+    new Notice(T().engineWritten + out);
+    return { path: out, problems };
+  }
+
   // --- internals ---
 
   async openGraph(): Promise<void> {
@@ -334,11 +369,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       this.pushState();
       return;
     }
-    const result = await this.latest.run(() => compileStory(root, this.readFile));
-    if (result === null) return;
+    // Everything that awaits happens inside the guarded run, so a stale run never touches state.
+    const latest = await this.latest.run(async () => {
+      const result = await compileStory(root, this.readFile);
+      return { result, game: await this.readGameNote(root, result.files) };
+    });
+    if (latest === null) return;
+    const { result, game } = latest;
     this.files = result.files;
     this.diagnostics = result.diagnostics;
-    this.loadGameNote(root);
+    this.applyGameNote(game);
     this.flows = result.flows;
     // On a failed compile keep showing the last good graph, marked as stale.
     if (result.graph) this.graph = result.graph;
@@ -359,29 +399,48 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
   }
 
-  /** Reads the game note next to the main story (if any) into a fresh engine; problems become diagnostics. */
-  private loadGameNote(root: string): void {
-    this.game = null;
+  /**
+   * Reads the game note next to the main story (if any) and works out its warnings, including an
+   * engine ink file the story lacks or that no longer matches the note. Touches no state, so a
+   * recompile may await it; `applyGameNote` installs the outcome.
+   */
+  private async readGameNote(root: string, included: string[]): Promise<GameNoteRead | null> {
     const note = findGameNote(this.app, root);
-    if (!note) return;
-    // Edits to the game note recompile, like edits to any INCLUDEd file.
-    if (!this.files.includes(note.path)) this.files.push(note.path);
+    if (!note) return null;
     const { config, problems } = loadGameConfig(this.app, note);
     const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
-    for (const p of problems) this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: message(T().configProblem(p)), raw: "" });
-    if (!config) return;
-    if (this.character !== null && !config.characters.some((c) => c.id === this.character)) this.character = null;
-    this.game = new GameEngine(config);
+    const warnings = problems.map((p) => message(T().configProblem(p)));
+    if (config) {
+      const file = engineFile(config);
+      const enginePath = root.slice(0, root.lastIndexOf("/") + 1) + file;
+      if (!included.includes(enginePath)) warnings.push(T().engineNotIncluded(file));
+      else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) warnings.push(T().engineStale(file));
+    }
+    return { note, config, warnings };
+  }
+
+  private applyGameNote(read: GameNoteRead | null): void {
+    this.game = null;
+    if (!read) return;
+    // Edits to the game note recompile, like edits to any INCLUDEd file.
+    if (!this.files.includes(read.note.path)) this.files.push(read.note.path);
+    for (const text of read.warnings) this.diagnostics.push({ severity: "warning", file: read.note.path, line: null, message: text, raw: "" });
+    if (!read.config) return;
+    if (this.character !== null && !read.config.characters.some((c) => c.id === this.character)) this.character = null;
+    this.game = new GameEngine(read.config);
   }
 
   private gameView(): GameView | null {
     const game = this.game;
     if (!game || !this.session) return null;
     const step = this.last;
+    // Names follow the story's language when it is bilingual, else the UI's.
+    const lang = this.session.language ?? getLanguage();
+    game.language = lang;
     return {
-      characters: game.config.characters.map((c) => ({ id: c.id, name: c.name ?? c.id })),
+      characters: game.config.characters.map((c) => ({ id: c.id, name: localize(c.name, lang, c.id) })),
       current: game.character(),
-      skills: game.config.skills.map((s) => ({ id: s.id, name: s.name ?? s.id, color: s.voice?.color })),
+      skills: game.config.skills.map((s) => ({ id: s.id, name: localize(s.name, lang, s.id), color: s.voice?.color, stance: localize(s.voice?.stance, lang, "") || undefined })),
       hud: game.hud(),
       checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
       voices: this.session.log.map((p) => game.voiceOf(p)),

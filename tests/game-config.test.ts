@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Compiler, Story } from "inkjs/full";
-import { collectModifiers, parseCheckTag, parseVoiceTag, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
+import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { CONFIG } from "./fixtures/gameConfig";
 import { generateInk } from "../src/game/inkgen";
 
@@ -105,6 +105,28 @@ describe("validateConfig", () => {
   });
 });
 
+describe("localized text and ink name presets", () => {
+  test("localize picks the language, then the first given, then the fallback", () => {
+    expect(localize("洞察力", "en", "insight")).toBe("洞察力");
+    expect(localize({ zh: "洞察力", en: "Insight" }, "en", "insight")).toBe("Insight");
+    expect(localize({ zh: "洞察力" }, "en", "insight")).toBe("洞察力");
+    expect(localize({}, "en", "insight")).toBe("insight");
+    expect(localize(undefined, "zh", "insight")).toBe("insight");
+  });
+  test("English names are the default; 'zh' is a preset; overrides apply to the English defaults", () => {
+    expect(inkNames({ ...CONFIG, ink: undefined }).check).toBe("check");
+    expect(inkNames({ ...CONFIG, ink: "en" }).select).toBe("pick_character");
+    expect(inkNames(CONFIG)).toMatchObject({ check: "检定", langVar: "语言", textFn: "双" });
+    expect(inkNames({ ...CONFIG, ink: { check: "roll" } })).toMatchObject({ check: "roll", select: "pick_character" });
+  });
+  test("languages must be two different codes", () => {
+    expect(codes(validateConfig({ ...CONFIG, languages: ["zh"] }))).toEqual(["languages:"]);
+    expect(codes(validateConfig({ ...CONFIG, languages: ["zh", "zh"] }))).toEqual(["languages:"]);
+    expect(codes(validateConfig({ ...CONFIG, languages: ["zh", "en-US"] }))).toEqual(["languages:"]);
+    expect(validateConfig({ ...CONFIG, languages: undefined })).toEqual([]);
+  });
+});
+
 describe("readConfig (frontmatter of unknown shape)", () => {
   test("reads the sample config back, filling in the optional lists", () => {
     const { config, problems } = readConfig(JSON.parse(JSON.stringify(CONFIG)));
@@ -149,6 +171,16 @@ describe("readConfig (frontmatter of unknown shape)", () => {
     expect(codes(readConfig({ rules: { kind: "rollUnder", sides: 100 }, skills: [], characters: "昕" }).problems)).toEqual(["list:skills", "list:characters"]);
     expect(codes(readConfig({ rules: { kind: "rollUnder", sides: "d100" } }).problems)).toEqual(["shape:rules.sides", "list:skills", "list:characters"]);
   });
+  test("ink preset, languages, engine file and localized names", () => {
+    const base = { rules: { kind: "sum", dice: [6, 6] }, skills: [{ id: "insight", name: { zh: "洞察力", en: "Insight" }, voice: { stance: { zh: "看。", en: "Look." } } }], characters: [{ id: "xin", name: "昕" }] };
+    const ok = readConfig({ ...base, ink: "zh", languages: ["zh", "en"], engineFile: "_rules.ink" });
+    expect(ok.problems).toEqual([]);
+    expect(ok.config).toMatchObject({ ink: "zh", languages: ["zh", "en"], engineFile: "_rules.ink" });
+    expect(codes(readConfig({ ...base, ink: "fr" }).problems)).toEqual(["shape:ink"]);
+    expect(codes(readConfig({ ...base, languages: "zh,en" }).problems)).toEqual(["shape:languages"]);
+    expect(codes(readConfig({ ...base, engineFile: "rules/_engine.ink" }).problems)).toEqual(["shape:engineFile"]);
+    expect(codes(readConfig({ ...base, skills: [{ id: "insight", name: { zh: 1 } }] }).problems)).toEqual(["shape:skills[0]"]);
+  });
   test("a well-formed config still gets the rule checks", () => {
     const { config, problems } = readConfig({ rules: { kind: "sum", dice: [6, 6] }, skills: [{ id: "理智" }], characters: [{ id: "昕", skills: { 理智: 7 } }] });
     expect(config).not.toBeNull();
@@ -167,6 +199,8 @@ describe("generated ink", () => {
     expect(ink).toContain("EXTERNAL 检定(技能, 难度)");
     expect(ink).toContain("VAR 骰子种子 = 0");
     expect(ink).toContain("VAR 掷骰次数 = 0");
+    expect(ink).toContain('VAR 语言 = "zh"');
+    expect(ink).toContain("=== function 双(zh, en) ===");
     const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(阿波)\n{检定(\"力量\", 10)} {检定(\"力量\", 14)} {检定(\"没有\", 8)}\n-> END\n");
     const story = new Story(c.Compile().ToJson() as string);
     story.allowExternalFunctionFallbacks = true;
@@ -177,5 +211,23 @@ describe("generated ink", () => {
     expect(story.variablesState["力量"]).toBe(5);
     expect(story.variablesState["魅力"]).toBe(2);
     expect(String(story.variablesState["当前主角"])).toBe("阿波");
+  });
+});
+
+describe("generated ink with the English names (the default)", () => {
+  test("declares the engine in English and the bilingual text function", () => {
+    const ink = generateInk({ ...CONFIG, ink: undefined });
+    expect(ink).toContain("EXTERNAL check(skill, difficulty)");
+    expect(ink).toContain("=== function pick_character(who) ===");
+    expect(ink).toContain("VAR dice_seed = 0");
+    expect(ink).toContain('VAR lang = "zh"');
+    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ pick_character(阿波)\n{t(\"你好\", \"hi\")} {check(\"力量\", 10)}\n~ lang = \"en\"\n{t(\"你好\", \"hi\")}\n-> END\n");
+    const s = new Story(c.Compile().ToJson() as string);
+    s.allowExternalFunctionFallbacks = true;
+    let out = ""; while (s.canContinue) out += s.Continue();
+    expect(out.trim().split(/\s+/)).toEqual(["你好", "3", "hi"]);
+  });
+  test("a story without languages gets no text function", () => {
+    expect(generateInk({ ...CONFIG, ink: undefined, languages: undefined })).not.toContain("function t(");
   });
 });
