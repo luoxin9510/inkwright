@@ -71,6 +71,8 @@ export class PlaySession {
   log: Paragraph[] = [];
   /** State before each choice, for back(). */
   private history: { state: string; logLength: number }[] = [];
+  /** The story's turn each paragraph of `log` was shown in; null for text restored from a save. */
+  private turnOf: (number | null)[] = [];
   /** The story's language variable, or null when it is not bilingual. */
   readonly languageVar: string | null;
   private preferredLanguage: string | null;
@@ -110,6 +112,7 @@ export class PlaySession {
     this.applyLanguage();
     this.startState = this.story.state.ToJson();
     this.log = [];
+    this.turnOf = [];
     this.history = [];
     this.picks = [];
     this.errors = [];
@@ -122,6 +125,7 @@ export class PlaySession {
   start(): Step {
     this.errors = [];
     this.log = [];
+    this.turnOf = [];
     this.history = [];
     this.picks = [];
     this.startState = this.story.state.ToJson();
@@ -147,6 +151,11 @@ export class PlaySession {
     return this.history.length > 0;
   }
 
+  /** Turn per paragraph, aligned with `log` (-1 before the first choice; null when loaded from a save). */
+  get turns(): readonly (number | null)[] {
+    return this.turnOf;
+  }
+
   /** Undoes the last choice; null when there is nothing to undo. */
   back(): Step | null {
     const prev = this.history.pop();
@@ -154,6 +163,7 @@ export class PlaySession {
     this.story = this.attach(new Story(this.json));
     this.story.state.LoadJson(prev.state);
     this.log = this.log.slice(0, prev.logLength);
+    this.turnOf = this.turnOf.slice(0, prev.logLength);
     this.picks.pop();
     this.errors = [];
     this.halted = false;
@@ -184,6 +194,7 @@ export class PlaySession {
     this.story = story;
     this.startPoint = save.startPoint;
     this.log = save.log.map((p) => ({ ...p, tags: [...p.tags] }));
+    this.turnOf = this.log.map(() => null);
     this.history = [];
     this.errors = [];
     this.halted = false;
@@ -216,6 +227,7 @@ export class PlaySession {
     this.story = this.attach(new Story(this.json));
     this.applyLanguage();
     this.log = [];
+    this.turnOf = [];
     this.history = [];
     this.picks = [];
     this.startState = null;
@@ -268,6 +280,7 @@ export class PlaySession {
         if (text !== "" || tags.length > 0) {
           paragraphs.push({ text, tags: [...tags] });
           this.log.push({ text, tags: [...tags] });
+          this.turnOf.push(this.story.state.currentTurnIndex);
         }
       }
       if (Date.now() > deadline) {

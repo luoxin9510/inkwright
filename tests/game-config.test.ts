@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Compiler, Story } from "inkjs/full";
-import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, playableCharacters, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
+import { collectModifiers, fxOf, inkNames, localize, parseCheckTag, parseFxTag, parseVoiceTag, playableCharacters, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { CONFIG } from "./fixtures/gameConfig";
 import { generateInk } from "../src/game/inkgen";
 
@@ -241,4 +241,12 @@ describe("playable", () => {
     expect(codes(validateConfig({ ...CONFIG, characters: [{ id: "昕", skills: {}, playable: false }] }))).toEqual(["noCharacters:"]);
     expect(codes(readConfig({ ...fm(), characters: [{ id: "昕", playable: "no" }] }).problems)).toEqual(["shape:characters[0]"]);
   });
+});
+
+test("fx tags name a screen effect from the fixed list; anything else is not an effect", () => {
+  expect(parseFxTag("fx:shake")).toBe("shake");
+  expect(parseFxTag(" fx : dark ")).toBe("dark");
+  expect(parseFxTag("fx:boom")).toBeNull();
+  expect(parseFxTag("voice:理智")).toBeNull();
+  expect(fxOf(["voice:理智", "fx:flash", "fx:pulse"])).toEqual(["flash", "pulse"]);
 });

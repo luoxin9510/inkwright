@@ -1,4 +1,4 @@
-import type { GameConfig } from "../game/config";
+import { FX, type GameConfig } from "../game/config";
 import { getLanguage, stringsFor, type Language } from "../i18n";
 import { STORY_LANGUAGES } from "../play/session";
 
@@ -70,6 +70,7 @@ export function buildWebPage(o: WebPageOptions): string {
     languageVar: o.languageVar ?? null,
     languages: STORY_LANGUAGES,
     loopMs: LOOP_SECONDS * 1000,
+    fx: FX,
     game: o.game && o.engine ? o.game : null,
   }).replace(/</g, "\\u003c");
   return `<!doctype html>
@@ -132,6 +133,31 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #dice { font-size: 0.8em; color: var(--muted); margin-top: 1.2em; }
 #dice summary { cursor: pointer; }
 #dice ul { margin: 0.4em 0 0; padding-left: 1.2em; }
+#story .roll { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5em; margin: -0.4em 0 0.9em; padding: 0.3em 0.8em;
+  border-left: 3px solid var(--band, var(--muted)); background: rgba(128, 128, 128, 0.08); border-radius: 0 6px 6px 0;
+  font-size: 0.85em; color: var(--muted); }
+#story .roll.b0 { --band: #a01; } #story .roll.b1 { --band: #c33; } #story .roll.b2 { --band: #c90; }
+#story .roll.b3 { --band: #2a7; } #story .roll.b4 { --band: #1b9; }
+#story .roll .skill { font-weight: 600; color: var(--fg); }
+#story .roll .die { display: inline-block; min-width: 1.6em; margin-right: 0.2em; padding: 0 0.3em; border: 1px solid var(--line);
+  border-radius: 5px; text-align: center; color: var(--fg); font-variant-numeric: tabular-nums; }
+#story .roll .band { font-weight: 600; color: var(--band, var(--fg)); }
+#story .roll.rolling .die { animation: tumble 0.14s linear infinite alternate; }
+#story .roll.rolling .band { visibility: hidden; }
+@keyframes tumble { from { transform: rotate(-8deg) scale(1.05); } to { transform: rotate(8deg) scale(0.95); } }
+#story.fx-shake { animation: shake 0.5s; }
+#story.fx-flash::after, #story.fx-dark::after, #story.fx-pulse::after { content: ""; position: fixed; inset: 0; pointer-events: none; }
+#story.fx-flash::after { background: #fff; animation: flash 0.6s both; }
+#story.fx-dark::after { background: #000; animation: dark 1.8s both; }
+#story.fx-pulse::after { background: radial-gradient(ellipse at center, transparent 50%, rgba(170, 0, 0, 0.55)); animation: pulse 1.4s both; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+@keyframes dark { 0% { opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes pulse { 0%, 100% { opacity: 0; } 25% { opacity: 1; } 50% { opacity: 0.15; } 75% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #story.fx-shake, #story.fx-flash::after, #story.fx-dark::after, #story.fx-pulse::after, #story .roll.rolling .die { animation: none; }
+  #story .roll.rolling .band { visibility: visible; }
+}
 `;
 
 // Plain ES2017 that runs in the exported page; it must not depend on anything from this module.
@@ -145,6 +171,15 @@ const PLAYER = `(function () {
   var KEY = "inkwright:" + cfg.id, LANG_KEY = "inkwright-language:" + cfg.id;
   var log = [];      // [{ text, kind }]; kind: "text" | "chosen" | "error"
   var shown = 0;     // log entries rendered last time: the first new one is scrolled into view
+  var still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // #fx:<name> tags on a line, from the fixed list.
+  function fxOf(tags) {
+    return (tags || []).map(function (t) {
+      var p = t.split(":").map(function (x) { return x.trim(); });
+      return p.length === 2 && p[0] === "fx" && cfg.fx.indexOf(p[1]) >= 0 ? p[1] : null;
+    }).filter(Boolean);
+  }
   var afterChoice = false; // a choice was clicked: the next text that arrives is scrolled to
   var history = [];  // [{ state, n }]: state before each choice, log length then
   var start = null;  // state at the beginning, to replay picks in another language
@@ -246,7 +281,10 @@ const PLAYER = `(function () {
       renderDice();
     }
     storyEl.textContent = "";
-    log.forEach(function (e) {
+    var fresh = log.length > shown && afterChoice, newCards = [], fx = [], firstNew = null;
+    var byTurn = {};
+    if (engine) engine.rolls.forEach(function (r) { (byTurn[r.turn] = byTurn[r.turn] || []).push(r); });
+    log.forEach(function (e, i) {
       var p = document.createElement("p");
       if (e.kind !== "text") p.className = e.kind;
       if (e.voice && engine) {
@@ -261,6 +299,16 @@ const PLAYER = `(function () {
         p.textContent = e.text;
       }
       storyEl.appendChild(p);
+      if (i === shown) firstNew = p;
+      // A roll shows as a card under the choice that made it.
+      if (e.kind === "chosen" && byTurn[e.turn]) {
+        byTurn[e.turn].forEach(function (r) {
+          var card = rollCard(r);
+          storyEl.appendChild(card);
+          if (fresh && i >= shown) newCards.push(card);
+        });
+      }
+      if (fresh && i >= shown && e.fx) fx = fx.concat(e.fx);
     });
     choicesEl.textContent = "";
     story.currentChoices.forEach(function (c) {
@@ -282,11 +330,78 @@ const PLAYER = `(function () {
     backEl.disabled = history.length === 0;
     if (langVar) langEl.value = language();
     // After a choice, the first new paragraph goes to the top so the reader scrolls down from
-    // there; when the text changed for another reason (back, restart, resume), the choices are shown.
-    if (log.length > shown && afterChoice && storyEl.children[shown]) storyEl.children[shown].scrollIntoView({ block: "start" });
-    else if (log.length !== shown) choicesEl.scrollIntoView({ block: "end" });
+    // there, new dice tumble and the new lines' effects play; when the text changed for another
+    // reason (back, restart, resume), the choices are shown.
+    if (fresh && firstNew) {
+      firstNew.scrollIntoView({ block: "start" });
+      animateRolls(newCards);
+      playFx(fx);
+    } else if (log.length !== shown) {
+      choicesEl.scrollIntoView({ block: "end" });
+    }
     afterChoice = false;  // a choice renders exactly once (advance is synchronous)
     shown = log.length;
+  }
+
+  function rollCard(r) {
+    var s = str(), card = document.createElement("div");
+    card.className = "roll b" + r.band;
+    var skill = document.createElement("span");
+    skill.className = "skill";
+    skill.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty;
+    card.appendChild(skill);
+    var dice = document.createElement("span");
+    r.rolls.forEach(function (face) {
+      var die = document.createElement("span");
+      die.className = "die";
+      die.textContent = face;
+      dice.appendChild(die);
+    });
+    card.appendChild(dice);
+    var sum = document.createElement("span");
+    var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
+    sum.textContent = "+" + r.level + mods + " = " + r.total;
+    card.appendChild(sum);
+    var band = document.createElement("span");
+    band.className = "band";
+    band.textContent = s.bands[r.band];
+    card.appendChild(band);
+    return card;
+  }
+
+  // The faces of new cards tumble for a moment before settling; the outcome shows once they have.
+  function animateRolls(cards) {
+    if (still) return;
+    cards.forEach(function (card) {
+      var dice = Array.prototype.slice.call(card.querySelectorAll(".die"));
+      var faces = dice.map(function (d) { return d.textContent; });
+      card.classList.add("rolling");
+      var ticks = 0;
+      var timer = setInterval(function () {
+        if (++ticks > 8) {
+          clearInterval(timer);
+          dice.forEach(function (d, i) { d.textContent = faces[i]; });
+          card.classList.remove("rolling");
+          return;
+        }
+        dice.forEach(function (d) { d.textContent = String(1 + Math.floor(Math.random() * 6)); });
+      }, 70);
+    });
+  }
+
+  // Plays the effects of the new lines on the story, one after another.
+  function playFx(effects) {
+    if (still) return;
+    effects.forEach(function (name, i) {
+      var play = function () {
+        var cls = "fx-" + name;
+        var done = function () { storyEl.classList.remove(cls); };
+        storyEl.classList.add(cls);
+        storyEl.addEventListener("animationend", done, { once: true });
+        setTimeout(done, 2500);
+      };
+      if (i === 0) play(); else setTimeout(play, i * 900);
+    });
   }
 
   function fail(e) { log.push({ text: String(e && e.message || e), kind: "error" }); }
@@ -306,8 +421,12 @@ const PLAYER = `(function () {
       if (story.asyncContinueComplete) {
         var text = (story.currentText || "").replace(/\\n+$/, "");
         if (text !== "") {
+          var entry = { text: text, kind: "text", turn: story.state.currentTurnIndex };
           var voice = engine ? engine.voiceOf({ tags: story.currentTags || [] }) : null;
-          log.push(voice ? { text: text, kind: "text", voice: voice } : { text: text, kind: "text" });
+          if (voice) entry.voice = voice;
+          var effects = fxOf(story.currentTags);
+          if (effects.length) entry.fx = effects;
+          log.push(entry);
         }
       }
       if (Date.now() > deadline) {
@@ -334,7 +453,7 @@ const PLAYER = `(function () {
     }
     history.push({ state: before, n: log.length });
     picks.push(index);
-    log.push({ text: text, kind: "chosen" });
+    log.push({ text: text, kind: "chosen", turn: story.state.currentTurnIndex });
     advance();
   }
 

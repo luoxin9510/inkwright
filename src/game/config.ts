@@ -183,6 +183,26 @@ export function parseVoiceTag(tag: string, config: GameConfig): string | null {
   return config.skills.some((s) => s.id === parts[1]) ? parts[1] : null;
 }
 
+/**
+ * Screen effects a line can ask for with `#fx:<name>`: the panel and the web page play them when
+ * the line first appears after a choice. A fixed vocabulary, not game data: shake the text,
+ * a white flash, a moment of black, a red heartbeat.
+ */
+export const FX = ["shake", "flash", "dark", "pulse"] as const;
+export type Fx = (typeof FX)[number];
+
+/** `fx:shake` → "shake"; null for other tags and unknown effects. */
+export function parseFxTag(tag: string): Fx | null {
+  const parts = tag.trim().split(":").map((p) => p.trim());
+  if (parts[0] !== "fx" || parts.length !== 2) return null;
+  return (FX as readonly string[]).includes(parts[1]) ? (parts[1] as Fx) : null;
+}
+
+/** The effects asked for by a paragraph's tags, in order. */
+export function fxOf(tags: string[]): Fx[] {
+  return tags.map(parseFxTag).filter((f): f is Fx => f !== null);
+}
+
 /** Reads one story variable by name (e.g. `story.variablesState[name]`). */
 export type StateReader = (name: string) => unknown;
 

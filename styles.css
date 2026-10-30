@@ -89,3 +89,33 @@
 .inkwright-check { display: inline-block; margin-left: 8px; font-size: var(--font-smaller); color: var(--text-muted); white-space: nowrap; }
 .inkwright-check-red { color: var(--text-error); }
 .inkwright-dice td:first-child { white-space: nowrap; }
+
+/* Game mode: a check's roll as a card in the text, coloured by outcome. */
+.inkwright-roll { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5em; margin: 0 0 0.8em; padding: 0.3em 0.7em; border-left: 3px solid var(--inkwright-band, var(--text-muted)); background: var(--background-secondary); border-radius: 0 6px 6px 0; font-size: var(--font-smaller); color: var(--text-muted); }
+.inkwright-roll-0 { --inkwright-band: var(--color-red); }
+.inkwright-roll-1 { --inkwright-band: var(--text-error); }
+.inkwright-roll-2 { --inkwright-band: var(--color-yellow); }
+.inkwright-roll-3 { --inkwright-band: var(--color-green); }
+.inkwright-roll-4 { --inkwright-band: var(--color-cyan); }
+.inkwright-roll-skill { font-weight: 600; color: var(--text-normal); }
+.inkwright-die { display: inline-block; min-width: 1.6em; margin-right: 0.2em; padding: 0 0.3em; border: 1px solid var(--background-modifier-border); border-radius: 5px; text-align: center; color: var(--text-normal); font-variant-numeric: tabular-nums; }
+.inkwright-roll-band { font-weight: 600; color: var(--inkwright-band, var(--text-normal)); }
+.inkwright-rolling .inkwright-die { animation: inkwright-tumble 0.14s linear infinite alternate; }
+.inkwright-rolling .inkwright-roll-band { visibility: hidden; }
+@keyframes inkwright-tumble { from { transform: rotate(-8deg) scale(1.05); } to { transform: rotate(8deg) scale(0.95); } }
+
+/* #fx: tags on a line: played on the story when the line first appears. */
+.inkwright-story { position: relative; }
+.inkwright-fx-shake { animation: inkwright-shake 0.5s; }
+.inkwright-fx-flash::after, .inkwright-fx-dark::after, .inkwright-fx-pulse::after { content: ""; position: absolute; inset: -8px; pointer-events: none; border-radius: 6px; }
+.inkwright-fx-flash::after { background: #fff; animation: inkwright-flash 0.6s both; }
+.inkwright-fx-dark::after { background: #000; animation: inkwright-dark 1.8s both; }
+.inkwright-fx-pulse::after { background: radial-gradient(ellipse at center, transparent 50%, rgb(170 0 0 / 55%)); animation: inkwright-pulse 1.4s both; }
+@keyframes inkwright-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+@keyframes inkwright-flash { from { opacity: 1; } to { opacity: 0; } }
+@keyframes inkwright-dark { 0% { opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes inkwright-pulse { 0%, 100% { opacity: 0; } 25% { opacity: 1; } 50% { opacity: 0.15; } 75% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .inkwright-fx-shake, .inkwright-fx-flash::after, .inkwright-fx-dark::after, .inkwright-fx-pulse::after, .inkwright-rolling .inkwright-die { animation: none; }
+  .inkwright-rolling .inkwright-roll-band { visibility: visible; }
+}

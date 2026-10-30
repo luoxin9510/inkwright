@@ -100,3 +100,18 @@ describe("PlaySession external functions", () => {
     expect(step.errors).toEqual([]);
   });
 });
+
+describe("PlaySession turns", () => {
+  test("each paragraph knows the turn it was shown in; back trims, a loaded save does not know", async () => {
+    const s = new PlaySession(await story("Hello\n* [Go] Went\n  -> END"));
+    s.start();
+    expect([...s.turns]).toEqual([-1]);
+    s.choose(0);
+    expect([...s.turns]).toEqual([-1, 0]);
+    const save = s.save();
+    s.back();
+    expect([...s.turns]).toEqual([-1]);
+    if (save) s.load(save);
+    expect([...s.turns]).toEqual([null, null]);
+  });
+});
