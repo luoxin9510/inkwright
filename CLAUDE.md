@@ -32,7 +32,7 @@ PRD: `docs/game-engine-prd.md` — TTRPG-style rules engine on top of Inkwright 
 - Engine code must stay game-agnostic: skills, resources, characters and names come from the config, never from literals in `src/`.
 - Command `inkwright:generate-engine` / `api.generateEngine(path?)` writes the engine file (`engineFile`, default `_engine.ink`) from the note; the panel warns when the story lacks the INCLUDE or the file no longer matches the note.
 - Keep ids and ink names English and localize only player-facing text; no separate translation tables.
-- `exploreStory(story, { game, character, bands })` forces every check through the engine's `force` hook: success first, then a sibling move per other band, so both sides of each check are played; `checks.noConsequence` lists failed checks after which no variable and no choice changed. `api.explore` picks the game config up automatically; `check-ink --all` parses the note with `yaml` (CLI only).
+- `exploreStory(story, { game, character, bands })` forces every check through the engine's `force` hook: success first, then a sibling move per other band, so both sides of each check are played (a check met before the first choice is played as success only); `checks.noConsequence` lists failed checks after which no variable and no choice changed (text-only or visit-count-only changes do not count). `api.explore` picks the game config up automatically; `check-ink --all` parses the note with `yaml` (CLI only).
 - Next: web export with the engine (M4), then the first slice script (M3).
 
 ## Layout
