@@ -1,13 +1,17 @@
 // Compile every .ink file under a folder (each as its own main story) and
 // auto-play the first choice repeatedly (files INCLUDEd by another are skipped), reporting compile and runtime problems.
 // With --all, play every branch instead (breadth-first) and list the endings reached; --lang zh|en
-// picks the language of a bilingual story.
+// picks the language of a bilingual story. A story with a game note (game.md) next to it is
+// explored in game mode, once per character, walking the success and the failure of every check.
 // Usage: npm run check-ink -- <folder> [--quiet] [--all] [--lang zh|en]
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { compileStory } from "../src/compile/compile";
 import { resolveInclude, scanIncludes } from "../src/compile/paths";
-import { exploreStory } from "../src/play/explore";
+import { GAME_NOTE_NAMES, readConfig, type GameConfig } from "../src/game/config";
+import { T } from "../src/i18n";
+import { exploreStory, type ExploreResult } from "../src/play/explore";
 import { PlaySession } from "../src/play/session";
 
 async function inkFiles(dir: string): Promise<string[]> {
@@ -19,6 +23,25 @@ async function inkFiles(dir: string): Promise<string[]> {
     else if (e.name.endsWith(".ink")) out.push(p);
   }
   return out.sort();
+}
+
+/** The game note's frontmatter (parsed YAML) next to a main story, or null when there is none. */
+async function gameNote(storyFile: string): Promise<{ name: string; frontmatter: unknown; error?: string } | null> {
+  for (const name of GAME_NOTE_NAMES) {
+    let text: string;
+    try {
+      text = await readFile(join(dirname(storyFile), name), "utf8");
+    } catch {
+      continue;
+    }
+    const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+    try {
+      return { name, frontmatter: m ? (parseYaml(m[1]) as unknown) : undefined };
+    } catch (e) {
+      return { name, frontmatter: undefined, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  return null;
 }
 
 const root = process.argv[2];
@@ -45,14 +68,31 @@ for (const file of files) {
   if (included.has(rel)) continue;
   const r = await compileStory(rel, (p) => readFile(join(root, p), "utf8"));
   const problems = r.diagnostics.filter((d) => d.severity !== "todo");
-  let runtime: string[] = [];
+  const runtime: string[] = [];
+  const warnings: string[] = [];
   let steps = 0;
-  let endings: string[] = [];
+  const endings: string[] = [];
   if (r.story && all) {
-    const x = exploreStory(r.story, { language });
-    runtime = x.errors.map((e) => `${e.message} (after: ${e.choices.join(" > ") || "start"})`);
-    if (x.truncated) runtime.push("stopped exploring after 5000 choices (endless loop?); not every branch was played");
-    endings = x.endings.map((e) => `${e.lastText}  <- ${e.choices.join(" > ")}`);
+    // Game mode: one exploration per character, each walking both outcomes of every check.
+    const note = await gameNote(file);
+    let game: GameConfig | null = null;
+    if (note?.error) warnings.push(`${note.name}: ${note.error}`);
+    else if (note) {
+      const read = readConfig(note.frontmatter);
+      for (const p of read.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
+      game = read.config;
+    }
+    const runs: { tag: string; x: ExploreResult }[] = game
+      ? game.characters.map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id }) }))
+      : [{ tag: "", x: exploreStory(r.story, { language }) }];
+    for (const { tag, x } of runs) {
+      runtime.push(...x.errors.map((e) => `${tag}${e.message} (after: ${e.choices.join(" > ") || "start"})`));
+      if (x.truncated) runtime.push(`${tag}stopped exploring after 5000 choices (endless loop?); not every branch was played`);
+      endings.push(...x.endings.map((e) => `${tag}${e.lastText}  <- ${e.choices.join(" > ")}`));
+      for (const c of x.checks?.noConsequence ?? []) {
+        warnings.push(`${tag}failing ${c.skill} ${c.difficulty} changes nothing (no variable, same choices): ${c.choices.join(" > ")}`);
+      }
+    }
   } else if (r.story) {
     const s = new PlaySession(r.story, { timeBudgetMs: 1000 });
     let step = s.start();
@@ -65,10 +105,11 @@ for (const file of files) {
   }
   const bad = problems.some((d) => d.severity === "error") || runtime.length > 0;
   if (bad) failures++;
-  if (bad || problems.length > 0 || !quiet) {
-    console.log(`${bad ? "FAIL" : problems.length ? "WARN" : "ok  "} ${rel} (${all ? `${endings.length} endings reached` : `${steps} choices played`})`);
+  if (bad || problems.length > 0 || warnings.length > 0 || !quiet) {
+    console.log(`${bad ? "FAIL" : problems.length || warnings.length ? "WARN" : "ok  "} ${rel} (${all ? `${endings.length} endings reached` : `${steps} choices played`})`);
     if (!quiet) for (const e of endings) console.log(`     [ending] ${e}`);
     for (const d of problems) console.log(`     [${d.severity}] ${relative(".", d.file)}:${d.line ?? "?"} ${d.message}`);
+    for (const w of warnings) console.log(`     [warning] ${w}`);
     for (const e of runtime) console.log(`     [runtime] ${e}`);
   }
 }

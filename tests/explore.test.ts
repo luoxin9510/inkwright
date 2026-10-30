@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { compileStory } from "../src/compile/compile";
 import { exploreStory } from "../src/play/explore";
+import { generateInk } from "../src/game/inkgen";
+import { CONFIG } from "./fixtures/gameConfig";
 
 async function story(src: string) {
   const r = await compileStory("main.ink", async () => src);
@@ -44,4 +46,49 @@ test("stops at the state limit on endless loops and says so", async () => {
 test("plays a bilingual story in the given language", async () => {
   const s = await story('VAR lang = "en"\n* [{lang == "zh": 走|Go}] -> END');
   expect(exploreStory(s, { language: "zh" }).endings[0].choices).toEqual(["走"]);
+});
+
+const GAME = (choice: string) => [
+  "-> main",
+  generateInk(CONFIG),
+  "=== main ===",
+  "门。",
+  `${choice} [撬 #check:力量:10]`,
+  '    { 检定("力量", 10) >= 3:',
+  "        开了。",
+  "        -> END",
+  "    - else:",
+  "        断了。",
+  choice === "*" ? "        ~ 恐惧 += 10" : "",
+  "    }",
+  "    -> main",
+  `${choice} [走]`,
+  "    走了。",
+  "    -> END",
+].join("\n");
+
+test("game mode walks the success and the failure of every check, marking the outcome in the path", async () => {
+  const r = exploreStory(await story(GAME("*")), { game: CONFIG, character: "昕" });
+  expect(r.endings.map((e) => [e.choices, e.lastText])).toEqual([
+    [["撬 [力量✓]"], "开了。"],
+    [["走"], "走了。"],
+    [["撬 [力量✗]", "走"], "走了。"],
+  ]);
+  expect(r.checks).toEqual({ walked: 2, noConsequence: [] });
+  expect(r.truncated).toBe(false);
+});
+
+test("a failed check after which nothing changed is reported", async () => {
+  // Sticky choice, no variable touched on failure: the player is back where they were.
+  const r = exploreStory(await story(GAME("+")), { game: CONFIG, character: "昕", maxSteps: 12 });
+  expect(r.checks?.noConsequence[0]).toEqual({ choices: ["撬 [力量✗]"], skill: "力量", difficulty: 10 });
+  expect(r.truncated).toBe(true); // the retry loop only ends with the budget
+});
+
+test("bands picks which outcomes to walk", async () => {
+  const r = exploreStory(await story(GAME("*")), { game: CONFIG, bands: [4, 3, 2, 1, 0] });
+  const marks = r.endings.map((e) => e.choices[0]).filter((c) => c.startsWith("撬"));
+  expect(marks).toHaveLength(5);
+  expect(marks).toEqual(expect.arrayContaining(["撬 [力量✓]", "撬 [力量✓✓]", "撬 [力量✗]", "撬 [力量✗✗]", "撬 [力量~]"]));
+  expect(r.checks?.walked).toBe(5);
 });

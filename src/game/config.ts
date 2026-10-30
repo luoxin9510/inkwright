@@ -91,6 +91,8 @@ export interface GameConfig {
 
 export type InkPreset = "en" | "zh";
 export const DEFAULT_ENGINE_FILE = "_engine.ink";
+/** A game folder holds its main story and one of these notes, whose frontmatter is the GameConfig. */
+export const GAME_NOTE_NAMES = ["game.md", "游戏.md"];
 
 export interface InkNames {
   /** EXTERNAL function the story calls to roll: `检定("技能名", 难度)` → band. */

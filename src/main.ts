@@ -261,6 +261,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { path: out, diagnostics: result.diagnostics };
   }
 
+  gameConfigFor(path: string): GameConfig | null {
+    const note = findGameNote(this.app, path);
+    return note ? loadGameConfig(this.app, note).config : null;
+  }
+
   /** Writes the game's engine ink (from its game note) next to the main story; defaults to the current one. */
   async generateEngine(path: string | null = this.targetRoot()): Promise<{ path: string | null; problems: ConfigProblem[] }> {
     if (path === null) {

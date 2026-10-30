@@ -1,8 +1,5 @@
 import { TFile, type App } from "obsidian";
-import { readConfig, type LoadedConfig } from "./config";
-
-/** A game folder holds its main story and one of these notes, whose frontmatter is the GameConfig. */
-export const GAME_NOTE_NAMES = ["game.md", "游戏.md"];
+import { GAME_NOTE_NAMES, readConfig, type LoadedConfig } from "./config";
 
 /** The game note next to a main story, if any. */
 export function findGameNote(app: App, rootPath: string): TFile | null {

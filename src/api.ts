@@ -8,7 +8,7 @@ import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
 import type { ChoiceCheck, HudView, RollRecord } from "./game/engine";
-import type { ConfigProblem } from "./game/config";
+import type { ConfigProblem, GameConfig } from "./game/config";
 import type { Choice } from "./play/session";
 import type { PlayState } from "./views/PlayView";
 
@@ -29,6 +29,8 @@ export interface ApiHost {
   deleteSave(id: string): Promise<void>;
   exportWeb(path?: string | null): Promise<{ path: string | null; diagnostics: Diagnostic[] }>;
   generateEngine(path?: string | null): Promise<{ path: string | null; problems: ConfigProblem[] }>;
+  /** The usable game config next to a story, or null. */
+  gameConfigFor(path: string): GameConfig | null;
   savesForRoot(): { id: string; name: string; savedAt: string }[];
 }
 
@@ -88,8 +90,13 @@ Headless (does not touch the visible panel):
      from:    knot or "knot.stitch" to start at (default: the beginning)
      choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
-  explore(path, { language?, maxSteps? }) -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated }
-     plays every branch breadth-first (default limit 5000 choices); use it to check that all endings work
+  explore(path, { language?, maxSteps?, character?, bands? })
+                       -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, checks? }
+     plays every branch breadth-first (default limit 5000 choices); use it to check that all endings work.
+     Game mode (game.md next to the story): every check is walked as success and failure (bands [3,1] by
+     default; pass bands:[4,3,2,1,0] for all), paths show the outcome ("撬开门 [strength✗]"), and
+     checks = { walked, noConsequence[{choices[], skill, difficulty}] } lists failed checks after which no
+     variable and no choice changed; character picks the PC (default: the first)
 
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
@@ -140,7 +147,8 @@ export class InkwrightApi {
     const r = await compileStory(path, this.host.readFile);
     const diagnostics = plainDiagnostics(r.diagnostics);
     if (!r.story) return { ok: false, diagnostics, endings: [], errors: [], truncated: false };
-    return { ok: true, diagnostics, ...exploreStory(r.story, options) };
+    const game = options.game ?? this.host.gameConfigFor(path) ?? undefined;
+    return { ok: true, diagnostics, ...exploreStory(r.story, { ...options, game }) };
   }
 
   async compile(path: string): Promise<CompileReport> {
