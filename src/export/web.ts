@@ -153,6 +153,7 @@ const PLAYER = `(function () {
   // Game mode: the engine (window.InkwrightGame) referees checks and reads the HUD from the story's state.
   var G = cfg.game && window.InkwrightGame ? window.InkwrightGame : null;
   var engine = G ? new G.GameEngine(cfg.game) : null;
+  var playable = cfg.game ? cfg.game.characters.filter(function (c) { return c.playable !== false; }) : [];
   var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice");
   var charEl = document.getElementById("character"), CHAR_KEY = "inkwright-character:" + cfg.id;
   if (engine) engine.setup(story, storage(true, CHAR_KEY) || undefined);
@@ -225,13 +226,13 @@ const PLAYER = `(function () {
       charEl.title = s.character;
       charEl.setAttribute("aria-label", s.character);
       charEl.textContent = "";
-      cfg.game.characters.forEach(function (c) {
+      playable.forEach(function (c) {
         var o = document.createElement("option");
         o.value = c.id;
         o.textContent = G.localize(c.name, lang, c.id);
         charEl.appendChild(o);
       });
-      charEl.value = engine.character() || cfg.game.characters[0].id;
+      charEl.value = engine.character() || playable[0].id;
     }
   }
 
@@ -400,7 +401,7 @@ const PLAYER = `(function () {
     begin();
     window.scrollTo(0, 0);
   };
-  if (engine && cfg.game.characters.length > 1) {
+  if (engine && playable.length > 1) {
     charEl.hidden = false;
     charEl.onchange = function () {
       storage(false, [CHAR_KEY, charEl.value]);

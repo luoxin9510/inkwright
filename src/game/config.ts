@@ -43,6 +43,13 @@ export interface CharacterDef {
   skills: Record<string, number>;
   /** Starting companion resource values when not played; keys are companionResources ids. */
   companion?: Record<string, number>;
+  /** False for a companion the player can never pick (default true). */
+  playable?: boolean;
+}
+
+/** The characters the player can pick. */
+export function playableCharacters(config: GameConfig): CharacterDef[] {
+  return config.characters.filter((c) => c.playable !== false);
 }
 
 /** Modifier rules read the story's state when a check is made. */
@@ -258,7 +265,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
   }
-  if (config.characters.length === 0) bad("noCharacters");
+  if (playableCharacters(config).length === 0) bad("noCharacters");
   for (const r of [...config.resources, ...(config.companionResources ?? [])]) {
     if (!(r.min <= r.initial && r.initial <= r.max)) bad("resourceRange", r.id);
   }
@@ -345,7 +352,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("skills", true, (e) => opt(e.name, isText) && opt(e.max, isNum) && opt(e.voice, voice));
   entries("resources", false, resource);
   entries("companionResources", false, resource);
-  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap));
+  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool));
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
     if (!Array.isArray(mods)) shape("modifiers");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Compiler, Story } from "inkjs/full";
-import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
+import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, playableCharacters, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { CONFIG } from "./fixtures/gameConfig";
 import { generateInk } from "../src/game/inkgen";
 
@@ -229,5 +229,16 @@ describe("generated ink with the English names (the default)", () => {
   });
   test("a story without languages gets no text function", () => {
     expect(generateInk({ ...CONFIG, ink: undefined, languages: undefined })).not.toContain("function t(");
+  });
+});
+
+describe("playable", () => {
+  test("companions marked playable: false are read but kept out of the pick list; one playable character is required", () => {
+    const fm = () => JSON.parse(JSON.stringify(CONFIG)) as Record<string, unknown>;
+    const { config, problems } = readConfig({ ...fm(), characters: [{ id: "昕", skills: {}, playable: false }, { id: "阿波", skills: {} }] });
+    expect(problems).toEqual([]);
+    expect(playableCharacters(config as GameConfig).map((c) => c.id)).toEqual(["阿波"]);
+    expect(codes(validateConfig({ ...CONFIG, characters: [{ id: "昕", skills: {}, playable: false }] }))).toEqual(["noCharacters:"]);
+    expect(codes(readConfig({ ...fm(), characters: [{ id: "昕", playable: "no" }] }).problems)).toEqual(["shape:characters[0]"]);
   });
 });
