@@ -21,6 +21,13 @@ Always pass `vault=ink-games`. Never quit/restart the whole app: other sessions 
 Headless: `compile(path)`, `graph(path)` (nodes/edges/unreachable), `play(path, {from?, choices?})` (choices by index or text) → transcript, variables, visits, errors; `explore(path, {language?})` → every ending reached and runtime errors. Visible panel: `open`, `panel`, `choose`, `restart`, `startAt`, `back`, `save`, `saves`, `load`, `deleteSave` (saves live in plugin data per main story). Export: `exportWeb(path?)` → standalone `.html` next to the story. Bilingual stories (`VAR 语言`/`VAR lang`, text via `{双("中文", "English")}`): `play(path, {language})`, panel `language(lang)`; switching replays the run (`PlaySession.setLanguage`), `src/compile/bilingual.ts` warns about bare text.
 The game vault has its own `CLAUDE.md` telling agents how to playtest; keep it in sync when the API changes.
 
+## Game mode (planned)
+PRD: `docs/game-engine-prd.md` — TTRPG-style rules engine on top of Inkwright (2d6 checks on choice tags, 5 skills as inner voices, fear resource, 4 selectable PCs, state stays in ink). Read it before touching `src/game/`.
+- `src/game/dice.ts` — dice systems (`sum` = NdX + skill vs difficulty with natural crits and a partial band; `rollUnder` = d100 CoC style), `resolve` (rng injectable, `force` a band for explorers), `chance` by enumeration. Five bands 0–4 shared by every system.
+- `src/game/config.ts` — `GameConfig` (rules, skills, resources, companion resources, characters, modifier rules, ink names), check/voice tag parsing, `collectModifiers` from story state, `validateConfig`.
+- `src/game/inkgen.ts` — `generateInk(config)` → the `_引擎.ink` a game INCLUDEs: VARs, character LIST, `选主角(谁)` preset loader, and an ink fallback for the EXTERNAL check function so stories run without the engine.
+- Engine code must stay game-agnostic: skills, resources, characters and names come from the config, never from literals in `src/`.
+
 ## Layout
 - `src/compile/` pure logic: `paths` (INCLUDE scan/resolve, relative to the main story's folder), `include` (async preload → sync `CachedFileHandler`), `diagnostics` (parse `ERROR: 'file' line N: msg`, translate), `zh.ts` (zh table; each regex matches a real inkjs message), `compile.ts`.
 - `src/play/session.ts` — `PlaySession`: time-sliced `ContinueAsync` loop guard, restart rebuilds Story from JSON, per-step translated errors, EXTERNAL fallbacks on.
