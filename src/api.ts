@@ -90,9 +90,11 @@ Headless (does not touch the visible panel):
      from:    knot or "knot.stitch" to start at (default: the beginning)
      choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
-  explore(path, { language?, maxSteps?, character?, bands? })
-                       -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, checks? }
+  explore(path, { language?, maxSteps?, statesPerSpot?, character?, bands? })
+                       -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, cappedSpots, checks? }
      plays every branch breadth-first (default limit 5000 choices); use it to check that all endings work.
+     A state reached before is not played on again; a spot (the same choices offered) is played on from
+     at most statesPerSpot states (default 10; cappedSpots counts the spots where that cut branches off).
      Game mode (game.md next to the story): every check is walked as success and failure (bands [3,1] by
      default; pass bands:[4,3,2,1,0] for all), paths show the outcome ("撬开门 [strength✗]"), and
      checks = { walked, noConsequence[{choices[], skill, difficulty}] } lists failed checks after which no
@@ -146,7 +148,7 @@ export class InkwrightApi {
   async explore(path: string, options: ExploreOptions = {}): Promise<ExploreResult & { ok: boolean; diagnostics: ApiDiagnostic[] }> {
     const r = await compileStory(path, this.host.readFile);
     const diagnostics = plainDiagnostics(r.diagnostics);
-    if (!r.story) return { ok: false, diagnostics, endings: [], errors: [], truncated: false };
+    if (!r.story) return { ok: false, diagnostics, endings: [], errors: [], truncated: false, cappedSpots: 0 };
     const game = options.game ?? this.host.gameConfigFor(path) ?? undefined;
     return { ok: true, diagnostics, ...exploreStory(r.story, { ...options, game }) };
   }
