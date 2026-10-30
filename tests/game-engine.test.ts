@@ -171,3 +171,12 @@ describe("GameEngine with a PlaySession", () => {
     expect(engine.rolls[0].rolls).toEqual([]);
   });
 });
+
+test("start picks the first playable character; companions marked playable: false are never played", () => {
+  const config = { ...CONFIG, characters: [{ ...CONFIG.characters[0], playable: false }, CONFIG.characters[1]] };
+  const engine = new GameEngine(config, { rng: faces(3, 4) });
+  const session = new PlaySession(compile(), { setup: (story) => engine.setup(story) });
+  session.start();
+  expect(engine.character()).toBe("阿波");
+  expect(engine.hud().companions.map((c) => c.id)).toEqual(["昕"]);
+});

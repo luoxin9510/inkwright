@@ -8,7 +8,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
 import { resolveInclude, scanIncludes } from "../src/compile/paths";
-import { readConfig, type GameConfig } from "../src/game/config";
+import { playableCharacters, readConfig, type GameConfig } from "../src/game/config";
 import { gameNote } from "./game-note";
 import { T } from "../src/i18n";
 import { exploreStory, type ExploreResult } from "../src/play/explore";
@@ -74,7 +74,7 @@ for (const file of files) {
       game = read.config;
     }
     const runs: { tag: string; x: ExploreResult }[] = game
-      ? game.characters.map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id, maxSteps, statesPerSpot }) }))
+      ? playableCharacters(game).map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id, maxSteps, statesPerSpot }) }))
       : [{ tag: "", x: exploreStory(r.story, { language, maxSteps, statesPerSpot }) }];
     for (const { tag, x } of runs) {
       runtime.push(...x.errors.map((e) => `${tag}${e.message} (after: ${e.choices.join(" > ") || "start"})`));

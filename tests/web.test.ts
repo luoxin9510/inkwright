@@ -248,3 +248,11 @@ test("a page without a game config has no HUD, character picker or dice log", ()
   expect((document.querySelector("#dice") as HTMLElement).hidden).toBe(true);
   expect(html.match(/<script>/g)).toHaveLength(2); // runtime + player, no engine
 });
+
+test("a game page with one playable character has no picker", () => {
+  const config = { ...CONFIG, characters: [CONFIG.characters[0], { ...CONFIG.characters[1], playable: false }] };
+  const html = buildWebPage({ title: "G", storyJson: compileJson(GAME), runtime: INK_RUNTIME, id: "g1", languageVar: "语言", game: config, engine: GAME_ENGINE });
+  mount(html);
+  expect((document.querySelector("#character") as HTMLElement).hidden).toBe(true);
+  expect(document.querySelector("#hud")?.textContent).toContain("理智 3");
+});
