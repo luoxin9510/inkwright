@@ -1,32 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { Compiler, Story } from "inkjs/full";
 import { collectModifiers, parseCheckTag, parseVoiceTag, validateConfig, type GameConfig } from "../src/game/config";
+import { CONFIG } from "./fixtures/gameConfig";
 import { generateInk } from "../src/game/inkgen";
 
-export const CONFIG: GameConfig = {
-  rules: { kind: "sum", dice: [6, 6] },
-  difficulties: { 轻松: 6, 简单: 8, 普通: 10, 困难: 12, 艰难: 14, 传奇: 16 },
-  skills: [
-    { id: "理智", voice: { stance: "这说得通,撑住。", color: "#7a9cff" } },
-    { id: "耐力" }, { id: "魅力" }, { id: "洞察力" }, { id: "力量" },
-  ],
-  resources: [{ id: "恐惧", min: 0, max: 100, initial: 0 }],
-  companionResources: [{ id: "恐惧", min: 0, max: 100, initial: 20 }, { id: "信任", min: 0, max: 100, initial: 50 }],
-  characters: [
-    { id: "昕", skills: { 理智: 3, 耐力: 3, 魅力: 6, 洞察力: 3, 力量: 2 } },
-    { id: "阿波", skills: { 理智: 4, 耐力: 3, 魅力: 2, 洞察力: 3, 力量: 5 }, companion: { 恐惧: 10, 信任: 60 } },
-  ],
-  modifiers: [
-    { kind: "perStep", resource: "恐惧", step: 25, value: -1, skill: "理智", label: "恐惧" },
-    { kind: "when", variable: "受伤", equals: true, value: -2, skill: "力量", label: "受伤" },
-  ],
-};
 
 describe("tags", () => {
   test("check tags: skill, difficulty (number or ladder name), red", () => {
     expect(parseCheckTag("check:力量:12", CONFIG)).toEqual({ skill: "力量", difficulty: 12, red: false });
     expect(parseCheckTag("check:理智:困难:红", CONFIG)).toEqual({ skill: "理智", difficulty: 12, red: true });
     expect(parseCheckTag("check:理智:hard:red", CONFIG)).toBeNull(); // unknown ladder name
+    expect(parseCheckTag("check:理智:constructor", CONFIG)).toBeNull(); // inherited keys are not difficulties
     expect(parseCheckTag("check:歌唱:10", CONFIG)).toBeNull(); // unknown skill
     expect(parseCheckTag("voice:理智", CONFIG)).toBeNull();
   });
@@ -43,6 +27,25 @@ describe("modifiers from state", () => {
     expect(collectModifiers(CONFIG, "理智", state({ 恐惧: 24 }))).toEqual([]);
     expect(collectModifiers(CONFIG, "力量", state({ 恐惧: 55, 受伤: true }))).toEqual([{ source: "受伤", value: -2 }]);
     expect(collectModifiers(CONFIG, "力量", state({ 受伤: false }))).toEqual([]);
+  });
+});
+
+describe("modifiers read from a real story", () => {
+  test("bool, int and string variables from inkjs match the rules", () => {
+    const config: GameConfig = {
+      ...CONFIG,
+      modifiers: [
+        { kind: "when", variable: "受伤", value: -2, skill: "力量" },
+        { kind: "when", variable: "天气", equals: "雨", value: -1 },
+        { kind: "when", variable: "层数", equals: 3, value: 1, skill: "理智" },
+        { kind: "perStep", resource: "恐惧", step: 25, value: -1, skill: "理智" },
+      ],
+    };
+    const c = new Compiler('VAR 受伤 = true\nVAR 天气 = "雨"\nVAR 层数 = 3\nVAR 恐惧 = 30\nx\n-> END');
+    const story = new Story(c.Compile().ToJson() as string);
+    const state = (name: string) => story.variablesState[name];
+    expect(collectModifiers(config, "力量", state)).toEqual([{ source: "受伤", value: -2 }, { source: "天气", value: -1 }]);
+    expect(collectModifiers(config, "理智", state)).toEqual([{ source: "天气", value: -1 }, { source: "层数", value: 1 }, { source: "恐惧", value: -1 }]);
   });
 });
 
@@ -86,6 +89,10 @@ describe("validateConfig", () => {
     expect(problems.some((p) => p.includes('duplicate id "恐惧_昕"'))).toBe(true);
     expect(problems.some((p) => p.includes("体力"))).toBe(true);
     expect(problems.some((p) => p.includes("普通"))).toBe(true);
+  });
+  test("rejects dice with no faces", () => {
+    expect(validateConfig({ ...CONFIG, rules: { kind: "sum", dice: [] } }).some((p) => p.includes("dice"))).toBe(true);
+    expect(validateConfig({ ...CONFIG, rules: { kind: "rollUnder", sides: 1 } }).some((p) => p.includes("sides"))).toBe(true);
   });
   test("skill ids may not reuse the generated function parameter names", () => {
     const problems = validateConfig({ ...CONFIG, skills: [{ id: "技能" }], characters: [{ id: "昕", skills: {} }] });

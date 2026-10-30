@@ -108,7 +108,9 @@ export function parseCheckTag(tag: string, config: GameConfig): CheckTag | null 
   if (parts[0] !== "check" || parts.length < 3 || parts.length > 4) return null;
   const [, skill, diff, flag] = parts;
   if (!config.skills.some((s) => s.id === skill)) return null;
-  const difficulty = /^\d+$/.test(diff) ? Number(diff) : config.difficulties?.[diff];
+  const difficulty = /^\d+$/.test(diff)
+    ? Number(diff)
+    : Object.prototype.hasOwnProperty.call(config.difficulties ?? {}, diff) ? config.difficulties?.[diff] : undefined;
   if (difficulty === undefined) return null;
   if (flag !== undefined && !RED.has(flag)) return null;
   return { skill, difficulty, red: flag !== undefined };
@@ -121,8 +123,19 @@ export function parseVoiceTag(tag: string, config: GameConfig): string | null {
   return config.skills.some((s) => s.id === parts[1]) ? parts[1] : null;
 }
 
-/** Reads one story variable by name. */
+/** Reads one story variable by name (e.g. `story.variablesState[name]`). */
 export type StateReader = (name: string) => unknown;
+
+/** Compares a story value with a rule's value by text, so bools, ints and strings from inkjs all match. */
+function sameValue(actual: unknown, expected: string | number | boolean): boolean {
+  switch (typeof actual) {
+    case "string": case "number": case "boolean": return String(actual) === String(expected);
+    // Anything else (an ink list, an object) is compared by its own text form.
+    case "object": return actual !== null && typeof (actual as { toString?: unknown }).toString === "function"
+      && (actual as { toString: () => string }).toString() === String(expected);
+    default: return false;
+  }
+}
 
 /** Modifiers that apply to a check of `skill` given the current state. */
 export function collectModifiers(config: GameConfig, skill: string, state: StateReader): Modifier[] {
@@ -133,7 +146,7 @@ export function collectModifiers(config: GameConfig, skill: string, state: State
       const v = Number(state(rule.resource) ?? 0);
       const steps = Math.floor(v / rule.step);
       if (steps > 0) out.push({ source: rule.label ?? rule.resource, value: rule.value * steps });
-    } else if (state(rule.variable) === (rule.equals ?? true)) {
+    } else if (sameValue(state(rule.variable), rule.equals ?? true)) {
       out.push({ source: rule.label ?? rule.variable, value: rule.value });
     }
   }
@@ -146,6 +159,13 @@ const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 /** Problems that would make the generated ink or the checks misbehave; empty when fine. */
 export function validateConfig(config: GameConfig): string[] {
   const problems: string[] = [];
+  if (config.rules.kind === "sum") {
+    if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) {
+      problems.push("rules.dice must list dice with at least 2 sides");
+    }
+  } else if (!Number.isInteger(config.rules.sides) || config.rules.sides < 2) {
+    problems.push("rules.sides must be at least 2");
+  }
   const seen = new Set<string>();
   const ident = (id: string, what: string) => {
     if (!IDENT.test(id)) problems.push(`${what} "${id}" is not a valid ink identifier`);
