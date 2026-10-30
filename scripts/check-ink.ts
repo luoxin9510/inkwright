@@ -26,7 +26,7 @@ async function inkFiles(dir: string): Promise<string[]> {
 }
 
 /** The game note's frontmatter (parsed YAML) next to a main story, or null when there is none. */
-async function gameNote(storyFile: string): Promise<{ name: string; frontmatter: unknown } | null> {
+async function gameNote(storyFile: string): Promise<{ name: string; frontmatter: unknown; error?: string } | null> {
   for (const name of GAME_NOTE_NAMES) {
     let text: string;
     try {
@@ -35,7 +35,11 @@ async function gameNote(storyFile: string): Promise<{ name: string; frontmatter:
       continue;
     }
     const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-    return { name, frontmatter: m ? (parseYaml(m[1]) as unknown) : undefined };
+    try {
+      return { name, frontmatter: m ? (parseYaml(m[1]) as unknown) : undefined };
+    } catch (e) {
+      return { name, frontmatter: undefined, error: e instanceof Error ? e.message : String(e) };
+    }
   }
   return null;
 }
@@ -72,7 +76,8 @@ for (const file of files) {
     // Game mode: one exploration per character, each walking both outcomes of every check.
     const note = await gameNote(file);
     let game: GameConfig | null = null;
-    if (note) {
+    if (note?.error) warnings.push(`${note.name}: ${note.error}`);
+    else if (note) {
       const read = readConfig(note.frontmatter);
       for (const p of read.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
       game = read.config;
