@@ -11,7 +11,7 @@ import INK_RUNTIME from "virtual:ink-runtime";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
-import { engineFile, localize, type ConfigProblem } from "./game/config";
+import { engineFile, localize, type ConfigProblem, type GameConfig } from "./game/config";
 import { generateInk } from "./game/inkgen";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
@@ -30,6 +30,13 @@ interface Settings {
   saves: Record<string, SaveSlot[]>;
   /** Language bilingual stories are played in; null: each story's own default. */
   storyLanguage: string | null;
+}
+
+/** What readGameNote found: the note, its config (null when unusable) and the warnings to show. */
+interface GameNoteRead {
+  note: TFile;
+  config: GameConfig | null;
+  warnings: string[];
 }
 
 export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
@@ -362,11 +369,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       this.pushState();
       return;
     }
-    const result = await this.latest.run(() => compileStory(root, this.readFile));
-    if (result === null) return;
+    // Everything that awaits happens inside the guarded run, so a stale run never touches state.
+    const latest = await this.latest.run(async () => {
+      const result = await compileStory(root, this.readFile);
+      return { result, game: await this.readGameNote(root, result.files) };
+    });
+    if (latest === null) return;
+    const { result, game } = latest;
     this.files = result.files;
     this.diagnostics = result.diagnostics;
-    await this.loadGameNote(root, result.files);
+    this.applyGameNote(game);
     this.flows = result.flows;
     // On a failed compile keep showing the last good graph, marked as stale.
     if (result.graph) this.graph = result.graph;
@@ -388,29 +400,34 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   }
 
   /**
-   * Reads the game note next to the main story (if any) into a fresh engine; problems become
-   * diagnostics, as does an engine ink file the story lacks or that no longer matches the note.
+   * Reads the game note next to the main story (if any) and works out its warnings, including an
+   * engine ink file the story lacks or that no longer matches the note. Touches no state, so a
+   * recompile may await it; `applyGameNote` installs the outcome.
    */
-  private async loadGameNote(root: string, included: string[]): Promise<void> {
-    this.game = null;
+  private async readGameNote(root: string, included: string[]): Promise<GameNoteRead | null> {
     const note = findGameNote(this.app, root);
-    if (!note) return;
-    // Edits to the game note recompile, like edits to any INCLUDEd file.
-    if (!this.files.includes(note.path)) this.files.push(note.path);
+    if (!note) return null;
     const { config, problems } = loadGameConfig(this.app, note);
     const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
-    const warn = (text: string) => this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: text, raw: "" });
-    for (const p of problems) warn(message(T().configProblem(p)));
-    if (!config) return;
-    const file = engineFile(config);
-    const enginePath = root.slice(0, root.lastIndexOf("/") + 1) + file;
-    if (!included.includes(enginePath)) {
-      warn(T().engineNotIncluded(file));
-    } else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) {
-      warn(T().engineStale(file));
+    const warnings = problems.map((p) => message(T().configProblem(p)));
+    if (config) {
+      const file = engineFile(config);
+      const enginePath = root.slice(0, root.lastIndexOf("/") + 1) + file;
+      if (!included.includes(enginePath)) warnings.push(T().engineNotIncluded(file));
+      else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) warnings.push(T().engineStale(file));
     }
-    if (this.character !== null && !config.characters.some((c) => c.id === this.character)) this.character = null;
-    this.game = new GameEngine(config);
+    return { note, config, warnings };
+  }
+
+  private applyGameNote(read: GameNoteRead | null): void {
+    this.game = null;
+    if (!read) return;
+    // Edits to the game note recompile, like edits to any INCLUDEd file.
+    if (!this.files.includes(read.note.path)) this.files.push(read.note.path);
+    for (const text of read.warnings) this.diagnostics.push({ severity: "warning", file: read.note.path, line: null, message: text, raw: "" });
+    if (!read.config) return;
+    if (this.character !== null && !read.config.characters.some((c) => c.id === this.character)) this.character = null;
+    this.game = new GameEngine(read.config);
   }
 
   private gameView(): GameView | null {
