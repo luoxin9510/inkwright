@@ -368,7 +368,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (!this.files.includes(note.path)) this.files.push(note.path);
     const { config, problems } = loadGameConfig(this.app, note);
     const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
-    for (const p of problems) this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: message(p), raw: "" });
+    for (const p of problems) this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: message(T().configProblem(p)), raw: "" });
     if (!config) return;
     if (this.character !== null && !config.characters.some((c) => c.id === this.character)) this.character = null;
     this.game = new GameEngine(config);

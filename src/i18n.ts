@@ -1,5 +1,47 @@
+import type { ConfigProblem, ConfigProblemCode } from "./game/config";
+
 export type Language = "zh" | "en";
 export type LanguageSetting = "auto" | Language;
+
+type ConfigMessages = Record<ConfigProblemCode, (...args: string[]) => string>;
+
+const configZh: ConfigMessages = {
+  noFrontmatter: () => "笔记没有 frontmatter",
+  rulesKind: () => 'rules.kind 必须是 "sum" 或 "rollUnder"',
+  list: (key) => `${key} 必须是非空列表`,
+  shape: (path) => `${path} 的格式不对`,
+  dice: () => "rules.dice 要列出每个骰子的面数,至少 2 面",
+  sides: () => "rules.sides 至少为 2",
+  ident: (id) => `"${id}" 不是合法的 ink 标识符`,
+  duplicate: (id) => `标识符 "${id}" 重复`,
+  noCharacters: () => "至少要有一个主角",
+  resourceRange: (id) => `资源 "${id}":需要 min <= initial <= max`,
+  difficulty: (name) => `难度 "${name}" 必须是正整数`,
+  unknownSkill: (who, skill) => `主角 "${who}" 有未定义的技能 "${skill}"`,
+  skillLevel: (who, skill, level, max) => `主角 "${who}":${skill} = ${level},必须是 0..${max} 的整数`,
+  unknownCompanionResource: (who, id) => `主角 "${who}" 有未定义的队友资源 "${id}"`,
+  modifierSkill: (skill) => `修正规则指向未定义的技能 "${skill}"`,
+  modifierStep: (resource) => `"${resource}" 的修正规则:step 必须为正数`,
+};
+
+const configEn: ConfigMessages = {
+  noFrontmatter: () => "the note has no frontmatter",
+  rulesKind: () => 'rules.kind must be "sum" or "rollUnder"',
+  list: (key) => `${key} must be a non-empty list`,
+  shape: (path) => `${path} has the wrong shape`,
+  dice: () => "rules.dice must list each die's sides, at least 2",
+  sides: () => "rules.sides must be at least 2",
+  ident: (id) => `"${id}" is not a valid ink identifier`,
+  duplicate: (id) => `duplicate identifier "${id}"`,
+  noCharacters: () => "at least one character is needed",
+  resourceRange: (id) => `resource "${id}": need min <= initial <= max`,
+  difficulty: (name) => `difficulty "${name}" must be a positive integer`,
+  unknownSkill: (who, skill) => `character "${who}" has an unknown skill "${skill}"`,
+  skillLevel: (who, skill, level, max) => `character "${who}": ${skill} = ${level} must be an integer in 0..${max}`,
+  unknownCompanionResource: (who, id) => `character "${who}" has an unknown companion resource "${id}"`,
+  modifierSkill: (skill) => `modifier for an unknown skill "${skill}"`,
+  modifierStep: (resource) => `modifier on "${resource}": step must be positive`,
+};
 
 const zh = {
   editorName: "Ink 剧本",
@@ -74,6 +116,7 @@ const zh = {
   unknownSkill: "(未知技能)",
   gameConfigProblem: (p: string) => `游戏配置有问题:${p}`,
   gameConfigUnusable: (p: string) => `游戏配置无法使用,已按普通剧本运行:${p}`,
+  configProblem: (p: ConfigProblem): string => configZh[p.code](...p.args),
 };
 
 export type Strings = typeof zh;
@@ -151,6 +194,7 @@ const en: Strings = {
   unknownSkill: "(unknown skill)",
   gameConfigProblem: (p) => `Game config problem: ${p}`,
   gameConfigUnusable: (p) => `Game config unusable, playing as a plain story: ${p}`,
+  configProblem: (p) => configEn[p.code](...p.args),
 };
 
 const tables: Record<Language, Strings> = { zh, en };

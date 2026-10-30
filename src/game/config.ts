@@ -170,59 +170,154 @@ export function collectModifiers(config: GameConfig, skill: string, state: State
 /** ink identifiers: letters (any script), digits and underscores, not starting with a digit. */
 const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 
+export const CONFIG_PROBLEM_CODES = [
+  "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
+  "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep",
+] as const;
+export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
+
+/** A problem in a game config, as data; the panel words it in the user's language (`T().configProblem`). */
+export interface ConfigProblem {
+  code: ConfigProblemCode;
+  /** What the message names: ids, paths, values. */
+  args: string[];
+}
+
 /** Problems that would make the generated ink or the checks misbehave; empty when fine. */
-export function validateConfig(config: GameConfig): string[] {
-  const problems: string[] = [];
+export function validateConfig(config: GameConfig): ConfigProblem[] {
+  const problems: ConfigProblem[] = [];
+  const bad = (code: ConfigProblemCode, ...args: (string | number)[]) => problems.push({ code, args: args.map(String) });
   if (config.rules.kind === "sum") {
-    if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) {
-      problems.push("rules.dice must list dice with at least 2 sides");
-    }
+    if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) bad("dice");
   } else if (!Number.isInteger(config.rules.sides) || config.rules.sides < 2) {
-    problems.push("rules.sides must be at least 2");
+    bad("sides");
   }
   const seen = new Set<string>();
-  const ident = (id: string, what: string) => {
-    if (!IDENT.test(id)) problems.push(`${what} "${id}" is not a valid ink identifier`);
-    if (seen.has(id)) problems.push(`duplicate id "${id}"`);
+  const ident = (id: string) => {
+    if (!IDENT.test(id)) bad("ident", id);
+    if (seen.has(id)) bad("duplicate", id);
     seen.add(id);
   };
-  for (const s of config.skills) ident(s.id, "skill");
-  for (const r of config.resources) ident(r.id, "resource");
-  for (const c of config.characters) ident(c.id, "character");
+  for (const s of config.skills) ident(s.id);
+  for (const r of config.resources) ident(r.id);
+  for (const c of config.characters) ident(c.id);
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
   const companionIds = new Set<string>();
   for (const r of config.companionResources ?? []) {
-    if (!IDENT.test(r.id)) problems.push(`companion resource "${r.id}" is not a valid ink identifier`);
-    if (companionIds.has(r.id)) problems.push(`duplicate companion resource id "${r.id}"`);
+    if (!IDENT.test(r.id)) bad("ident", r.id);
+    if (companionIds.has(r.id)) bad("duplicate", r.id);
     companionIds.add(r.id);
   }
   for (const r of config.companionResources ?? []) {
-    for (const c of config.characters) ident(`${r.id}_${c.id}`, "generated companion variable");
+    for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
-  for (const n of Object.values(inkNames(config)) as string[]) ident(n, "ink name");
-  if (config.characters.length === 0) problems.push("at least one character is needed");
+  for (const n of Object.values(inkNames(config)) as string[]) ident(n);
+  if (config.characters.length === 0) bad("noCharacters");
   for (const r of [...config.resources, ...(config.companionResources ?? [])]) {
-    if (!(r.min <= r.initial && r.initial <= r.max)) problems.push(`resource "${r.id}": need min <= initial <= max`);
+    if (!(r.min <= r.initial && r.initial <= r.max)) bad("resourceRange", r.id);
   }
   for (const [name, value] of Object.entries(config.difficulties ?? {})) {
-    if (!Number.isInteger(value) || value <= 0) problems.push(`difficulty "${name}" must be a positive integer`);
+    if (!Number.isInteger(value) || value <= 0) bad("difficulty", name);
   }
   const skills = new Map(config.skills.map((s) => [s.id, s]));
   for (const c of config.characters) {
     for (const [id, level] of Object.entries(c.skills)) {
       const s = skills.get(id);
-      if (!s) problems.push(`character "${c.id}" has unknown skill "${id}"`);
-      else if (!Number.isInteger(level) || level < 0 || level > (s.max ?? 6)) problems.push(`character "${c.id}": ${id} = ${level} must be an integer in 0..${s.max ?? 6}`);
+      if (!s) bad("unknownSkill", c.id, id);
+      else if (!Number.isInteger(level) || level < 0 || level > (s.max ?? 6)) bad("skillLevel", c.id, id, level, s.max ?? 6);
     }
     for (const id of Object.keys(c.companion ?? {})) {
-      if (!config.companionResources?.some((r) => r.id === id)) problems.push(`character "${c.id}" has unknown companion resource "${id}"`);
+      if (!config.companionResources?.some((r) => r.id === id)) bad("unknownCompanionResource", c.id, id);
     }
   }
   for (const m of config.modifiers ?? []) {
-    if (m.skill !== undefined && !skills.has(m.skill)) problems.push(`modifier for unknown skill "${m.skill}"`);
-    if (m.kind === "perStep" && !(m.step > 0)) problems.push(`modifier on "${m.resource}": step must be positive`);
+    if (m.skill !== undefined && !skills.has(m.skill)) bad("modifierSkill", m.skill);
+    if (m.kind === "perStep" && !(m.step > 0)) bad("modifierStep", m.resource);
   }
   return problems;
+}
+
+export interface LoadedConfig {
+  config: GameConfig | null;
+  /** Why the config is unusable (config null) or questionable (config set, problems listed). */
+  problems: ConfigProblem[];
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isScalar = (v: unknown): v is string | number | boolean => isStr(v) || isNum(v) || isBool(v);
+const numMap = (v: unknown): v is Record<string, number> => isObj(v) && Object.values(v).every(isNum);
+const strMap = (v: unknown): v is Record<string, string> => isObj(v) && Object.values(v).every(isStr);
+/** Optional field: absent (or an empty YAML value, which parses as null) or of the right type. */
+const opt = (v: unknown, check: (x: unknown) => boolean): boolean => v === undefined || v === null || check(v);
+
+/**
+ * Reads a GameConfig from parsed frontmatter (any JSON-like value). A wrong shape makes the
+ * config unusable (null); a well-formed one still carries validateConfig's problems.
+ */
+export function readConfig(fm: unknown): LoadedConfig {
+  if (!isObj(fm)) return { config: null, problems: [{ code: "noFrontmatter", args: [] }] };
+  const problems: ConfigProblem[] = [];
+  const shape = (path: string) => problems.push({ code: "shape", args: [path] });
+  const rules = fm.rules;
+  if (!isObj(rules) || (rules.kind !== "sum" && rules.kind !== "rollUnder")) {
+    problems.push({ code: "rulesKind", args: [] });
+  } else if (rules.kind === "sum") {
+    if (!Array.isArray(rules.dice) || !rules.dice.every(isNum)) shape("rules.dice");
+    if (!opt(rules.partialBelow, isNum)) shape("rules.partialBelow");
+    if (!opt(rules.naturalCrits, isBool)) shape("rules.naturalCrits");
+  } else {
+    if (!isNum(rules.sides)) shape("rules.sides");
+    if (!opt(rules.criticalDivisor, isNum)) shape("rules.criticalDivisor");
+    if (!opt(rules.fumbleFrom, isNum)) shape("rules.fumbleFrom");
+  }
+  if (!opt(fm.difficulties, numMap)) shape("difficulties");
+  if (!opt(fm.ink, strMap)) shape("ink");
+  /** A list of entries with an id; `required` lists must be non-empty, optional ones may be absent. */
+  const entries = (key: string, required: boolean, check: (e: Record<string, unknown>) => boolean) => {
+    const v = fm[key];
+    if (v === undefined || v === null) {
+      if (required) problems.push({ code: "list", args: [key] });
+      return;
+    }
+    if (!Array.isArray(v) || (required && v.length === 0)) {
+      problems.push({ code: required ? "list" : "shape", args: [key] });
+      return;
+    }
+    v.forEach((e: unknown, i) => {
+      if (!isObj(e) || !isStr(e.id) || !check(e)) shape(`${key}[${i}]`);
+    });
+  };
+  const resource = (e: Record<string, unknown>) => isNum(e.min) && isNum(e.max) && isNum(e.initial) && opt(e.name, isStr);
+  entries("skills", true, (e) => opt(e.name, isStr) && opt(e.max, isNum) && opt(e.voice, isObj));
+  entries("resources", false, resource);
+  entries("companionResources", false, resource);
+  entries("characters", true, (e) => opt(e.name, isStr) && opt(e.skills, numMap) && opt(e.companion, numMap));
+  const mods = fm.modifiers;
+  if (mods !== undefined && mods !== null) {
+    if (!Array.isArray(mods)) shape("modifiers");
+    else {
+      mods.forEach((m: unknown, i) => {
+        const ok = isObj(m) && isNum(m.value) && opt(m.skill, isStr) && opt(m.label, isStr)
+          && (m.kind === "perStep" ? isStr(m.resource) && isNum(m.step) : m.kind === "when" && isStr(m.variable) && opt(m.equals, isScalar));
+        if (!ok) shape(`modifiers[${i}]`);
+      });
+    }
+  }
+  if (problems.length > 0) return { config: null, problems };
+  const config: GameConfig = {
+    rules: rules as RulesConfig,
+    difficulties: (fm.difficulties ?? undefined) as GameConfig["difficulties"],
+    skills: fm.skills as SkillDef[],
+    resources: (fm.resources ?? []) as ResourceDef[],
+    companionResources: (fm.companionResources ?? []) as ResourceDef[],
+    characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
+    modifiers: (fm.modifiers ?? []) as ModifierRule[],
+    ink: fm.ink ?? undefined,
+  };
+  return { config, problems: validateConfig(config) };
 }

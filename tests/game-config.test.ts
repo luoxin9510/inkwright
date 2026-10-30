@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Compiler, Story } from "inkjs/full";
-import { collectModifiers, parseCheckTag, parseVoiceTag, validateConfig, type GameConfig } from "../src/game/config";
+import { collectModifiers, parseCheckTag, parseVoiceTag, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { CONFIG } from "./fixtures/gameConfig";
 import { generateInk } from "../src/game/inkgen";
 
@@ -60,6 +60,8 @@ describe("modifiers read from a real story", () => {
   });
 });
 
+const codes = (problems: ConfigProblem[]) => problems.map((p) => `${p.code}:${p.args.join(",")}`);
+
 describe("validateConfig", () => {
   test("accepts the sample config", () => {
     expect(validateConfig(CONFIG)).toEqual([]);
@@ -68,24 +70,19 @@ describe("validateConfig", () => {
     const bad: GameConfig = {
       ...CONFIG,
       skills: [{ id: "理智" }, { id: "理智" }, { id: "bad name" }],
-      characters: [{ id: "昕", skills: { 歌唱: 3 } }],
+      characters: [{ id: "昕", skills: { 歌唱: 3, 理智: 9 } }],
+      modifiers: [],
     };
-    const problems = validateConfig(bad);
-    expect(problems.some((p) => p.includes("理智"))).toBe(true);
-    expect(problems.some((p) => p.includes("bad name"))).toBe(true);
-    expect(problems.some((p) => p.includes("歌唱"))).toBe(true);
+    expect(codes(validateConfig(bad))).toEqual(["duplicate:理智", "ident:bad name", "unknownSkill:昕,歌唱", "skillLevel:昕,理智,9,6"]);
   });
   test("reports a non-positive step, no characters, and duplicate companion resource ids", () => {
     const bad: GameConfig = {
       ...CONFIG,
       characters: [],
       companionResources: [{ id: "恐惧", min: 0, max: 100, initial: 0 }, { id: "恐惧", min: 0, max: 100, initial: 0 }],
-      modifiers: [{ kind: "perStep", resource: "恐惧", step: 0, value: -1 }],
+      modifiers: [{ kind: "perStep", resource: "恐惧", step: 0, value: -1, skill: "歌唱" }],
     };
-    const problems = validateConfig(bad);
-    expect(problems.some((p) => p.includes("step"))).toBe(true);
-    expect(problems.some((p) => p.includes("character"))).toBe(true);
-    expect(problems.some((p) => p.includes("duplicate") && p.includes("恐惧"))).toBe(true);
+    expect(codes(validateConfig(bad))).toEqual(["duplicate:恐惧", "noCharacters:", "modifierSkill:歌唱", "modifierStep:恐惧"]);
   });
   test("reports ids colliding with ink names, generated companion variables, bad resource ranges and difficulties", () => {
     const bad: GameConfig = {
@@ -93,21 +90,69 @@ describe("validateConfig", () => {
       difficulties: { 普通: 0 },
       skills: [{ id: "检定" }, { id: "恐惧_昕" }],
       resources: [{ id: "体力", min: 0, max: 10, initial: 11 }],
-      characters: [{ id: "昕", skills: {} }],
+      characters: [{ id: "昕", skills: {}, companion: { 士气: 1 } }],
+      modifiers: [],
     };
-    const problems = validateConfig(bad);
-    expect(problems.some((p) => p.includes('duplicate id "检定"'))).toBe(true);
-    expect(problems.some((p) => p.includes('duplicate id "恐惧_昕"'))).toBe(true);
-    expect(problems.some((p) => p.includes("体力"))).toBe(true);
-    expect(problems.some((p) => p.includes("普通"))).toBe(true);
+    expect(codes(validateConfig(bad))).toEqual(["duplicate:恐惧_昕", "duplicate:检定", "resourceRange:体力", "difficulty:普通", "unknownCompanionResource:昕,士气"]);
   });
   test("rejects dice with no faces", () => {
-    expect(validateConfig({ ...CONFIG, rules: { kind: "sum", dice: [] } }).some((p) => p.includes("dice"))).toBe(true);
-    expect(validateConfig({ ...CONFIG, rules: { kind: "rollUnder", sides: 1 } }).some((p) => p.includes("sides"))).toBe(true);
+    expect(codes(validateConfig({ ...CONFIG, rules: { kind: "sum", dice: [] } }))).toEqual(["dice:"]);
+    expect(codes(validateConfig({ ...CONFIG, rules: { kind: "rollUnder", sides: 1 } }))).toEqual(["sides:"]);
   });
   test("skill ids may not reuse the generated function parameter names", () => {
-    const problems = validateConfig({ ...CONFIG, skills: [{ id: "技能" }], characters: [{ id: "昕", skills: {} }] });
-    expect(problems.some((p) => p.includes('"技能"'))).toBe(true);
+    const problems = validateConfig({ ...CONFIG, skills: [{ id: "技能" }], characters: [{ id: "昕", skills: {} }], modifiers: [] });
+    expect(codes(problems)).toEqual(["duplicate:技能"]);
+  });
+});
+
+describe("readConfig (frontmatter of unknown shape)", () => {
+  test("reads the sample config back, filling in the optional lists", () => {
+    const { config, problems } = readConfig(JSON.parse(JSON.stringify(CONFIG)));
+    expect(problems).toEqual([]);
+    expect(config).toEqual({ ...CONFIG, difficulties: CONFIG.difficulties, resources: CONFIG.resources, companionResources: CONFIG.companionResources ?? [], modifiers: CONFIG.modifiers ?? [], ink: CONFIG.ink });
+  });
+  test("empty YAML values count as absent", () => {
+    const { config, problems } = readConfig({
+      rules: { kind: "sum", dice: [6, 6], partialBelow: null },
+      skills: [{ id: "理智", name: null, voice: null }],
+      characters: [{ id: "昕", skills: null }],
+      resources: null, modifiers: null, difficulties: null, ink: null,
+    });
+    expect(problems).toEqual([]);
+    expect(config?.characters[0].skills).toEqual({});
+    expect(config?.resources).toEqual([]);
+  });
+  test("no frontmatter or no usable rules", () => {
+    expect(codes(readConfig(undefined).problems)).toEqual(["noFrontmatter:"]);
+    expect(codes(readConfig("---").problems)).toEqual(["noFrontmatter:"]);
+    expect(codes(readConfig({ skills: [{ id: "a" }], characters: [{ id: "b" }] }).problems)).toEqual(["rulesKind:"]);
+    expect(codes(readConfig({ rules: "2d6", skills: [{ id: "a" }], characters: [{ id: "b" }] }).problems)).toEqual(["rulesKind:"]);
+  });
+  test("every wrong shape is named by its path, without throwing", () => {
+    const { config, problems } = readConfig({
+      rules: { kind: "sum", dice: "6+6", naturalCrits: "yes" },
+      difficulties: [10, 12],
+      ink: { check: 1 },
+      skills: [{ id: "理智" }, "耐力", { id: "魅力", max: "six" }],
+      resources: [{ id: "恐惧", min: 0, max: "100" }],
+      companionResources: { id: "信任" },
+      characters: [{ id: "昕", skills: { 理智: "3" } }, { name: "无名" }],
+      modifiers: [{ kind: "perStep", resource: "恐惧" }, { kind: "when", variable: "受伤", value: -1 }, { kind: "always", value: 1 }],
+    });
+    expect(config).toBeNull();
+    expect(codes(problems)).toEqual([
+      "shape:rules.dice", "shape:rules.naturalCrits", "shape:difficulties", "shape:ink", "shape:skills[1]", "shape:skills[2]",
+      "shape:resources[0]", "shape:companionResources", "shape:characters[0]", "shape:characters[1]", "shape:modifiers[0]", "shape:modifiers[2]",
+    ]);
+  });
+  test("required lists must be present and non-empty", () => {
+    expect(codes(readConfig({ rules: { kind: "rollUnder", sides: 100 }, skills: [], characters: "昕" }).problems)).toEqual(["list:skills", "list:characters"]);
+    expect(codes(readConfig({ rules: { kind: "rollUnder", sides: "d100" } }).problems)).toEqual(["shape:rules.sides", "list:skills", "list:characters"]);
+  });
+  test("a well-formed config still gets the rule checks", () => {
+    const { config, problems } = readConfig({ rules: { kind: "sum", dice: [6, 6] }, skills: [{ id: "理智" }], characters: [{ id: "昕", skills: { 理智: 7 } }] });
+    expect(config).not.toBeNull();
+    expect(codes(problems)).toEqual(["skillLevel:昕,理智,7,6"]);
   });
 });
 

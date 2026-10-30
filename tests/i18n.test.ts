@@ -3,6 +3,7 @@ import { T, getLanguage, pickLanguage, resolveLanguage, setLanguage } from "../s
 import { translate } from "../src/compile/diagnostics";
 import { compileStory } from "../src/compile/compile";
 import { PlaySession } from "../src/play/session";
+import { CONFIG_PROBLEM_CODES } from "../src/game/config";
 
 afterEach(() => setLanguage("zh"));
 
@@ -37,6 +38,24 @@ describe("strings follow the language", () => {
       if (typeof zh[key] === "string") {
         expect(en[key], key).not.toBe("");
         expect(en[key], key).not.toBe(zh[key]);
+      }
+    }
+  });
+});
+
+describe("game config problems", () => {
+  test("every code is worded in both languages, differently, naming its arguments", () => {
+    const args = ["甲", "乙", "7", "6"];
+    for (const code of CONFIG_PROBLEM_CODES) {
+      setLanguage("zh");
+      const zh = T().configProblem({ code, args });
+      setLanguage("en");
+      const en = T().configProblem({ code, args });
+      expect(zh, code).not.toBe("");
+      expect(en, code).not.toBe(zh);
+      if (!["noFrontmatter", "rulesKind", "dice", "sides", "noCharacters"].includes(code)) {
+        expect(zh, code).toContain("甲");
+        expect(en, code).toContain("甲");
       }
     }
   });
