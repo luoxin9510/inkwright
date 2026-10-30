@@ -8,6 +8,7 @@ import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
 import type { ChoiceCheck, HudView, RollRecord } from "./game/engine";
+import type { ConfigProblem } from "./game/config";
 import type { Choice } from "./play/session";
 import type { PlayState } from "./views/PlayView";
 
@@ -27,6 +28,7 @@ export interface ApiHost {
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
   exportWeb(path?: string | null): Promise<{ path: string | null; diagnostics: Diagnostic[] }>;
+  generateEngine(path?: string | null): Promise<{ path: string | null; problems: ConfigProblem[] }>;
   savesForRoot(): { id: string; name: string; savedAt: string }[];
 }
 
@@ -92,7 +94,7 @@ Headless (does not touch the visible panel):
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
   panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, language, game, variables, visits, turns }
-                       game (when the story's folder has a 游戏.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance], hud, rolls }
+                       game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance], hud, rolls }
   choose(indexOrText)  make a choice in the panel
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
@@ -107,6 +109,8 @@ Visible play panel (the user sees what you do):
 Export:
   exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
                        -> { ok, path, diagnostics }; path defaults to the panel's main story
+  generateEngine(path?) game mode: write the engine ink (variables, character presets, check fallback) from the
+                       story's game.md next to it (default _engine.ink) -> { ok, path, problems[] }
 
 CLI example:
   obsidian vault=ink-games eval code='app.plugins.plugins.inkwright.api.play("游戏/雨夜来客/main.ink",{choices:[1,"油灯"]}).then(JSON.stringify)'`;
@@ -125,6 +129,11 @@ export class InkwrightApi {
   async exportWeb(path?: string): Promise<{ ok: boolean; path: string | null; diagnostics: ApiDiagnostic[] }> {
     const r = await this.host.exportWeb(path);
     return { ok: r.path !== null, path: r.path, diagnostics: plainDiagnostics(r.diagnostics) };
+  }
+
+  async generateEngine(path?: string): Promise<{ ok: boolean; path: string | null; problems: string[] }> {
+    const r = await this.host.generateEngine(path);
+    return { ok: r.path !== null, path: r.path, problems: r.problems.map((p) => T().configProblem(p)) };
   }
 
   async explore(path: string, options: ExploreOptions = {}): Promise<ExploreResult & { ok: boolean; diagnostics: ApiDiagnostic[] }> {

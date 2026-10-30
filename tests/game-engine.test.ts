@@ -6,7 +6,6 @@ import { PlaySession } from "../src/play/session";
 import { CONFIG } from "./fixtures/gameConfig";
 
 const STORY = `-> main
-VAR 语言 = "zh"
 ${generateInk(CONFIG)}
 === main ===
 走廊尽头的门虚掩着。
@@ -75,6 +74,16 @@ describe("GameEngine with a PlaySession", () => {
     session.start();
     session.choose(0);
     expect(engine.rolls[0]).toMatchObject({ skill: "洞察力", level: 3, total: 10, band: 3 });
+  });
+
+  test("hud names follow the engine's language; the id is the fallback", () => {
+    const engine = new GameEngine(CONFIG);
+    const session = new PlaySession(compile(), { setup: (story) => engine.setup(story, "昕") });
+    session.start();
+    expect(engine.hud().character?.skills[0]).toEqual({ id: "理智", name: "理智", level: 3 });
+    engine.language = "en";
+    expect(engine.hud().character?.skills[0]).toEqual({ id: "理智", name: "Reason", level: 3 });
+    expect(engine.hud().character?.skills[1]).toEqual({ id: "耐力", name: "耐力", level: 3 });
   });
 
   test("hud lists the other characters as companions with their resources", () => {

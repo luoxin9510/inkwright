@@ -6,11 +6,13 @@ import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphV
 import type { Diagnostic } from "./compile/diagnostics";
 import { PlaySession, findLanguageVar, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
-import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
+import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
+import { engineFile, localize, type ConfigProblem } from "./game/config";
+import { generateInk } from "./game/inkgen";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
@@ -69,6 +71,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "lock-main", name: T().lockCurrent, callback: () => void this.lockCurrent() });
     this.addCommand({ id: "unlock-main", name: T().unlock, callback: () => void this.setLocked(null) });
     this.addCommand({ id: "export-web", name: T().exportWeb, callback: () => void this.exportWeb() });
+    this.addCommand({ id: "generate-engine", name: T().generateEngine, callback: () => void this.generateEngine() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -251,6 +254,31 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { path: out, diagnostics: result.diagnostics };
   }
 
+  /** Writes the game's engine ink (from its game note) next to the main story; defaults to the current one. */
+  async generateEngine(path: string | null = this.targetRoot()): Promise<{ path: string | null; problems: ConfigProblem[] }> {
+    if (path === null) {
+      new Notice(T().noRoot);
+      return { path: null, problems: [] };
+    }
+    const note = findGameNote(this.app, path);
+    if (!note) {
+      new Notice(T().noGameNote);
+      return { path: null, problems: [] };
+    }
+    const { config, problems } = loadGameConfig(this.app, note);
+    if (!config) {
+      new Notice(T().gameConfigUnusable(problems.map((p) => T().configProblem(p)).join("; ")));
+      return { path: null, problems };
+    }
+    const out = path.slice(0, path.lastIndexOf("/") + 1) + engineFile(config);
+    const ink = generateInk(config);
+    const existing = this.app.vault.getAbstractFileByPath(out);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, ink);
+    else await this.app.vault.create(out, ink);
+    new Notice(T().engineWritten + out);
+    return { path: out, problems };
+  }
+
   // --- internals ---
 
   async openGraph(): Promise<void> {
@@ -338,7 +366,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (result === null) return;
     this.files = result.files;
     this.diagnostics = result.diagnostics;
-    this.loadGameNote(root);
+    await this.loadGameNote(root, result.files);
     this.flows = result.flows;
     // On a failed compile keep showing the last good graph, marked as stale.
     if (result.graph) this.graph = result.graph;
@@ -359,8 +387,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
   }
 
-  /** Reads the game note next to the main story (if any) into a fresh engine; problems become diagnostics. */
-  private loadGameNote(root: string): void {
+  /**
+   * Reads the game note next to the main story (if any) into a fresh engine; problems become
+   * diagnostics, as does an engine ink file the story lacks or that no longer matches the note.
+   */
+  private async loadGameNote(root: string, included: string[]): Promise<void> {
     this.game = null;
     const note = findGameNote(this.app, root);
     if (!note) return;
@@ -368,8 +399,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (!this.files.includes(note.path)) this.files.push(note.path);
     const { config, problems } = loadGameConfig(this.app, note);
     const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
-    for (const p of problems) this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: message(T().configProblem(p)), raw: "" });
+    const warn = (text: string) => this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: text, raw: "" });
+    for (const p of problems) warn(message(T().configProblem(p)));
     if (!config) return;
+    const file = engineFile(config);
+    const enginePath = root.slice(0, root.lastIndexOf("/") + 1) + file;
+    if (!included.includes(enginePath)) {
+      warn(T().engineNotIncluded(file));
+    } else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) {
+      warn(T().engineStale(file));
+    }
     if (this.character !== null && !config.characters.some((c) => c.id === this.character)) this.character = null;
     this.game = new GameEngine(config);
   }
@@ -378,10 +417,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const game = this.game;
     if (!game || !this.session) return null;
     const step = this.last;
+    // Names follow the story's language when it is bilingual, else the UI's.
+    const lang = this.session.language ?? getLanguage();
+    game.language = lang;
     return {
-      characters: game.config.characters.map((c) => ({ id: c.id, name: c.name ?? c.id })),
+      characters: game.config.characters.map((c) => ({ id: c.id, name: localize(c.name, lang, c.id) })),
       current: game.character(),
-      skills: game.config.skills.map((s) => ({ id: s.id, name: s.name ?? s.id, color: s.voice?.color })),
+      skills: game.config.skills.map((s) => ({ id: s.id, name: localize(s.name, lang, s.id), color: s.voice?.color, stance: localize(s.voice?.stance, lang, "") || undefined })),
       hud: game.hud(),
       checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
       voices: this.session.log.map((p) => game.voiceOf(p)),

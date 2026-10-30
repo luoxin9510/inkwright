@@ -10,7 +10,7 @@ import type { ChoiceCheck, HudView, RollRecord } from "../game/engine";
 export interface GameView {
   characters: { id: string; name: string }[];
   current: string | null;
-  skills: { id: string; name: string; color?: string }[];
+  skills: { id: string; name: string; color?: string; stance?: string }[];
   hud: HudView;
   /** Check info per choice, aligned with `choices`; null for plain choices. */
   checks: (ChoiceCheck | null)[];
@@ -153,7 +153,7 @@ export class PlayView extends ItemView {
       if (skill) {
         para.addClass("inkwright-voice");
         if (skill.color) para.setCssProps({ "--inkwright-voice": skill.color });
-        para.createSpan({ cls: "inkwright-voice-name", text: skill.name });
+        para.createSpan({ cls: "inkwright-voice-name", text: skill.name, ...(skill.stance ? { title: skill.stance } : {}) });
       }
       para.appendText(p.text);
     });

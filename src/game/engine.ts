@@ -1,5 +1,5 @@
 import { InkList, type Story } from "inkjs/full";
-import { collectModifiers, inkNames, parseCheckTag, parseVoiceTag, type CheckTag, type GameConfig } from "./config";
+import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, resolve, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 
 export interface EngineOptions {
@@ -50,6 +50,8 @@ export interface HudView {
  * the language replay roll the same dice again; the log of faces is kept here, keyed by both.
  */
 export class GameEngine {
+  /** Language the HUD names are shown in (a code from config.languages, or the UI's). */
+  language: string;
   private story: Story | null = null;
   private readonly bound = new WeakSet<Story>();
   private readonly rng: Rng | null;
@@ -58,6 +60,7 @@ export class GameEngine {
   private log: { seed: number; record: RollRecord }[] = [];
 
   constructor(readonly config: GameConfig, options: EngineOptions = {}) {
+    this.language = config.languages?.[0] ?? "zh";
     this.rng = options.rng ?? null;
     this.force = options.force;
     this.keepRolls = options.keepRolls ?? 20;
@@ -170,18 +173,19 @@ export class GameEngine {
 
   hud(): HudView {
     const current = this.character();
-    const view = (r: { id: string; name?: string; min: number; max: number }, variable: string): ResourceView => ({
-      id: r.id, name: r.name ?? r.id, value: Number(this.read(variable) ?? 0), min: r.min, max: r.max,
+    const name = (x: { id: string; name?: LocalizedText }) => localize(x.name, this.language, x.id);
+    const view = (r: { id: string; name?: LocalizedText; min: number; max: number }, variable: string): ResourceView => ({
+      id: r.id, name: name(r), value: Number(this.read(variable) ?? 0), min: r.min, max: r.max,
     });
     const character = this.config.characters.find((c) => c.id === current);
     return {
       character: character
-        ? { id: character.id, name: character.name ?? character.id, skills: this.config.skills.map((s) => ({ id: s.id, name: s.name ?? s.id, level: Number(this.read(s.id) ?? 0) })) }
+        ? { id: character.id, name: name(character), skills: this.config.skills.map((s) => ({ id: s.id, name: name(s), level: Number(this.read(s.id) ?? 0) })) }
         : null,
       resources: this.config.resources.map((r) => view(r, r.id)),
       companions: this.config.characters
         .filter((c) => c.id !== current)
-        .map((c) => ({ id: c.id, name: c.name ?? c.id, resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),
+        .map((c) => ({ id: c.id, name: name(c), resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),
     };
   }
 }

@@ -3,21 +3,34 @@ import type { Modifier, RulesConfig } from "./dice";
 /**
  * A game's rules as data. Nothing here names a particular game: skills,
  * resources, characters and modifier rules all come from the author's notes.
+ * Ids are code (ink identifiers, tags); what the player reads is a
+ * LocalizedText, so a game can show every language its story plays in.
  */
+
+/** Player-facing text: one string, or one per language code (`{ zh: 洞察力, en: Insight }`). */
+export type LocalizedText = string | Record<string, string>;
+
+/** The text in `lang`, else the first language given, else `fallback` (usually the id). */
+export function localize(text: LocalizedText | undefined | null, lang: string, fallback: string): string {
+  if (typeof text === "string") return text;
+  if (text && typeof text === "object") return text[lang] ?? Object.values(text)[0] ?? fallback;
+  return fallback;
+}
+
 export interface SkillDef {
   /** Also the ink variable name, so it must be a valid ink identifier. */
   id: string;
   /** Display name; defaults to the id. */
-  name?: string;
+  name?: LocalizedText;
   /** How this skill speaks when it interjects as an inner voice. */
-  voice?: { stance?: string; color?: string };
+  voice?: { stance?: LocalizedText; color?: string };
   /** Highest level (default 6). */
   max?: number;
 }
 
 export interface ResourceDef {
   id: string;
-  name?: string;
+  name?: LocalizedText;
   min: number;
   max: number;
   initial: number;
@@ -25,7 +38,7 @@ export interface ResourceDef {
 
 export interface CharacterDef {
   id: string;
-  name?: string;
+  name?: LocalizedText;
   /** Starting skill levels when played; keys are skill ids. */
   skills: Record<string, number>;
   /** Starting companion resource values when not played; keys are companionResources ids. */
@@ -65,9 +78,19 @@ export interface GameConfig {
   companionResources?: ResourceDef[];
   characters: CharacterDef[];
   modifiers?: ModifierRule[];
-  /** ink identifiers the generated code uses; override to localize. */
-  ink?: Partial<InkNames>;
+  /**
+   * Languages the story is written in, e.g. ["zh", "en"] (the first is the default). The
+   * generated ink then declares the language variable and the text function (`{t("中文", "English")}`).
+   */
+  languages?: string[];
+  /** File the generated ink is written to, next to the main story (default `_engine.ink`). */
+  engineFile?: string;
+  /** ink identifiers the generated code uses: a preset ("en" is the default, "zh" for Chinese names) or overrides. */
+  ink?: InkPreset | Partial<InkNames>;
 }
+
+export type InkPreset = "en" | "zh";
+export const DEFAULT_ENGINE_FILE = "_engine.ink";
 
 export interface InkNames {
   /** EXTERNAL function the story calls to roll: `检定("技能名", 难度)` → band. */
@@ -83,20 +106,36 @@ export interface InkNames {
   /** VARs the engine writes so the dice follow the state: the run's seed and how many checks it rolled. */
   seed: string;
   rolls: string;
+  /** VAR holding the story's language and the function picking text by it (bilingual stories). */
+  langVar: string;
+  textFn: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
   whoParam: string;
 }
 
-export const DEFAULT_INK_NAMES: InkNames = {
-  check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
-  seed: "骰子种子", rolls: "掷骰次数",
-  skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
+export const INK_PRESETS: Record<InkPreset, InkNames> = {
+  en: {
+    check: "check", skillValue: "skill_level", characters: "characters", current: "character", select: "pick_character",
+    seed: "dice_seed", rolls: "dice_rolls", langVar: "lang", textFn: "t",
+    skillParam: "skill", difficultyParam: "difficulty", whoParam: "who",
+  },
+  zh: {
+    check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
+    seed: "骰子种子", rolls: "掷骰次数", langVar: "语言", textFn: "双",
+    skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
+  },
 };
+export const DEFAULT_INK_NAMES: InkNames = INK_PRESETS.en;
 
 export function inkNames(config: GameConfig): InkNames {
-  return { ...DEFAULT_INK_NAMES, ...config.ink };
+  return typeof config.ink === "string" ? INK_PRESETS[config.ink] : { ...DEFAULT_INK_NAMES, ...config.ink };
+}
+
+/** Where the generated ink lives, relative to the game's folder. */
+export function engineFile(config: GameConfig): string {
+  return config.engineFile ?? DEFAULT_ENGINE_FILE;
 }
 
 export interface CheckTag {
@@ -172,7 +211,7 @@ const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 
 export const CONFIG_PROBLEM_CODES = [
   "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
-  "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep",
+  "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -214,6 +253,9 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
   for (const n of Object.values(inkNames(config)) as string[]) ident(n);
+  if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
+    bad("languages");
+  }
   if (config.characters.length === 0) bad("noCharacters");
   for (const r of [...config.resources, ...(config.companionResources ?? [])]) {
     if (!(r.min <= r.initial && r.initial <= r.max)) bad("resourceRange", r.id);
@@ -252,6 +294,8 @@ const isBool = (v: unknown): v is boolean => typeof v === "boolean";
 const isScalar = (v: unknown): v is string | number | boolean => isStr(v) || isNum(v) || isBool(v);
 const numMap = (v: unknown): v is Record<string, number> => isObj(v) && Object.values(v).every(isNum);
 const strMap = (v: unknown): v is Record<string, string> => isObj(v) && Object.values(v).every(isStr);
+const isText = (v: unknown): v is LocalizedText => isStr(v) || strMap(v);
+const isPreset = (v: unknown): v is InkPreset => v === "en" || v === "zh";
 /** Optional field: absent (or an empty YAML value, which parses as null) or of the right type. */
 const opt = (v: unknown, check: (x: unknown) => boolean): boolean => v === undefined || v === null || check(v);
 
@@ -276,7 +320,9 @@ export function readConfig(fm: unknown): LoadedConfig {
     if (!opt(rules.fumbleFrom, isNum)) shape("rules.fumbleFrom");
   }
   if (!opt(fm.difficulties, numMap)) shape("difficulties");
-  if (!opt(fm.ink, strMap)) shape("ink");
+  if (!opt(fm.ink, (v) => isPreset(v) || strMap(v))) shape("ink");
+  if (!opt(fm.languages, (v) => Array.isArray(v) && v.every(isStr))) shape("languages");
+  if (!opt(fm.engineFile, (v) => isStr(v) && v.endsWith(".ink") && !v.includes("/"))) shape("engineFile");
   /** A list of entries with an id; `required` lists must be non-empty, optional ones may be absent. */
   const entries = (key: string, required: boolean, check: (e: Record<string, unknown>) => boolean) => {
     const v = fm[key];
@@ -292,11 +338,12 @@ export function readConfig(fm: unknown): LoadedConfig {
       if (!isObj(e) || !isStr(e.id) || !check(e)) shape(`${key}[${i}]`);
     });
   };
-  const resource = (e: Record<string, unknown>) => isNum(e.min) && isNum(e.max) && isNum(e.initial) && opt(e.name, isStr);
-  entries("skills", true, (e) => opt(e.name, isStr) && opt(e.max, isNum) && opt(e.voice, isObj));
+  const resource = (e: Record<string, unknown>) => isNum(e.min) && isNum(e.max) && isNum(e.initial) && opt(e.name, isText);
+  const voice = (v: unknown) => isObj(v) && opt(v.stance, isText) && opt(v.color, isStr);
+  entries("skills", true, (e) => opt(e.name, isText) && opt(e.max, isNum) && opt(e.voice, voice));
   entries("resources", false, resource);
   entries("companionResources", false, resource);
-  entries("characters", true, (e) => opt(e.name, isStr) && opt(e.skills, numMap) && opt(e.companion, numMap));
+  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap));
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
     if (!Array.isArray(mods)) shape("modifiers");
@@ -317,6 +364,8 @@ export function readConfig(fm: unknown): LoadedConfig {
     companionResources: (fm.companionResources ?? []) as ResourceDef[],
     characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
+    languages: (fm.languages ?? undefined) as string[] | undefined,
+    engineFile: (fm.engineFile ?? undefined) as string | undefined,
     ink: fm.ink ?? undefined,
   };
   return { config, problems: validateConfig(config) };
