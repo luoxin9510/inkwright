@@ -30,10 +30,15 @@ const quiet = process.argv.includes("--quiet");
 const all = process.argv.includes("--all");
 const langAt = process.argv.indexOf("--lang");
 const language = langAt >= 0 ? process.argv[langAt + 1] : undefined;
-const stepsAt = process.argv.indexOf("--max-steps");
-const maxSteps = stepsAt >= 0 ? Number(process.argv[stepsAt + 1]) : 20000;
-const spotAt = process.argv.indexOf("--states-per-spot");
-const statesPerSpot = spotAt >= 0 ? Number(process.argv[spotAt + 1]) : undefined;
+/** The number after a flag, or the default when the flag is missing or its value is not a number. */
+function numberFlag(flag: string, fallback: number): number {
+  const at = process.argv.indexOf(flag);
+  const n = at >= 0 ? Number(process.argv[at + 1]) : NaN;
+  if (at >= 0 && !Number.isFinite(n)) console.error(`${flag} needs a number; using ${fallback}`);
+  return Number.isFinite(n) ? n : fallback;
+}
+const maxSteps = numberFlag("--max-steps", 20000);
+const statesPerSpot = numberFlag("--states-per-spot", 10);
 if (!root) {
   console.error("usage: check-ink <folder>");
   process.exit(2);
@@ -75,7 +80,7 @@ for (const file of files) {
       runtime.push(...x.errors.map((e) => `${tag}${e.message} (after: ${e.choices.join(" > ") || "start"})`));
       if (x.truncated) runtime.push(`${tag}stopped exploring after ${maxSteps} choices (endless loop, or raise --max-steps); not every branch was played`);
       endings.push(...x.endings.map((e) => `${tag}${e.lastText}  <- ${e.choices.join(" > ")}`));
-      if (x.cappedSpots > 0) notes.push(`${tag}${x.cappedSpots} spot(s) reached in more states than played on (${statesPerSpot ?? 10} each; raise --states-per-spot to play on more)`);
+      if (x.cappedSpots > 0) notes.push(`${tag}${x.cappedSpots} spot(s) reached in more states than played on (${statesPerSpot} each; raise --states-per-spot to play on more)`);
       for (const c of x.checks?.noConsequence ?? []) {
         warnings.push(`${tag}failing ${c.skill} ${c.difficulty} changes nothing (no variable, same choices): ${c.choices.join(" > ")}`);
       }

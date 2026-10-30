@@ -173,7 +173,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
 /**
  * The parts of a state that decide its future: without the turn counters, the text just shown,
  * the last random and the engine's own variables (`hidden`); object keys sorted, since inkjs
- * writes visit counts and list items in the order they were first touched. The spot is the
+ * writes visit counts and list items in the order they were first touched. Two states that
+ * differ only in those (a RANDOM or TURNS_SINCE still to come) count as one. The spot is the
  * list of choice points offered.
  */
 function stateKey(state: string, hidden: Set<string>): { state: string; spot: string } {

@@ -79,6 +79,22 @@ test("the page plays, goes back, restarts and resumes from localStorage", () => 
   expect((document.querySelector("#back") as HTMLButtonElement).disabled).toBe(true);
 });
 
+test("after a choice the first new paragraph is scrolled to the top; after going back, the choices", () => {
+  const scrolled: { text: string | null; block: unknown }[] = [];
+  const proto = Element.prototype as unknown as { scrollIntoView: (o: unknown) => void };
+  const original = proto.scrollIntoView;
+  proto.scrollIntoView = function (this: Element, o: unknown) { scrolled.push({ text: this.textContent, block: (o as { block: unknown }).block }); };
+  try {
+    mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
+    (document.querySelector("#choices button:nth-child(2)") as HTMLElement).click();
+    expect(scrolled.at(-1)).toEqual({ text: "Right", block: "start" });
+    (document.querySelector("#back") as HTMLElement).click();
+    expect(scrolled.at(-1)).toEqual({ text: "LeftRight", block: "end" });
+  } finally {
+    proto.scrollIntoView = original;
+  }
+});
+
 test("a save from a different story version is ignored", () => {
   mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
   (document.querySelector("#choices button") as HTMLElement).click();

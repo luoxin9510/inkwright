@@ -279,8 +279,10 @@ const PLAYER = `(function () {
     endEl.hidden = halted || story.currentChoices.length > 0;
     backEl.disabled = history.length === 0;
     if (langVar) langEl.value = language();
-    // After a choice, the first new paragraph goes to the top so the reader scrolls down from there.
+    // After a choice, the first new paragraph goes to the top so the reader scrolls down from
+    // there; after going back or restarting, the choices are shown.
     if (log.length > shown && storyEl.children[shown]) storyEl.children[shown].scrollIntoView({ block: "start" });
+    else if (log.length < shown) choicesEl.scrollIntoView({ block: "end" });
     shown = log.length;
   }
 
