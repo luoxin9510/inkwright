@@ -58,7 +58,7 @@ interface Move {
  * other outcome, so both sides of every check get played.
  */
 export function exploreStory(story: Story, options: ExploreOptions = {}): ExploreResult {
-  const bands = options.bands?.length ? options.bands : [3, 1];
+  const bands: Band[] = options.bands?.length ? options.bands : [3, 1];
   // Checks met while making the current move: planned outcomes first, then the default.
   let plan: Band[] = [];
   let met: { skill: string; difficulty: number; band: Band }[] = [];
