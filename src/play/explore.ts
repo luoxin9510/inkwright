@@ -15,7 +15,7 @@ export interface ExploreOptions {
   game?: GameConfig;
   /** Character to play in game mode (default: the first). */
   character?: string;
-  /** Outcomes to walk per check (default [3, 1]: success and failure). */
+  /** Outcomes to walk per check, the first being the default (default [3, 1]: success and failure). */
   bands?: Band[];
 }
 
@@ -58,7 +58,7 @@ interface Move {
  * other outcome, so both sides of every check get played.
  */
 export function exploreStory(story: Story, options: ExploreOptions = {}): ExploreResult {
-  const bands = options.bands ?? [3, 1];
+  const bands = options.bands?.length ? options.bands : [3, 1];
   // Checks met while making the current move: planned outcomes first, then the default.
   let plan: Band[] = [];
   let met: { skill: string; difficulty: number; band: Band }[] = [];
@@ -71,8 +71,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       },
     })
     : null;
-  // A fresh Story per exploration: the engine binds the check function, which a Story takes only once.
-  const session = new PlaySession(new Story(story.ToJson() as string), {
+  // In game mode a fresh Story per exploration: the engine binds the check function, which a Story takes only once.
+  const session = new PlaySession(engine ? new Story(story.ToJson() as string) : story, {
     language: options.language,
     timeBudgetMs: options.timeBudgetMs ?? 1000,
     setup: engine ? (s) => engine.setup(s, options.character) : undefined,
