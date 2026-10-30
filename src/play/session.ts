@@ -11,6 +11,8 @@ export interface Paragraph {
 export interface Choice {
   index: number;
   text: string;
+  /** Tags written inside the choice's brackets, e.g. `check:力量:12`. */
+  tags: string[];
 }
 
 export interface Step {
@@ -42,6 +44,11 @@ export interface SessionOptions {
   timeBudgetMs?: number;
   /** Language to play a bilingual story in (see LANGUAGE_VARS); default: the story's own value. */
   language?: string;
+  /**
+   * Runs on every Story the session builds (start, restart, back, load, language replay), before
+   * it continues: bind EXTERNAL functions, load presets. A game engine hooks in here.
+   */
+  setup?: (story: Story) => void;
 }
 
 const SLICE_MS = 20;
@@ -67,6 +74,7 @@ export class PlaySession {
   /** The story's language variable, or null when it is not bilingual. */
   readonly languageVar: string | null;
   private preferredLanguage: string | null;
+  private readonly setup?: (story: Story) => void;
   /** State at the start point; null after loading a save made without one. */
   private startState: string | null = null;
   /** Choices made since startState. */
@@ -75,6 +83,7 @@ export class PlaySession {
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
     this.budget = options.timeBudgetMs ?? 2000;
+    this.setup = options.setup;
     this.story = this.attach(story);
     this.languageVar = findLanguageVar(story);
     this.preferredLanguage = options.language ?? null;
@@ -237,6 +246,7 @@ export class PlaySession {
     story.onError = (message: string) => {
       this.errors.push(translateRuntime(message));
     };
+    this.setup?.(story);
     return story;
   }
 
@@ -272,7 +282,7 @@ export class PlaySession {
   private snapshot(paragraphs: Paragraph[]): Step {
     const choices = this.halted
       ? []
-      : this.story.currentChoices.map((c) => ({ index: c.index, text: c.text }));
+      : this.story.currentChoices.map((c) => ({ index: c.index, text: c.text, tags: c.tags ?? [] }));
     return {
       paragraphs,
       choices,

@@ -36,7 +36,7 @@ export interface Modifier {
 
 export interface CheckInput {
   /** The character's level in the skill. */
-  skill: number;
+  level: number;
   difficulty: number;
   modifiers?: Modifier[];
 }
@@ -82,7 +82,7 @@ function gradeRollUnder(rules: RollUnderRules, roll: number, skill: number): Ban
 /** Rolls a check. `force` skips the dice and returns that band, for tools that walk every outcome. */
 export function resolve(rules: RulesConfig, input: CheckInput, rng: Rng, force?: Band): CheckResult {
   const modifiers = input.modifiers ?? [];
-  const bonus = input.skill + sum(modifiers.map((m) => m.value));
+  const bonus = input.level + sum(modifiers.map((m) => m.value));
   if (force !== undefined) return { ...input, modifiers, band: force, rolls: [], total: 0 };
   if (rules.kind === "sum") {
     const rolls = rules.dice.map((sides) => 1 + Math.floor(rng() * sides));
@@ -94,7 +94,7 @@ export function resolve(rules: RulesConfig, input: CheckInput, rng: Rng, force?:
 
 /** Exact probability of each band, by enumerating the dice. */
 export function chance(rules: RulesConfig, input: CheckInput): Chance {
-  const bonus = input.skill + sum((input.modifiers ?? []).map((m) => m.value));
+  const bonus = input.level + sum((input.modifiers ?? []).map((m) => m.value));
   const bands: Chance["bands"] = [0, 0, 0, 0, 0];
   if (rules.kind === "sum") {
     const count = rules.dice.reduce((a, b) => a * b, 1);

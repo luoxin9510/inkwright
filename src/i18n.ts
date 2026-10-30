@@ -65,6 +65,14 @@ const zh = {
   emptyTranslation: "双语函数里有一边是空字符串。",
   exported: "已导出网页:",
   exportFailed: "剧本有编译错误,无法导出。",
+  character: "主角",
+  status: "状态",
+  diceLog: "掷骰记录",
+  noRolls: "还没有掷过骰子。",
+  bands: ["大失败", "失败", "部分成功", "成功", "大成功"],
+  redCheck: "一次性",
+  gameConfigProblem: (p: string) => `游戏配置有问题:${p}`,
+  gameConfigUnusable: (p: string) => `游戏配置无法使用,已按普通剧本运行:${p}`,
 };
 
 export type Strings = typeof zh;
@@ -133,6 +141,14 @@ const en: Strings = {
   emptyTranslation: "One side of a bilingual call is an empty string.",
   exported: "Exported web page: ",
   exportFailed: "The story has compile errors and cannot be exported.",
+  character: "Character",
+  status: "Status",
+  diceLog: "Dice log",
+  noRolls: "No rolls yet.",
+  bands: ["Critical failure", "Failure", "Partial success", "Success", "Critical success"],
+  redCheck: "one attempt",
+  gameConfigProblem: (p) => `Game config problem: ${p}`,
+  gameConfigUnusable: (p) => `Game config unusable, playing as a plain story: ${p}`,
 };
 
 const tables: Record<Language, Strings> = { zh, en };

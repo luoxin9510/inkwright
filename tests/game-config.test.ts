@@ -11,6 +11,7 @@ describe("tags", () => {
     expect(parseCheckTag("check:理智:困难:红", CONFIG)).toEqual({ skill: "理智", difficulty: 12, red: true });
     expect(parseCheckTag("check:理智:hard:red", CONFIG)).toBeNull(); // unknown ladder name
     expect(parseCheckTag("check:理智:constructor", CONFIG)).toBeNull(); // inherited keys are not difficulties
+    expect(parseCheckTag("check:理智:0", CONFIG)).toBeNull();
     expect(parseCheckTag("check:歌唱:10", CONFIG)).toBeNull(); // unknown skill
     expect(parseCheckTag("voice:理智", CONFIG)).toBeNull();
   });
@@ -41,7 +42,7 @@ describe("modifiers read from a real story", () => {
         { kind: "perStep", resource: "恐惧", step: 25, value: -1, skill: "理智" },
       ],
     };
-    const c = new Compiler('VAR 受伤 = true\nVAR 天气 = "雨"\nVAR 层数 = 3\nVAR 恐惧 = 30\nx\n-> END');
+    const c = new Compiler('VAR 受伤 = 1\nVAR 天气 = "雨"\nVAR 层数 = 3\nVAR 恐惧 = 30\nx\n-> END'); // 受伤 as an int 1, as an ink function would return
     const story = new Story(c.Compile().ToJson() as string);
     const state = (name: string) => story.variablesState[name];
     expect(collectModifiers(config, "力量", state)).toEqual([{ source: "受伤", value: -2 }, { source: "天气", value: -1 }]);
@@ -109,13 +110,13 @@ describe("generated ink", () => {
     expect(ink).toContain("VAR 恐惧_阿波 = 10");
     expect(ink).toContain("VAR 信任_阿波 = 60");
     expect(ink).toContain("EXTERNAL 检定(技能, 难度)");
-    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(阿波)\n{检定(力量, 10)} {检定(力量, 14)}\n-> END\n");
+    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(阿波)\n{检定(\"力量\", 10)} {检定(\"力量\", 14)} {检定(\"没有\", 8)}\n-> END\n");
     const story = new Story(c.Compile().ToJson() as string);
     story.allowExternalFunctionFallbacks = true;
     let out = "";
     while (story.canContinue) out += story.Continue();
     // The fallback uses the average roll (7): 5 + 7 = 12 >= 10 succeeds, < 14 fails.
-    expect(out.trim()).toBe("3 1");
+    expect(out.trim()).toBe("3 1 1"); // an unknown skill counts as level 0
     expect(story.variablesState["力量"]).toBe(5);
     expect(story.variablesState["魅力"]).toBe(2);
     expect(String(story.variablesState["当前主角"])).toBe("阿波");

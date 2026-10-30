@@ -9,9 +9,11 @@ import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { T, resolveLanguage, setLanguage, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
+import { GameEngine } from "./game/engine";
+import { findGameNote, loadGameConfig } from "./game/obsidian";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
-import { PLAY_VIEW_TYPE, PlayView, type PlayController, type PlayState } from "./views/PlayView";
+import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
 
 export interface SaveSlot extends SaveData {
   id: string;
@@ -41,6 +43,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private startPoint: string | null = null;
   private graph: StoryGraph | null = null;
   private graphStale = false;
+  /** Rules engine when the main story's folder has a game note; null for plain stories. */
+  private game: GameEngine | null = null;
+  /** Chosen playable character; null = the game's first. */
+  private character: string | null = null;
   /** Scriptable API for agents, e.g. via `obsidian eval`. See src/api.ts. */
   readonly api = new InkwrightApi(this);
 
@@ -116,6 +122,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   back(): void {
     const step = this.session?.back();
     if (step) this.apply(step);
+  }
+
+  selectCharacter(id: string): void {
+    if (!this.game?.config.characters.some((c) => c.id === id)) return;
+    this.character = id;
+    // A new character means a new run from the current start point.
+    this.startAt(this.startPoint);
   }
 
   setStoryLanguage(lang: string): void {
@@ -305,11 +318,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (root !== this.root) {
       this.startPoint = null;
       this.graph = null;
+      this.character = null;
     }
     this.root = root;
     if (root === null) {
       this.latest.invalidate();
       this.session = null;
+      this.game = null;
       this.diagnostics = [];
       this.files = [];
       this.flows = [];
@@ -321,6 +336,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (result === null) return;
     this.files = result.files;
     this.diagnostics = result.diagnostics;
+    this.loadGameNote(root);
     this.flows = result.flows;
     // On a failed compile keep showing the last good graph, marked as stale.
     if (result.graph) this.graph = result.graph;
@@ -328,13 +344,47 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (result.story) {
       // Keep the chosen start point across recompiles while it still exists.
       if (this.startPoint !== null && !this.flows.some((f) => f.path === this.startPoint)) this.startPoint = null;
-      this.session = new PlaySession(result.story, { language: this.config.storyLanguage ?? undefined });
+      const game = this.game;
+      this.session = new PlaySession(result.story, {
+        language: this.config.storyLanguage ?? undefined,
+        setup: game ? (story) => game.setup(story, this.character ?? undefined) : undefined,
+      });
       this.apply(this.session.startAt(this.startPoint));
     } else {
       this.session = null;
       this.last = null;
       this.pushState();
     }
+  }
+
+  /** Reads the game note next to the main story (if any) into a fresh engine; problems become diagnostics. */
+  private loadGameNote(root: string): void {
+    this.game = null;
+    const note = findGameNote(this.app, root);
+    if (!note) return;
+    // Edits to the game note recompile, like edits to any INCLUDEd file.
+    if (!this.files.includes(note.path)) this.files.push(note.path);
+    const { config, problems } = loadGameConfig(this.app, note);
+    const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
+    for (const p of problems) this.diagnostics.push({ severity: "warning", file: note.path, line: null, message: message(p), raw: "" });
+    if (!config) return;
+    if (this.character !== null && !config.characters.some((c) => c.id === this.character)) this.character = null;
+    this.game = new GameEngine(config);
+  }
+
+  private gameView(): GameView | null {
+    const game = this.game;
+    if (!game || !this.session) return null;
+    const step = this.last;
+    return {
+      characters: game.config.characters.map((c) => ({ id: c.id, name: c.name ?? c.id })),
+      current: game.character(),
+      skills: game.config.skills.map((s) => ({ id: s.id, name: s.name ?? s.id, color: s.voice?.color })),
+      hud: game.hud(),
+      checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
+      voices: this.session.log.map((p) => game.voiceOf(p)),
+      rolls: game.rolls,
+    };
   }
 
   private apply(step: Step): void {
@@ -359,6 +409,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       startPoint: this.startPoint,
       canGoBack: this.session?.canGoBack ?? false,
       storyLanguage: this.session?.language ?? null,
+      game: this.gameView(),
       saves: this.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
     };
   }

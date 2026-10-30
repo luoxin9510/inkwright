@@ -75,3 +75,17 @@
 .inkwright-save-info { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .inkwright-save-time { font-size: var(--font-smaller); color: var(--text-faint); }
 .inkwright-bar button:disabled { opacity: 0.4; }
+
+/* inkwright: game mode */
+.inkwright-hud { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: var(--font-smaller); }
+.inkwright-hud-row { display: flex; align-items: center; gap: 8px; }
+.inkwright-hud-name { min-width: 3em; }
+.inkwright-hud-bar { flex: 1; height: 6px; background: var(--background-modifier-border); border-radius: 3px; overflow: hidden; }
+.inkwright-hud-fill { height: 100%; background: var(--interactive-accent); }
+.inkwright-hud-value { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.inkwright-hud-companion { color: var(--text-muted); }
+.inkwright-voice { border-left: 3px solid var(--inkwright-voice, var(--text-accent)); padding-left: 8px; color: var(--text-muted); font-style: italic; }
+.inkwright-voice-name { color: var(--inkwright-voice, var(--text-accent)); font-style: normal; font-weight: 600; margin-right: 6px; }
+.inkwright-check { display: inline-block; margin-left: 8px; font-size: var(--font-smaller); color: var(--text-muted); white-space: nowrap; }
+.inkwright-check-red { color: var(--text-error); }
+.inkwright-dice td:first-child { white-space: nowrap; }

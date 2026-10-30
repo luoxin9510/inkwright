@@ -5,7 +5,8 @@ import { averageRoll } from "./dice";
  * The ink a game needs so its stories can run anywhere: skill and resource
  * variables, the character list, a function that loads a character's preset,
  * and a fallback for the engine's check function (no dice: the average roll),
- * so the story also plays in Inky or plain Inkwright.
+ * so the story also plays in Inky or plain Inkwright. Stories call the check
+ * with the skill's name as a string: `检定("力量", 12)`.
  */
 export function generateInk(config: GameConfig): string {
   const n = inkNames(config);
@@ -40,15 +41,21 @@ export function generateInk(config: GameConfig): string {
     for (const s of config.skills) lines.push(`    ~ ${s.id} = ${c.skills[s.id] ?? 0}`);
     lines.push("}");
   }
+  lines.push("", `// A skill's current level, by name.`, `=== function ${n.skillValue}(${n.skillParam}) ===`);
+  for (const s of config.skills) lines.push(`{ ${n.skillParam} == "${s.id}":`, `    ~ return ${s.id}`, "}");
+  lines.push("~ return 0");
   const avg = averageRoll(config.rules);
   lines.push(
     "",
-    `// Without the engine there are no dice: the average roll (${avg}) decides.`,
+    `// Without the engine there are no dice or modifiers: the average roll (${avg}) decides.`,
     `=== function ${n.check}(${n.skillParam}, ${n.difficultyParam}) ===`,
   );
   // Same grading as dice.ts with the average roll: sum systems compare the total with the
   // difficulty; roll-under succeeds when the roll is at or under the skill (difficulty unused).
-  const wins = config.rules.kind === "sum" ? `${n.skillParam} + ${avg} >= ${n.difficultyParam}` : `${avg} <= ${n.skillParam}`;
+  // Modifier rules live in the engine, so this fallback ignores them: a story played without the
+  // engine is a little more forgiving, never different in structure.
+  const level = `${n.skillValue}(${n.skillParam})`;
+  const wins = config.rules.kind === "sum" ? `${level} + ${avg} >= ${n.difficultyParam}` : `${avg} <= ${level}`;
   lines.push(`{ ${wins}:`, "    ~ return 3", "}", "~ return 1");
   return lines.join("\n") + "\n";
 }

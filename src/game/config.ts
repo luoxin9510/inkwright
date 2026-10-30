@@ -70,8 +70,10 @@ export interface GameConfig {
 }
 
 export interface InkNames {
-  /** EXTERNAL function the story calls to roll: `检定(技能, 难度)` → band. */
+  /** EXTERNAL function the story calls to roll: `检定("技能名", 难度)` → band. */
   check: string;
+  /** Generated function mapping a skill's name to its current level, for the ink fallback. */
+  skillValue: string;
   /** LIST of playable characters. */
   characters: string;
   /** VAR holding the current character. */
@@ -85,7 +87,7 @@ export interface InkNames {
 }
 
 export const DEFAULT_INK_NAMES: InkNames = {
-  check: "检定", characters: "主角", current: "当前主角", select: "选主角",
+  check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
   skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
 };
 
@@ -111,7 +113,7 @@ export function parseCheckTag(tag: string, config: GameConfig): CheckTag | null 
   const difficulty = /^\d+$/.test(diff)
     ? Number(diff)
     : Object.prototype.hasOwnProperty.call(config.difficulties ?? {}, diff) ? config.difficulties?.[diff] : undefined;
-  if (difficulty === undefined) return null;
+  if (difficulty === undefined || difficulty <= 0) return null;
   if (flag !== undefined && !RED.has(flag)) return null;
   return { skill, difficulty, red: flag !== undefined };
 }
@@ -128,6 +130,8 @@ export type StateReader = (name: string) => unknown;
 
 /** Compares a story value with a rule's value by text, so bools, ints and strings from inkjs all match. */
 function sameValue(actual: unknown, expected: string | number | boolean): boolean {
+  // ink functions may hand back 1/0 for true/false.
+  if (typeof expected === "boolean" && typeof actual === "number") return (actual !== 0) === expected;
   switch (typeof actual) {
     case "string": case "number": case "boolean": return String(actual) === String(expected);
     // Anything else (an ink list, an object) is compared by its own text form.
@@ -200,7 +204,7 @@ export function validateConfig(config: GameConfig): string[] {
     for (const [id, level] of Object.entries(c.skills)) {
       const s = skills.get(id);
       if (!s) problems.push(`character "${c.id}" has unknown skill "${id}"`);
-      else if (level < 0 || level > (s.max ?? 6)) problems.push(`character "${c.id}": ${id} = ${level} is outside 0..${s.max ?? 6}`);
+      else if (!Number.isInteger(level) || level < 0 || level > (s.max ?? 6)) problems.push(`character "${c.id}": ${id} = ${level} must be an integer in 0..${s.max ?? 6}`);
     }
     for (const id of Object.keys(c.companion ?? {})) {
       if (!config.companionResources?.some((r) => r.id === id)) problems.push(`character "${c.id}" has unknown companion resource "${id}"`);
