@@ -9,7 +9,7 @@
     "test": "vitest run",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "check-ink": "esbuild scripts/check-ink.ts --bundle --platform=node --format=esm --outfile=.cache/check-ink.mjs --log-level=error && node .cache/check-ink.mjs",
+    "check-ink": "esbuild scripts/check-ink.ts --bundle --packages=external --platform=node --format=esm --outfile=.cache/check-ink.mjs --log-level=error && node .cache/check-ink.mjs",
     "lint": "eslint . --max-warnings 0 && stylelint styles.css",
     "check-release": "node scripts/check-release.mjs",
     "export-web": "esbuild scripts/export-web.ts --bundle --platform=node --format=esm --outfile=.cache/export-web.mjs --log-level=error && node .cache/export-web.mjs"
@@ -29,7 +29,8 @@
     "stylelint": "^17.16.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yaml": "^2.9.1"
   },
   "dependencies": {
     "inkjs": "^2.4.0"
