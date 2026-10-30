@@ -73,6 +73,24 @@ describe("validateConfig", () => {
     expect(problems.some((p) => p.includes("character"))).toBe(true);
     expect(problems.some((p) => p.includes("duplicate") && p.includes("恐惧"))).toBe(true);
   });
+  test("reports ids colliding with ink names, generated companion variables, bad resource ranges and difficulties", () => {
+    const bad: GameConfig = {
+      ...CONFIG,
+      difficulties: { 普通: 0 },
+      skills: [{ id: "检定" }, { id: "恐惧_昕" }],
+      resources: [{ id: "体力", min: 0, max: 10, initial: 11 }],
+      characters: [{ id: "昕", skills: {} }],
+    };
+    const problems = validateConfig(bad);
+    expect(problems.some((p) => p.includes('duplicate id "检定"'))).toBe(true);
+    expect(problems.some((p) => p.includes('duplicate id "恐惧_昕"'))).toBe(true);
+    expect(problems.some((p) => p.includes("体力"))).toBe(true);
+    expect(problems.some((p) => p.includes("普通"))).toBe(true);
+  });
+  test("skill ids may not reuse the generated function parameter names", () => {
+    const problems = validateConfig({ ...CONFIG, skills: [{ id: "技能" }], characters: [{ id: "昕", skills: {} }] });
+    expect(problems.some((p) => p.includes('"技能"'))).toBe(true);
+  });
 });
 
 describe("generated ink", () => {

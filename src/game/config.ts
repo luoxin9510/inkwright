@@ -78,9 +78,16 @@ export interface InkNames {
   current: string;
   /** Function that loads a character's preset: `选主角(谁)`. */
   select: string;
+  /** Parameter names of the generated functions. */
+  skillParam: string;
+  difficultyParam: string;
+  whoParam: string;
 }
 
-export const DEFAULT_INK_NAMES: InkNames = { check: "检定", characters: "主角", current: "当前主角", select: "选主角" };
+export const DEFAULT_INK_NAMES: InkNames = {
+  check: "检定", characters: "主角", current: "当前主角", select: "选主角",
+  skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
+};
 
 export function inkNames(config: GameConfig): InkNames {
   return { ...DEFAULT_INK_NAMES, ...config.ink };
@@ -148,16 +155,25 @@ export function validateConfig(config: GameConfig): string[] {
   for (const s of config.skills) ident(s.id, "skill");
   for (const r of config.resources) ident(r.id, "resource");
   for (const c of config.characters) ident(c.id, "character");
+  // Companion resources only exist as `<resource>_<character>` variables, so their ids may
+  // repeat a resource id (fear for the player and for each companion); the generated names
+  // are what must not collide.
   const companionIds = new Set<string>();
   for (const r of config.companionResources ?? []) {
     if (!IDENT.test(r.id)) problems.push(`companion resource "${r.id}" is not a valid ink identifier`);
     if (companionIds.has(r.id)) problems.push(`duplicate companion resource id "${r.id}"`);
     companionIds.add(r.id);
   }
+  for (const r of config.companionResources ?? []) {
+    for (const c of config.characters) ident(`${r.id}_${c.id}`, "generated companion variable");
+  }
+  for (const n of Object.values(inkNames(config)) as string[]) ident(n, "ink name");
   if (config.characters.length === 0) problems.push("at least one character is needed");
-  const names = inkNames(config);
-  for (const n of [names.check, names.characters, names.current, names.select]) {
-    if (!IDENT.test(n)) problems.push(`ink name "${n}" is not a valid ink identifier`);
+  for (const r of [...config.resources, ...(config.companionResources ?? [])]) {
+    if (!(r.min <= r.initial && r.initial <= r.max)) problems.push(`resource "${r.id}": need min <= initial <= max`);
+  }
+  for (const [name, value] of Object.entries(config.difficulties ?? {})) {
+    if (!Number.isInteger(value) || value <= 0) problems.push(`difficulty "${name}" must be a positive integer`);
   }
   const skills = new Map(config.skills.map((s) => [s.id, s]));
   for (const c of config.characters) {

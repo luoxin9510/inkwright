@@ -112,7 +112,7 @@ export function chance(rules: RulesConfig, input: CheckInput): Chance {
   return { success: bands[3] + bands[4], bands };
 }
 
-/** The expected dice total, used by the generated ink fallback when there is no engine to roll. */
+/** The expected roll, used by the generated ink fallback when there is no engine to roll. */
 export function averageRoll(rules: RulesConfig): number {
-  return rules.kind === "sum" ? sum(rules.dice.map((s) => (s + 1) / 2)) : 0;
+  return rules.kind === "sum" ? sum(rules.dice.map((s) => (s + 1) / 2)) : (rules.sides + 1) / 2;
 }

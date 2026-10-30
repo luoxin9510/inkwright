@@ -30,25 +30,25 @@ export function generateInk(config: GameConfig): string {
   }
   lines.push(
     "",
-    `EXTERNAL ${n.check}(技能, 难度)`,
+    `EXTERNAL ${n.check}(${n.skillParam}, ${n.difficultyParam})`,
     "",
-    `=== function ${n.select}(谁) ===`,
-    `~ ${n.current} = 谁`,
+    `=== function ${n.select}(${n.whoParam}) ===`,
+    `~ ${n.current} = ${n.whoParam}`,
   );
   for (const c of config.characters) {
-    lines.push(`{ 谁 == ${c.id}:`);
+    lines.push(`{ ${n.whoParam} == ${c.id}:`);
     for (const s of config.skills) lines.push(`    ~ ${s.id} = ${c.skills[s.id] ?? 0}`);
     lines.push("}");
   }
+  const avg = averageRoll(config.rules);
   lines.push(
     "",
-    `// Without the engine there are no dice: the average roll (${averageRoll(config.rules)}) decides.`,
-    `=== function ${n.check}(技能, 难度) ===`,
+    `// Without the engine there are no dice: the average roll (${avg}) decides.`,
+    `=== function ${n.check}(${n.skillParam}, ${n.difficultyParam}) ===`,
   );
-  if (config.rules.kind === "sum") {
-    lines.push(`{ 技能 + ${averageRoll(config.rules)} >= 难度:`, "    ~ return 3", "}", "~ return 1");
-  } else {
-    lines.push(`{ 技能 >= 难度:`, "    ~ return 3", "}", "~ return 1");
-  }
+  // Same grading as dice.ts with the average roll: sum systems compare the total with the
+  // difficulty; roll-under succeeds when the roll is at or under the skill (difficulty unused).
+  const wins = config.rules.kind === "sum" ? `${n.skillParam} + ${avg} >= ${n.difficultyParam}` : `${avg} <= ${n.skillParam}`;
+  lines.push(`{ ${wins}:`, "    ~ return 3", "}", "~ return 1");
   return lines.join("\n") + "\n";
 }
