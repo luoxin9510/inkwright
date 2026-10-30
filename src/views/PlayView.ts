@@ -59,6 +59,9 @@ export class PlayView extends ItemView {
   private inspectorOpen = false;
   private savesOpen = false;
   private diceOpen = false;
+  /** Story and paragraph count last rendered, to scroll new text into view. */
+  private shownRoot: string | null = null;
+  private shownLog = 0;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -146,10 +149,12 @@ export class PlayView extends ItemView {
     if (!s.hasStory) return;
 
     const story = el.createDiv({ cls: "inkwright-story" });
+    const paras: HTMLElement[] = [];
     s.log.forEach((p, i) => {
       const voice = s.game?.voices[i] ?? null;
       const skill = voice ? s.game?.skills.find((k) => k.id === voice) : undefined;
       const para = story.createEl("p");
+      paras.push(para);
       if (skill) {
         para.addClass("inkwright-voice");
         if (skill.color) para.setCssProps({ "--inkwright-voice": skill.color });
@@ -167,8 +172,14 @@ export class PlayView extends ItemView {
       if (check) this.renderCheck(button, check, s.game);
       button.onclick = () => this.controller.choose(c.index);
     });
-    // Keep the newest text and choices in view, especially on small screens.
-    choices.scrollIntoView({ block: "end" });
+    // After a choice, bring the first new paragraph to the top so the player reads on
+    // downwards; after going back or restarting, show the choices. A re-render with the same
+    // text (config reload, HUD update) leaves the scroll position alone.
+    const shown = s.root === this.shownRoot ? this.shownLog : 0;
+    this.shownRoot = s.root;
+    this.shownLog = s.log.length;
+    if (s.log.length > shown) paras[shown].scrollIntoView({ block: "start" });
+    else if (s.log.length < shown) choices.scrollIntoView({ block: "end" });
   }
 
   /** The skill, difficulty and odds of a check choice, on the button. */

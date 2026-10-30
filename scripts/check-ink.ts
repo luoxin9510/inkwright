@@ -3,7 +3,7 @@
 // With --all, play every branch instead (breadth-first) and list the endings reached; --lang zh|en
 // picks the language of a bilingual story. A story with a game note (game.md) next to it is
 // explored in game mode, once per character, walking the success and the failure of every check.
-// Usage: npm run check-ink -- <folder> [--quiet] [--all] [--lang zh|en]
+// Usage: npm run check-ink -- <folder> [--quiet] [--all] [--lang zh|en] [--max-steps N]
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
@@ -30,6 +30,8 @@ const quiet = process.argv.includes("--quiet");
 const all = process.argv.includes("--all");
 const langAt = process.argv.indexOf("--lang");
 const language = langAt >= 0 ? process.argv[langAt + 1] : undefined;
+const stepsAt = process.argv.indexOf("--max-steps");
+const maxSteps = stepsAt >= 0 ? Number(process.argv[stepsAt + 1]) : 20000;
 if (!root) {
   console.error("usage: check-ink <folder>");
   process.exit(2);
@@ -64,11 +66,11 @@ for (const file of files) {
       game = read.config;
     }
     const runs: { tag: string; x: ExploreResult }[] = game
-      ? game.characters.map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id }) }))
-      : [{ tag: "", x: exploreStory(r.story, { language }) }];
+      ? game.characters.map((c) => ({ tag: `[${c.id}] `, x: exploreStory(r.story as NonNullable<typeof r.story>, { language, game: game as GameConfig, character: c.id, maxSteps }) }))
+      : [{ tag: "", x: exploreStory(r.story, { language, maxSteps }) }];
     for (const { tag, x } of runs) {
       runtime.push(...x.errors.map((e) => `${tag}${e.message} (after: ${e.choices.join(" > ") || "start"})`));
-      if (x.truncated) runtime.push(`${tag}stopped exploring after 5000 choices (endless loop?); not every branch was played`);
+      if (x.truncated) runtime.push(`${tag}stopped exploring after ${maxSteps} choices (endless loop, or raise --max-steps); not every branch was played`);
       endings.push(...x.endings.map((e) => `${tag}${e.lastText}  <- ${e.choices.join(" > ")}`));
       for (const c of x.checks?.noConsequence ?? []) {
         warnings.push(`${tag}failing ${c.skill} ${c.difficulty} changes nothing (no variable, same choices): ${c.choices.join(" > ")}`);

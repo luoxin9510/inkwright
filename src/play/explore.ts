@@ -84,12 +84,22 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   if (engine) result.checks = { walked: 0, noConsequence: [] };
   let steps = options.maxSteps ?? 5000;
 
+  // A state reached before is not expanded again: poking around a room in a different order,
+  // or two branches that join with the same variables, lead to the same futures.
+  const seen = new Set<string>();
+  const unseen = (save: SaveData): boolean => {
+    const key = stateKey(save.state);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  };
+
   const queue: Move[] = [];
   const first = session.start();
   for (const message of first.errors) result.errors.push({ choices: [], message });
   const start = session.save();
   if (first.ended) result.endings.push({ choices: [], lastText: session.log.at(-1)?.text ?? "" });
-  else if (start && first.errors.length === 0) {
+  else if (start && first.errors.length === 0 && unseen(start)) {
     for (const choice of first.choices) queue.push({ save: start, path: [], choices: first.choices, choice, plan: [] });
   }
 
@@ -128,8 +138,44 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     }
     const next = session.save();
     if (next) {
-      for (const choice of step.choices) queue.push({ save: next, path, choices: step.choices, choice, plan: [] });
+      // A sibling move exists to show its outcome's path, so it goes on even into a state seen before.
+      const fresh = unseen(next);
+      if (fresh || move.plan.length > 0) {
+        for (const choice of step.choices) queue.push({ save: next, path, choices: step.choices, choice, plan: [] });
+      }
     }
   }
   return result;
+}
+
+/**
+ * The parts of a state that decide its future: without the turn counters, the text just shown
+ * and the last random; object keys sorted, since inkjs writes visit counts and list items in
+ * the order they were first touched.
+ */
+function stateKey(state: string): string {
+  const j = JSON.parse(state) as Record<string, unknown>;
+  delete j.turnIdx;
+  delete j.turnIndices;
+  delete j.previousRandom;
+  delete j.storySeed;
+  const flows = j.flows;
+  if (flows && typeof flows === "object") {
+    for (const flow of Object.values(flows as Record<string, Record<string, unknown>>)) {
+      delete flow.outputStream;
+      // Thread numbers only count how many choice generations there were.
+      const threads = (flow.callstack as { threads?: Record<string, unknown>[] } | undefined)?.threads;
+      for (const thread of threads ?? []) delete thread.threadIndex;
+    }
+  }
+  return JSON.stringify(canonical(j));
+}
+
+function canonical(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(o).sort().map((k) => [k, canonical(o[k])]));
+  }
+  return v;
 }

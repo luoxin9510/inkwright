@@ -92,3 +92,29 @@ test("bands picks which outcomes to walk", async () => {
   expect(marks).toEqual(expect.arrayContaining(["撬 [力量✓]", "撬 [力量✓✓]", "撬 [力量✗]", "撬 [力量✗✗]", "撬 [力量~]"]));
   expect(r.checks?.walked).toBe(5);
 });
+
+test("a state reached before is not expanded again: a room poked around in any order is explored once per set of things done", async () => {
+  const s = await story([
+    "VAR got = ()",
+    "LIST things = a, b, c",
+    "-> room",
+    "=== room ===",
+    "Room.",
+    "* [Take a]",
+    "  ~ got += a",
+    "  -> room",
+    "* [Take b]",
+    "  ~ got += b",
+    "  -> room",
+    "* [Take c]",
+    "  ~ got += c",
+    "  -> room",
+    "+ [Leave] -> END",
+  ].join("\n"));
+  const r = exploreStory(s);
+  // 8 subsets of {a, b, c}, not 16 orderings; every ending is still reached.
+  expect(r.endings).toHaveLength(8);
+  expect(r.endings.map((e) => e.choices.join(" > "))).toContain("Take a > Take c > Leave");
+  expect(r.endings.map((e) => e.choices.join(" > "))).not.toContain("Take c > Take a > Leave");
+  expect(r.truncated).toBe(false);
+});
