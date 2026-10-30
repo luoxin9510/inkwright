@@ -210,7 +210,7 @@ export class PlayView extends ItemView {
     }
     const t = box.createEl("table");
     for (const r of [...game.rolls].reverse()) {
-      const name = game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
+      const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
       const dice = r.rolls.length > 0 ? r.rolls.join("+") : "—";
       const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
       const tr = t.createEl("tr");

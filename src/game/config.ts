@@ -111,15 +111,21 @@ const RED = new Set(["red", "红"]);
 /** `check:<skill>:<difficulty>[:red]`; difficulty is a number or a name from config.difficulties. */
 export function parseCheckTag(tag: string, config: GameConfig): CheckTag | null {
   const parts = tag.trim().split(":").map((p) => p.trim());
-  if (parts[0] !== "check" || parts.length < 3 || parts.length > 4) return null;
-  const [, skill, diff, flag] = parts;
+  if (parts[0] !== "check" || parts.length < 2 || parts.length > 4) return null;
+  const [, skill, ...rest] = parts;
   if (!config.skills.some((s) => s.id === skill)) return null;
+  const red = rest.length > 0 && RED.has(rest[rest.length - 1]);
+  if (red) rest.pop();
+  if (rest.length > 1) return null;
+  // Roll-under systems ignore the difficulty, so their tags may leave it out (or write 0).
+  const rollUnder = config.rules.kind === "rollUnder";
+  if (rest.length === 0) return rollUnder ? { skill, difficulty: 0, red } : null;
+  const diff = rest[0];
   const difficulty = /^\d+$/.test(diff)
     ? Number(diff)
     : Object.prototype.hasOwnProperty.call(config.difficulties ?? {}, diff) ? config.difficulties?.[diff] : undefined;
-  if (difficulty === undefined || difficulty <= 0) return null;
-  if (flag !== undefined && !RED.has(flag)) return null;
-  return { skill, difficulty, red: flag !== undefined };
+  if (difficulty === undefined || (difficulty <= 0 && !rollUnder)) return null;
+  return { skill, difficulty, red };
 }
 
 /** `voice:<skill>` → the skill id. */

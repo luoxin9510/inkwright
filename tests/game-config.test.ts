@@ -12,8 +12,18 @@ describe("tags", () => {
     expect(parseCheckTag("check:理智:hard:red", CONFIG)).toBeNull(); // unknown ladder name
     expect(parseCheckTag("check:理智:constructor", CONFIG)).toBeNull(); // inherited keys are not difficulties
     expect(parseCheckTag("check:理智:0", CONFIG)).toBeNull();
+    expect(parseCheckTag("check:理智", CONFIG)).toBeNull(); // sum systems need a difficulty
+    expect(parseCheckTag("check:理智:红", CONFIG)).toBeNull();
     expect(parseCheckTag("check:歌唱:10", CONFIG)).toBeNull(); // unknown skill
     expect(parseCheckTag("voice:理智", CONFIG)).toBeNull();
+  });
+  test("roll-under systems ignore the difficulty, so the tag may leave it out", () => {
+    const config: GameConfig = { ...CONFIG, rules: { kind: "rollUnder", sides: 100 } };
+    expect(parseCheckTag("check:理智", config)).toEqual({ skill: "理智", difficulty: 0, red: false });
+    expect(parseCheckTag("check:理智:红", config)).toEqual({ skill: "理智", difficulty: 0, red: true });
+    expect(parseCheckTag("check:理智:0", config)).toEqual({ skill: "理智", difficulty: 0, red: false });
+    expect(parseCheckTag("check:理智:困难:红", config)).toEqual({ skill: "理智", difficulty: 12, red: true });
+    expect(parseCheckTag("check:歌唱", config)).toBeNull();
   });
   test("voice tags", () => {
     expect(parseVoiceTag("voice:理智", CONFIG)).toBe("理智");

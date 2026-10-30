@@ -71,6 +71,7 @@ const zh = {
   noRolls: "还没有掷过骰子。",
   bands: ["大失败", "失败", "部分成功", "成功", "大成功"],
   redCheck: "一次性",
+  unknownSkill: "(未知技能)",
   gameConfigProblem: (p: string) => `游戏配置有问题:${p}`,
   gameConfigUnusable: (p: string) => `游戏配置无法使用,已按普通剧本运行:${p}`,
 };
@@ -147,6 +148,7 @@ const en: Strings = {
   noRolls: "No rolls yet.",
   bands: ["Critical failure", "Failure", "Partial success", "Success", "Critical success"],
   redCheck: "one attempt",
+  unknownSkill: "(unknown skill)",
   gameConfigProblem: (p) => `Game config problem: ${p}`,
   gameConfigUnusable: (p) => `Game config unusable, playing as a plain story: ${p}`,
 };

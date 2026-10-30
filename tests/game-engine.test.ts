@@ -143,6 +143,16 @@ describe("GameEngine with a PlaySession", () => {
     expect(b.character()).toBe("阿波");
   });
 
+  test("a skill the config does not know is rolled at level 0 and flagged, so typos show in the log", () => {
+    const engine = new GameEngine(CONFIG, { rng: faces(3, 4) });
+    const src = STORY.replace('检定("力量", 10)', '检定("力气", 10)');
+    const session = new PlaySession(new Compiler(src).Compile(), { setup: (story) => engine.setup(story, "阿波") });
+    session.start();
+    session.choose(0);
+    expect(engine.rolls[0]).toMatchObject({ skill: "力气", level: 0, modifiers: [], total: 7, band: 1, unknown: true });
+    expect(engine.rolls[0]).not.toHaveProperty("unknown", undefined);
+  });
+
   test("a forced band skips the dice (for walking every outcome)", () => {
     const engine = new GameEngine(CONFIG, { force: () => 1 });
     const session = new PlaySession(compile(), { setup: (story) => engine.setup(story, "阿波") });
