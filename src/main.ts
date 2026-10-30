@@ -8,6 +8,7 @@ import { PlaySession, findLanguageVar, type SaveData, type Step } from "./play/s
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
+import GAME_ENGINE from "virtual:game-engine";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
@@ -253,6 +254,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       runtime: INK_RUNTIME,
       id: path,
       languageVar: findLanguageVar(result.story),
+      game: this.gameConfigFor(path) ?? undefined,
+      engine: GAME_ENGINE,
     });
     const existing = this.app.vault.getAbstractFileByPath(out);
     if (existing instanceof TFile) await this.app.vault.modify(existing, html);

@@ -52,11 +52,11 @@ export function generateInk(config: GameConfig): string {
     "",
     `EXTERNAL ${n.check}(${n.skillParam}, ${n.difficultyParam})`,
     "",
+    `// Loads a character's preset by id: ${n.select}("${config.characters[0]?.id ?? "id"}")`,
     `=== function ${n.select}(${n.whoParam}) ===`,
-    `~ ${n.current} = ${n.whoParam}`,
   );
   for (const c of config.characters) {
-    lines.push(`{ ${n.whoParam} == ${c.id}:`);
+    lines.push(`{ ${n.whoParam} == "${c.id}":`, `    ~ ${n.current} = ${c.id}`);
     for (const s of config.skills) lines.push(`    ~ ${s.id} = ${c.skills[s.id] ?? 0}`);
     lines.push("}");
   }

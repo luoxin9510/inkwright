@@ -201,7 +201,7 @@ describe("generated ink", () => {
     expect(ink).toContain("VAR 掷骰次数 = 0");
     expect(ink).toContain('VAR 语言 = "zh"');
     expect(ink).toContain("=== function 双(zh, en) ===");
-    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(阿波)\n{检定(\"力量\", 10)} {检定(\"力量\", 14)} {检定(\"没有\", 8)}\n-> END\n");
+    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(\"阿波\")\n{检定(\"力量\", 10)} {检定(\"力量\", 14)} {检定(\"没有\", 8)}\n-> END\n");
     const story = new Story(c.Compile().ToJson() as string);
     story.allowExternalFunctionFallbacks = true;
     let out = "";
@@ -221,7 +221,7 @@ describe("generated ink with the English names (the default)", () => {
     expect(ink).toContain("=== function pick_character(who) ===");
     expect(ink).toContain("VAR dice_seed = 0");
     expect(ink).toContain('VAR lang = "zh"');
-    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ pick_character(阿波)\n{t(\"你好\", \"hi\")} {check(\"力量\", 10)}\n~ lang = \"en\"\n{t(\"你好\", \"hi\")}\n-> END\n");
+    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ pick_character(\"阿波\")\n{t(\"你好\", \"hi\")} {check(\"力量\", 10)}\n~ lang = \"en\"\n{t(\"你好\", \"hi\")}\n-> END\n");
     const s = new Story(c.Compile().ToJson() as string);
     s.allowExternalFunctionFallbacks = true;
     let out = ""; while (s.canContinue) out += s.Continue();

@@ -1,4 +1,4 @@
-import { InkList, type Story } from "inkjs/full";
+import type { Story } from "inkjs/full";
 import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, resolve, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 
@@ -76,13 +76,17 @@ export class GameEngine {
     this.story = story;
     if (this.bound.has(story)) return;
     this.bound.add(story);
+    story.BindExternalFunction(inkNames(this.config).check, (skill: unknown, difficulty: unknown) => this.roll(skill, difficulty), false);
+    this.start(story, character);
+  }
+
+  /** Seeds the dice and loads `character`'s preset: a new run on a Story whose state was just reset. */
+  start(story: Story, character?: string): void {
+    this.story = story;
     const names = inkNames(this.config);
-    story.BindExternalFunction(names.check, (skill: unknown, difficulty: unknown) => this.roll(skill, difficulty), false);
     if (this.has(names.seed)) this.write(names.seed, 1 + Math.floor(Math.random() * 0x7fffffff));
     const id = character ?? this.config.characters[0]?.id;
-    if (id !== undefined && this.config.characters.some((c) => c.id === id)) {
-      story.EvaluateFunction(names.select, [InkList.FromString(id, story)]);
-    }
+    if (id !== undefined && this.config.characters.some((c) => c.id === id)) story.EvaluateFunction(names.select, [id]);
   }
 
   /** The checks rolled so far in the current run, as far as the state has got (after back: fewer). */

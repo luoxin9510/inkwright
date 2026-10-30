@@ -5,7 +5,7 @@ Obsidian plugin: edit and play ink stories (inkjs), Chinese/English UI, desktop 
 ## Commands
 - `npm test` — vitest (Node). macOS has no `timeout`; wrap long runs with `perl -e 'alarm 90; exec @ARGV' npx vitest run`.
 - `npm run check-ink -- <folder>` — compile + auto-play every main .ink under a folder (INCLUDEd chapters skipped); use it on vault content and tutorial examples. `--all` plays every branch (breadth-first, `src/play/explore.ts`) and lists the endings; `--lang zh|en` for bilingual stories. A story with a `game.md` next to it is explored in game mode, once per character, walking success and failure of every check (paths show `[insight✗]`); failed checks that change nothing are warnings.
-- `npm run export-web -- <main.ink> <out.html> [--lang zh|en] [--id key]` — the web export from the command line (used by the public games repo luoxin9510/ink-games).
+- `npm run export-web -- <main.ink> <out.html> [--lang zh|en] [--id key]` — the web export from the command line (used by the public games repo luoxin9510/ink-games). A `game.md` next to the story makes the page a game (engine embedded).
 - `npm run build` — tsc + esbuild → `main.js`. `OBSIDIAN_PLUGIN_DIR=<vault>/.obsidian/plugins/inkwright npm run build` builds into a vault.
 - Game vault: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/ink-games` (iCloud, used on phone too).
 
@@ -33,7 +33,8 @@ PRD: `docs/game-engine-prd.md` — TTRPG-style rules engine on top of Inkwright 
 - Command `inkwright:generate-engine` / `api.generateEngine(path?)` writes the engine file (`engineFile`, default `_engine.ink`) from the note; the panel warns when the story lacks the INCLUDE or the file no longer matches the note.
 - Keep ids and ink names English and localize only player-facing text; no separate translation tables.
 - `exploreStory(story, { game, character, bands })` forces every check through the engine's `force` hook: success first, then a sibling move per other band, so both sides of each check are played (a check met before the first choice is played as success only); `checks.noConsequence` lists failed checks after which no variable and no choice changed (text-only or visit-count-only changes do not count). `api.explore` picks the game config up automatically; `check-ink --all` parses the note with `yaml` (CLI only).
-- Next: web export with the engine (M4), then the first slice script (M3).
+- Web export (M4): `buildWebPage({ game, engine })` embeds the config and the engine bundle (`virtual:game-engine` = `scripts/engine-bundle.mjs` building `src/game/browser.ts` into the global `InkwrightGame`; same plugin in esbuild.config.mjs and vitest.config.ts, and export-web builds it at run time). The page's player then has a character picker, HUD, check odds on choices, voice paragraphs and a dice log; `engine.start(story, character)` re-seeds after `ResetState`. `pick_character` takes the id as a string, so the engine needs no inkjs import.
+- Next: the first slice script (M3).
 
 ## Layout
 - `src/compile/` pure logic: `paths` (INCLUDE scan/resolve, relative to the main story's folder), `include` (async preload → sync `CachedFileHandler`), `diagnostics` (parse `ERROR: 'file' line N: msg`, translate), `zh.ts` (zh table; each regex matches a real inkjs message), `compile.ts`.
