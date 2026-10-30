@@ -1,5 +1,5 @@
 import type { Story } from "inkjs/full";
-import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, playableCharacters, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, resolve, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 
 export interface EngineOptions {
@@ -85,8 +85,8 @@ export class GameEngine {
     this.story = story;
     const names = inkNames(this.config);
     if (this.has(names.seed)) this.write(names.seed, 1 + Math.floor(Math.random() * 0x7fffffff));
-    const id = character ?? this.config.characters[0]?.id;
-    if (id !== undefined && this.config.characters.some((c) => c.id === id)) story.EvaluateFunction(names.select, [id]);
+    const id = character ?? playableCharacters(this.config)[0]?.id;
+    if (id !== undefined && playableCharacters(this.config).some((c) => c.id === id)) story.EvaluateFunction(names.select, [id]);
   }
 
   /** The checks rolled so far in the current run, as far as the state has got (after back: fewer). */
@@ -151,7 +151,7 @@ export class GameEngine {
   /** The current character's id, from the story's state. */
   character(): string | null {
     const id = GameEngine.text(this.read(inkNames(this.config).current));
-    return id !== null && this.config.characters.some((c) => c.id === id) ? id : null;
+    return id !== null && playableCharacters(this.config).some((c) => c.id === id) ? id : null;
   }
 
   /** Check info for a choice, with the odds given the current state; null when it is not a check. */

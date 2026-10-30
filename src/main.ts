@@ -12,7 +12,7 @@ import GAME_ENGINE from "virtual:game-engine";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
-import { engineFile, localize, type ConfigProblem, type GameConfig } from "./game/config";
+import { engineFile, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
 import { generateInk } from "./game/inkgen";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
@@ -138,7 +138,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   }
 
   selectCharacter(id: string): void {
-    if (!this.game?.config.characters.some((c) => c.id === id)) return;
+    if (!this.game || !playableCharacters(this.game.config).some((c) => c.id === id)) return;
     this.character = id;
     // A new character means a new run from the current start point.
     this.startAt(this.startPoint);
@@ -434,7 +434,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (!this.files.includes(read.note.path)) this.files.push(read.note.path);
     for (const text of read.warnings) this.diagnostics.push({ severity: "warning", file: read.note.path, line: null, message: text, raw: "" });
     if (!read.config) return;
-    if (this.character !== null && !read.config.characters.some((c) => c.id === this.character)) this.character = null;
+    if (this.character !== null && !playableCharacters(read.config).some((c) => c.id === this.character)) this.character = null;
     this.game = new GameEngine(read.config);
   }
 
@@ -446,7 +446,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const lang = this.session.language ?? getLanguage();
     game.language = lang;
     return {
-      characters: game.config.characters.map((c) => ({ id: c.id, name: localize(c.name, lang, c.id) })),
+      characters: playableCharacters(game.config).map((c) => ({ id: c.id, name: localize(c.name, lang, c.id) })),
       current: game.character(),
       skills: game.config.skills.map((s) => ({ id: s.id, name: localize(s.name, lang, s.id), color: s.voice?.color, stance: localize(s.voice?.stance, lang, "") || undefined })),
       hud: game.hud(),
