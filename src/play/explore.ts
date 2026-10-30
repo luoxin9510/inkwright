@@ -111,7 +111,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
         if (band !== met[k].band) queue.push({ ...move, plan: [...met.slice(0, k).map((c) => c.band), band] });
       }
     }
-    if (result.checks) result.checks.walked += met.length;
+    // Outcomes walked for the first time: the new checks, plus the alternative a sibling move came for.
+    if (result.checks) result.checks.walked += met.length - move.plan.length + (move.plan.length > 0 ? 1 : 0);
     for (const message of step.errors) result.errors.push({ choices: path, message });
     if (step.errors.length > 0) continue;
     if (step.ended) {
