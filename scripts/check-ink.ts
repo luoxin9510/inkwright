@@ -5,11 +5,11 @@
 // explored in game mode, once per character, walking the success and the failure of every check.
 // Usage: npm run check-ink -- <folder> [--quiet] [--all] [--lang zh|en]
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
 import { resolveInclude, scanIncludes } from "../src/compile/paths";
-import { GAME_NOTE_NAMES, readConfig, type GameConfig } from "../src/game/config";
+import { readConfig, type GameConfig } from "../src/game/config";
+import { gameNote } from "./game-note";
 import { T } from "../src/i18n";
 import { exploreStory, type ExploreResult } from "../src/play/explore";
 import { PlaySession } from "../src/play/session";
@@ -23,25 +23,6 @@ async function inkFiles(dir: string): Promise<string[]> {
     else if (e.name.endsWith(".ink")) out.push(p);
   }
   return out.sort();
-}
-
-/** The game note's frontmatter (parsed YAML) next to a main story, or null when there is none. */
-async function gameNote(storyFile: string): Promise<{ name: string; frontmatter: unknown; error?: string } | null> {
-  for (const name of GAME_NOTE_NAMES) {
-    let text: string;
-    try {
-      text = await readFile(join(dirname(storyFile), name), "utf8");
-    } catch {
-      continue;
-    }
-    const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-    try {
-      return { name, frontmatter: m ? (parseYaml(m[1]) as unknown) : undefined };
-    } catch (e) {
-      return { name, frontmatter: undefined, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-  return null;
 }
 
 const root = process.argv[2];

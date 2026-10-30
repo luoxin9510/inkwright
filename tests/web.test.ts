@@ -2,6 +2,9 @@
 import { expect, test, beforeEach } from "vitest";
 import { Compiler } from "inkjs/full";
 import INK_RUNTIME from "virtual:ink-runtime";
+import GAME_ENGINE from "virtual:game-engine";
+import { generateInk } from "../src/game/inkgen";
+import { CONFIG } from "./fixtures/gameConfig";
 import { buildWebPage, exportFileName, storyTitle } from "../src/export/web";
 import { setLanguage } from "../src/i18n";
 
@@ -160,4 +163,66 @@ test("a choice that throws shows the error and leaves undo history unchanged", (
 test("a page for a story without a language variable has no language switch", () => {
   mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
   expect((document.querySelector("#language") as HTMLSelectElement).hidden).toBe(true);
+});
+
+const GAME = `-> main
+${generateInk(CONFIG)}
+=== main ===
+门。
+{洞察力 >= 3: 黑。 #voice:洞察力}
+* [撬 #check:力量:10]
+    { 检定("力量", 10) >= 3:
+        开了。
+    - else:
+        断了。
+    }
+    -> END
+* [走]
+    走了。
+    -> END
+`;
+
+test("a game page shows the HUD, voices, check odds and the dice log, and switches character and language", () => {
+  setLanguage("zh");
+  const html = buildWebPage({ title: "G", storyJson: compileJson(GAME), runtime: INK_RUNTIME, id: "g", languageVar: "语言", game: CONFIG, engine: GAME_ENGINE });
+  mount(html);
+  const hud = () => document.querySelector("#hud")?.textContent ?? "";
+  expect(hud()).toContain("理智 3"); // 昕, the first character
+  expect(hud()).toContain("恐惧 0/100");
+  expect(document.querySelector("#story p.voice .who")?.textContent).toBe("洞察力");
+  expect(texts("#choices button .check")).toEqual(["力量 10 · 42%"]); // 力量 2 needs 8+ on 2d6
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(texts("#dice li")).toHaveLength(1);
+  expect(document.querySelector("#dice summary")?.textContent).toBe("掷骰记录 (1)");
+  expect(["开了。", "断了。"]).toContain(texts("#story p").at(-1));
+
+  // Another character starts a new run with their preset.
+  const who = document.querySelector("#character") as HTMLSelectElement;
+  expect(who.hidden).toBe(false);
+  who.value = "阿波";
+  who.dispatchEvent(new Event("change"));
+  expect(hud()).toContain("力量 5");
+  expect(texts("#choices button .check")).toEqual(["力量 10 · 83%"]);
+  expect(texts("#dice li")).toHaveLength(0);
+
+  // Names follow the story's language.
+  const lang = document.querySelector("#language") as HTMLSelectElement;
+  lang.value = "en";
+  lang.dispatchEvent(new Event("change"));
+  expect(hud()).toContain("Reason 4");
+  expect(document.querySelector("#story p.voice .who")?.textContent).toBe("洞察力"); // no English name given
+
+  // Reload: the run and the character are kept.
+  mount(html);
+  expect(hud()).toContain("Reason 4");
+  expect((document.querySelector("#character") as HTMLSelectElement).value).toBe("阿波");
+});
+
+test("a page without a game config has no HUD, character picker or dice log", () => {
+  const html = buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" });
+  mount(html);
+  expect((document.querySelector("#hud") as HTMLElement).hidden).toBe(true);
+  expect((document.querySelector("#character") as HTMLElement).hidden).toBe(true);
+  expect((document.querySelector("#dice") as HTMLElement).hidden).toBe(true);
+  expect(html.match(/<script>/g)).toHaveLength(2); // runtime + player, no engine
 });

@@ -2,6 +2,7 @@ import esbuild from "esbuild";
 import { builtinModules } from "node:module";
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { engineBundle } from "./scripts/engine-bundle.mjs";
 
 const production = process.argv[2] === "production";
 const outDir = process.env.OBSIDIAN_PLUGIN_DIR || ".";
@@ -18,9 +19,18 @@ const inkRuntime = {
   },
 };
 
+// The game engine as a script for exported pages (src/export/web.ts), bundled by scripts/engine-bundle.mjs.
+const gameEngine = {
+  name: "game-engine",
+  setup(build) {
+    build.onResolve({ filter: /^virtual:game-engine$/ }, () => ({ path: "game-engine", namespace: "game-engine" }));
+    build.onLoad({ filter: /.*/, namespace: "game-engine" }, async () => ({ contents: await engineBundle(), loader: "text" }));
+  },
+};
+
 const ctx = await esbuild.context({
   entryPoints: ["src/main.ts"],
-  plugins: [inkRuntime],
+  plugins: [inkRuntime, gameEngine],
   bundle: true,
   external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
   format: "cjs",
