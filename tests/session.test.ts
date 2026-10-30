@@ -13,7 +13,7 @@ describe("PlaySession", () => {
     const s = new PlaySession(await story("Hello\n* [Go] Went\n  -> END"));
     const step = s.start();
     expect(step.paragraphs.map((p) => p.text)).toEqual(["Hello"]);
-    expect(step.choices).toEqual([{ index: 0, text: "Go" }]);
+    expect(step.choices).toEqual([{ index: 0, text: "Go", tags: [] }]);
     expect(step.ended).toBe(false);
   });
 

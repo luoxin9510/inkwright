@@ -33,7 +33,7 @@ describe("playScript", () => {
       { type: "text", text: "Bought.", tags: [] },
       { type: "text", text: "Gold: 4.", tags: [] },
     ]);
-    expect(r.choices).toEqual([{ index: 0, text: "Buy" }, { index: 1, text: "Go home" }]);
+    expect(r.choices).toEqual([{ index: 0, text: "Buy", tags: [] }, { index: 1, text: "Go home", tags: [] }]);
     expect(r.ended).toBe(false);
     expect(r.variables).toContainEqual({ name: "gold", value: "4" });
     // Diverting to a knot from inside itself does not count as a new visit in ink.

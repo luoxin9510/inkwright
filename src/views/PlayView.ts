@@ -4,6 +4,20 @@ import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
+import type { ChoiceCheck, HudView, RollRecord } from "../game/engine";
+
+/** What the game mode adds to the panel; null when the story is a plain story. */
+export interface GameView {
+  characters: { id: string; name: string }[];
+  current: string | null;
+  skills: { id: string; name: string; color?: string }[];
+  hud: HudView;
+  /** Check info per choice, aligned with `choices`; null for plain choices. */
+  checks: (ChoiceCheck | null)[];
+  /** Speaking skill per paragraph, aligned with `log`. */
+  voices: (string | null)[];
+  rolls: RollRecord[];
+}
 
 export const PLAY_VIEW_TYPE = "inkwright-play";
 
@@ -23,6 +37,7 @@ export interface PlayState {
   /** Current language of a bilingual story; null when the story is not bilingual. */
   storyLanguage: string | null;
   saves: { id: string; name: string; savedAt: string }[];
+  game: GameView | null;
 }
 
 export interface PlayController {
@@ -34,6 +49,7 @@ export interface PlayController {
   startAt(path: string | null): void;
   choose(index: number): void;
   setStoryLanguage(lang: string): void;
+  selectCharacter(id: string): void;
   toggleLock(): void;
   openDiagnostic(d: Diagnostic): Promise<void>;
 }
@@ -42,6 +58,7 @@ export class PlayView extends ItemView {
   private state: PlayState | null = null;
   private inspectorOpen = false;
   private savesOpen = false;
+  private diceOpen = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -93,6 +110,12 @@ export class PlayView extends ItemView {
       back.onclick = () => this.controller.back();
       bar.createEl("button", { text: T().save }).onclick = () => void this.controller.saveGame();
     }
+    if (s.hasStory && s.game && s.game.characters.length > 1) {
+      const select = bar.createEl("select", { cls: "dropdown", attr: { "aria-label": T().character, title: T().character } });
+      for (const c of s.game.characters) select.createEl("option", { text: c.name, value: c.id });
+      select.value = s.game.current ?? s.game.characters[0].id;
+      select.onchange = () => this.controller.selectCharacter(select.value);
+    }
     if (s.hasStory && s.storyLanguage !== null) {
       const select = bar.createEl("select", { cls: "dropdown", attr: { "aria-label": T().storyLanguage, title: T().storyLanguage } });
       for (const { code, name } of STORY_LANGUAGES) {
@@ -103,7 +126,9 @@ export class PlayView extends ItemView {
     }
 
     if (s.flows.length > 0) this.renderStartFrom(el, s);
+    if (s.hasStory && s.game) this.renderHud(el, s.game);
     if (s.inspection) this.renderInspector(el, s.inspection);
+    if (s.hasStory && s.game) this.renderDice(el, s.game);
     if (s.hasStory && s.saves.length > 0) this.renderSaves(el, s);
 
     if (s.diagnostics.length > 0) {
@@ -121,19 +146,77 @@ export class PlayView extends ItemView {
     if (!s.hasStory) return;
 
     const story = el.createDiv({ cls: "inkwright-story" });
-    for (const p of s.log) {
-      story.createEl("p", { text: p.text });
-    }
+    s.log.forEach((p, i) => {
+      const voice = s.game?.voices[i] ?? null;
+      const skill = voice ? s.game?.skills.find((k) => k.id === voice) : undefined;
+      const para = story.createEl("p");
+      if (skill) {
+        para.addClass("inkwright-voice");
+        if (skill.color) para.setCssProps({ "--inkwright-voice": skill.color });
+        para.createSpan({ cls: "inkwright-voice-name", text: skill.name });
+      }
+      para.appendText(p.text);
+    });
     for (const msg of s.runtimeErrors) story.createDiv({ cls: "inkwright-diag inkwright-diag-error", text: msg });
     if (s.ended) story.createEl("p", { text: T().ended, cls: "inkwright-ended" });
 
     const choices = el.createDiv({ cls: "inkwright-choices" });
-    for (const c of s.choices) {
-      choices.createEl("button", { text: c.text, cls: "inkwright-choice" }).onclick = () =>
-        this.controller.choose(c.index);
-    }
+    s.choices.forEach((c, i) => {
+      const button = choices.createEl("button", { text: c.text, cls: "inkwright-choice" });
+      const check = s.game?.checks[i] ?? null;
+      if (check) this.renderCheck(button, check, s.game);
+      button.onclick = () => this.controller.choose(c.index);
+    });
     // Keep the newest text and choices in view, especially on small screens.
     choices.scrollIntoView({ block: "end" });
+  }
+
+  /** The skill, difficulty and odds of a check choice, on the button. */
+  private renderCheck(button: HTMLElement, check: ChoiceCheck, game: GameView | null): void {
+    const name = game?.skills.find((k) => k.id === check.skill)?.name ?? check.skill;
+    const pct = Math.round(check.chance.success * 100);
+    const badge = button.createSpan({ cls: "inkwright-check", text: `${name} ${check.difficulty} · ${pct}%` });
+    if (check.red) badge.createSpan({ cls: "inkwright-check-red", text: ` · ${T().redCheck}` });
+    const parts = [`${name} ${check.level}`, ...check.modifiers.map((m) => `${m.value > 0 ? "+" : ""}${m.value} ${m.source}`)];
+    button.title = parts.join(", ");
+  }
+
+  private renderHud(el: HTMLElement, game: GameView): void {
+    const hud = el.createDiv({ cls: "inkwright-hud" });
+    for (const r of game.hud.resources) {
+      const row = hud.createDiv({ cls: "inkwright-hud-row" });
+      row.createSpan({ cls: "inkwright-hud-name", text: r.name });
+      const bar = row.createDiv({ cls: "inkwright-hud-bar" });
+      const span = Math.max(1, r.max - r.min);
+      bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(((r.value - r.min) / span) * 100)}%` });
+      row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
+    }
+    for (const c of game.hud.companions) {
+      const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");
+      hud.createDiv({ cls: "inkwright-hud-companion", text });
+    }
+  }
+
+  private renderDice(el: HTMLElement, game: GameView): void {
+    const box = el.createEl("details", { cls: "inkwright-inspector inkwright-dice" });
+    box.open = this.diceOpen;
+    box.addEventListener("toggle", () => {
+      this.diceOpen = box.open;
+    });
+    box.createEl("summary", { text: `${T().diceLog}(${game.rolls.length})` });
+    if (game.rolls.length === 0) {
+      box.createDiv({ cls: "inkwright-inspector-empty", text: T().noRolls });
+      return;
+    }
+    const t = box.createEl("table");
+    for (const r of [...game.rolls].reverse()) {
+      const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
+      const dice = r.rolls.length > 0 ? r.rolls.join("+") : "—";
+      const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
+      const tr = t.createEl("tr");
+      tr.createEl("td", { text: `${name} ${r.difficulty}` });
+      tr.createEl("td", { text: `${dice} +${r.level}${mods} = ${r.total} · ${T().bands[r.band]} (${Math.round(r.chance.success * 100)}%)` });
+    }
   }
 
   private renderInspector(el: HTMLElement, insp: Inspection): void {
