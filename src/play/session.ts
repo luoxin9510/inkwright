@@ -81,6 +81,8 @@ export class PlaySession {
   private startState: string | null = null;
   /** Choices made since startState. */
   private picks: number[] = [];
+  /** The choices made in this run: their text and where the text they produced begins in `log`. */
+  private chosen: { text: string; at: number }[] = [];
 
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
@@ -115,6 +117,7 @@ export class PlaySession {
     this.turnOf = [];
     this.history = [];
     this.picks = [];
+    this.chosen = [];
     this.errors = [];
     this.halted = false;
     let step = this.advance();
@@ -128,6 +131,7 @@ export class PlaySession {
     this.turnOf = [];
     this.history = [];
     this.picks = [];
+    this.chosen = [];
     this.startState = this.story.state.ToJson();
     return this.advance();
   }
@@ -136,6 +140,7 @@ export class PlaySession {
     this.errors = [];
     if (this.halted) return this.snapshot([]);
     this.history.push({ state: this.story.state.ToJson(), logLength: this.log.length });
+    const text = this.story.currentChoices[index]?.text ?? "";
     try {
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
@@ -144,7 +149,13 @@ export class PlaySession {
       return this.snapshot([]);
     }
     this.picks.push(index);
+    this.chosen.push({ text, at: this.log.length });
     return this.advance();
+  }
+
+  /** The latest choice of this run (text, and the index in `log` of the first paragraph after it); null after start, load or when undone. */
+  get lastChoice(): { text: string; at: number } | null {
+    return this.chosen.at(-1) ?? null;
   }
 
   get canGoBack(): boolean {
@@ -165,6 +176,7 @@ export class PlaySession {
     this.log = this.log.slice(0, prev.logLength);
     this.turnOf = this.turnOf.slice(0, prev.logLength);
     this.picks.pop();
+    this.chosen.pop();
     this.errors = [];
     this.halted = false;
     return this.snapshot([]);
@@ -196,6 +208,7 @@ export class PlaySession {
     this.log = save.log.map((p) => ({ ...p, tags: [...p.tags] }));
     this.turnOf = this.log.map(() => null);
     this.history = [];
+    this.chosen = [];
     this.errors = [];
     this.halted = false;
     this.startState = save.start ?? null;
@@ -241,6 +254,7 @@ export class PlaySession {
     this.turnOf = [];
     this.history = [];
     this.picks = [];
+    this.chosen = [];
     this.startState = null;
     this.errors = [];
     this.halted = false;

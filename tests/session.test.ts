@@ -9,6 +9,32 @@ async function story(src: string) {
 }
 
 describe("PlaySession", () => {
+  test("remembers the latest choice and where its text begins; undo, restart and load forget it", async () => {
+    const s = new PlaySession(await story("Hello\n* [Go] Went\n  * * [On] Further\n      -> END\n  * * [Stop] -> END"));
+    s.start();
+    expect(s.lastChoice).toBeNull();
+    s.choose(0);
+    expect(s.lastChoice).toEqual({ text: "Go", at: 1 });
+    const save = s.save();
+    s.choose(0);
+    expect(s.lastChoice).toEqual({ text: "On", at: 2 });
+    s.back();
+    expect(s.lastChoice).toEqual({ text: "Go", at: 1 });
+    s.restart();
+    expect(s.lastChoice).toBeNull();
+    s.load(save as NonNullable<typeof save>);
+    expect(s.lastChoice).toBeNull();
+  });
+
+  test("switching language replays the run, so the latest choice is in the new language", async () => {
+    const s = new PlaySession(await story('VAR lang = "zh"\n开头。\n* [{lang == "zh": 走|Go}] {lang == "zh": 走了。|Went.}\n  -> END'));
+    s.start();
+    s.choose(0);
+    expect(s.lastChoice).toEqual({ text: "走", at: 1 });
+    s.setLanguage("en");
+    expect(s.lastChoice).toEqual({ text: "Go", at: 1 });
+  });
+
   test("start shows the opening text and choices", async () => {
     const s = new PlaySession(await story("Hello\n* [Go] Went\n  -> END"));
     const step = s.start();

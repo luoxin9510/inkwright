@@ -1,4 +1,4 @@
-import { ItemView, type WorkspaceLeaf } from "obsidian";
+import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
@@ -43,6 +43,10 @@ export interface PlayState {
   storyLanguage: string | null;
   saves: { id: string; name: string; savedAt: string }[];
   game: GameView | null;
+  /** The latest choice made in this run: its text and the index of the first paragraph it produced. */
+  chosen: { text: string; at: number } | null;
+  /** Whether the top bar stays put while the text scrolls. */
+  pinned: boolean;
 }
 
 export interface PlayController {
@@ -56,6 +60,7 @@ export interface PlayController {
   setStoryLanguage(lang: string): void;
   selectCharacter(id: string): void;
   toggleLock(): void;
+  togglePin(): void;
   openDiagnostic(d: Diagnostic): Promise<void>;
 }
 
@@ -105,7 +110,7 @@ export class PlayView extends ItemView {
       return;
     }
 
-    const bar = el.createDiv({ cls: "inkwright-bar" });
+    const bar = el.createDiv({ cls: `inkwright-bar${s.pinned ? " inkwright-bar-pinned" : ""}` });
     const locked = s.locked !== null;
     bar.createSpan({
       cls: "inkwright-root",
@@ -134,6 +139,9 @@ export class PlayView extends ItemView {
       select.value = s.storyLanguage;
       select.onchange = () => this.controller.setStoryLanguage(select.value);
     }
+    const pin = bar.createEl("button", { cls: `inkwright-pin${s.pinned ? " inkwright-pin-on" : ""}`, attr: { "aria-label": s.pinned ? T().unpin : T().pin, title: s.pinned ? T().unpin : T().pin } });
+    setIcon(pin, "pin");
+    pin.onclick = () => this.controller.togglePin();
 
     if (s.flows.length > 0) this.renderStartFrom(el, s);
     if (s.hasStory && s.game) this.renderHud(el, s.game);
@@ -175,7 +183,14 @@ export class PlayView extends ItemView {
     const paras: HTMLElement[] = [];
     const newCards: HTMLElement[] = [];
     let lastTurn: number | null = null;
+    // The latest choice draws a line with its text where the text it produced begins.
+    let line: HTMLElement | null = null;
+    const turnLine = () => {
+      line = story.createDiv({ cls: "inkwright-turn" });
+      line.createSpan({ cls: "inkwright-turn-text", text: s.chosen?.text ?? "" });
+    };
     s.log.forEach((p, i) => {
+      if (s.chosen && s.chosen.at === i) turnLine();
       const turn = s.game?.turns[i] ?? null;
       if (s.game && turn !== null && (i === 0 || turn !== lastTurn)) {
         for (const r of rollsByTurn.get(turn) ?? []) {
@@ -195,6 +210,7 @@ export class PlayView extends ItemView {
       }
       para.appendText(p.text);
     });
+    if (s.chosen && s.chosen.at >= s.log.length) turnLine();
     for (const msg of s.runtimeErrors) story.createDiv({ cls: "inkwright-diag inkwright-diag-error", text: msg });
     if (s.ended) story.createEl("p", { text: T().ended, cls: "inkwright-ended" });
 
@@ -217,7 +233,7 @@ export class PlayView extends ItemView {
       };
     });
     if (fresh) {
-      (newCards[0] ?? paras[from]).scrollIntoView({ block: "start" });
+      (line ?? newCards[0] ?? paras[from]).scrollIntoView({ block: "start" });
       this.animateRolls(newCards);
       this.playFx(story, s.log.slice(from).flatMap((p) => fxOf(p.tags)));
     } else if (changed) {
