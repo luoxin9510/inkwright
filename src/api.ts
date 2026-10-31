@@ -88,7 +88,8 @@ Headless (does not touch the visible panel):
   play(path, { from?, choices?, language? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text}],
                                         choices, ended, errors, variables[{name,value}], visits[{path,count}], turns }
      from:    knot or "knot.stitch" to start at (default: the beginning)
-     choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem
+     choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem.
+              Any choice can be picked, including one the panel shows locked (#needs: item not carried).
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
   explore(path, { language?, maxSteps?, statesPerSpot?, character?, bands? })
                        -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, cappedSpots, checks? }
