@@ -2,6 +2,8 @@ import { Story } from "inkjs/full";
 import { inkNames, type GameConfig } from "../game/config";
 import type { Band } from "../game/dice";
 import { GameEngine } from "../game/engine";
+import { formatValue } from "./inspect";
+import { placeName, storyShape, type StoryShape } from "./relevance";
 import { PlaySession, type SaveData } from "./session";
 
 export interface ExploreOptions {
@@ -10,8 +12,17 @@ export interface ExploreOptions {
   /**
    * A spot (the same choices offered) is played on from at most this many different states
    * (default 10): a story whose resources differ on every path stays finite, a counting loop ends.
+   * Not used with `novelty`.
    */
   statesPerSpot?: number;
+  /**
+   * Play on from a state only when it is new in some one respect at its spot: the value of a
+   * variable that can change what happens next, or the visit count of a sequence. States that
+   * differ only in what is printed, or only in a combination seen piecewise, are not played on.
+   * Keeps a long game finite without cutting off the counting paths (a resource worn down to
+   * its threshold) that the spot cap loses.
+   */
+  novelty?: boolean;
   /** Language for a bilingual story. */
   language?: string;
   /** Per-step loop guard, as in PlaySession (default 1000 ms). */
@@ -24,6 +35,19 @@ export interface ExploreOptions {
   bands?: Band[];
 }
 
+export interface Coverage {
+  /** Knots, stitches and labels (as the author names them) that some played state had visited. */
+  places: { total: number; reached: string[]; missed: string[] };
+  /** Choice points: how many exist, were offered in some state, were actually taken. */
+  choices: {
+    total: number;
+    offered: number;
+    taken: number;
+    /** Choice points never taken: where they are, and their text when they were at least offered. */
+    missed: { place: string; text: string | null }[];
+  };
+}
+
 export interface ExploreResult {
   /** Every ending reached, with the choice texts that lead there and the last line shown. */
   endings: { choices: string[]; lastText: string }[];
@@ -33,6 +57,8 @@ export interface ExploreResult {
   truncated: boolean;
   /** Spots reached in more states than statesPerSpot; the extra states were not played on. */
   cappedSpots: number;
+  /** What the exploration got to. */
+  coverage: Coverage;
   /**
    * Game mode: how many check outcomes were walked, and failed checks after which nothing
    * changed (no variable, same choices): the story's "failure must have consequences" rule.
@@ -44,6 +70,8 @@ export interface ExploreResult {
     unknownNeeds: { choice: string; item: string }[];
     /** Spots where every choice needs something not carried: the player is stuck there. */
     lockedOut: { choices: string[] }[];
+    /** A resource (or a companion's, as `fear_yi`) outside its min..max, first time each way. */
+    outOfRange: { choices: string[]; resource: string; value: number; min: number; max: number }[];
   };
 }
 
@@ -61,9 +89,29 @@ interface Move {
   path: string[];
   choices: ChoiceRef[];
   choice: ChoiceRef;
+  /** The choice point taken, as the story JSON names it. */
+  point: string;
+  /** The variables before the move (StateInfo.vars). */
+  vars: string;
   plan: Band[];
   /** Whether the state this move starts from was fresh (not reached before) when it was queued. */
   fromFresh: boolean;
+}
+
+/** What a saved state looks like to the explorer. */
+interface StateInfo {
+  /** The parts that decide the future, canonical (see stateKey). */
+  key: string;
+  /** The choice points offered. */
+  spot: string;
+  /** The choice points offered, by choice index, with their text. */
+  points: { path: string; text: string }[];
+  /** Counted places visited so far. */
+  visited: string[];
+  /** Visit counts of the containers whose next line depends on them. */
+  counts: Record<string, number>;
+  /** The story's variables (without the engine's own), canonical: for "did anything change". */
+  vars: string;
 }
 
 /**
@@ -72,7 +120,8 @@ interface Move {
  * before the other branches are tried. In game mode every check met on a move is forced
  * to the planned outcome (success by default), and a sibling move is queued for each
  * other outcome, so both sides of every check get played. A state reached before is not played
- * on again, and a spot (the same choices offered) is played on from at most `statesPerSpot` states.
+ * on again, and a spot (the same choices offered) is played on from at most `statesPerSpot`
+ * states, or, with `novelty`, only from states new in some one respect.
  */
 export function exploreStory(story: Story, options: ExploreOptions = {}): ExploreResult {
   const bands: Band[] = options.bands?.length ? options.bands : [3, 1];
@@ -88,17 +137,26 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       },
     })
     : null;
+  const json = story.ToJson() as string;
   // In game mode a fresh Story per exploration: the engine binds the check function, which a Story takes only once.
-  const session = new PlaySession(engine ? new Story(story.ToJson() as string) : story, {
+  const session = new PlaySession(engine ? new Story(json) : story, {
     language: options.language,
     timeBudgetMs: options.timeBudgetMs ?? 1000,
     setup: engine ? (s) => engine.setup(s, options.character) : undefined,
   });
   // The engine's own bookkeeping changes on every check; it is not a consequence.
   const hidden = new Set(engine ? [inkNames(engine.config).seed, inkNames(engine.config).rolls] : []);
-  const variables = () => JSON.stringify(session.inspect().variables.filter((v) => !hidden.has(v.name)));
-  const result: ExploreResult = { endings: [], errors: [], truncated: false, cappedSpots: 0 };
-  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], lockedOut: [] };
+  const shape = storyShape(JSON.parse(json), session.globals());
+  // The engine reads these itself (locked choices, the character): they decide the future too.
+  for (const name of engine ? [inkNames(engine.config).inventory, inkNames(engine.config).current] : []) shape.relevant.add(name);
+  // The engine's own functions (the preset loader, the check fallback) are code, not places.
+  const engineCode = new Set(engine ? [inkNames(engine.config).select, inkNames(engine.config).check] : []);
+  shape.places = shape.places.filter((p) => !engineCode.has(p.path.split(".")[0]));
+  const result: ExploreResult = {
+    endings: [], errors: [], truncated: false, cappedSpots: 0,
+    coverage: { places: { total: shape.places.length, reached: [], missed: [] }, choices: { total: shape.choices.length, offered: 0, taken: 0, missed: [] } },
+  };
+  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], lockedOut: [], outOfRange: [] };
   // Game mode: a choice that needs an item not carried cannot be taken, so it is not played.
   const seenUnknown = new Set<string>();
   const open = <C extends { text: string; tags: string[] }>(choices: C[]): C[] => {
@@ -113,25 +171,93 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       return engine.canChoose(c);
     });
   };
+  const seenRange = new Set<string>();
+  const checkRange = (path: string[]) => {
+    if (!engine || !result.checks) return;
+    const hud = engine.hud();
+    const views = [...hud.resources.map((r) => ({ ...r, resource: r.id })), ...hud.companions.flatMap((c) => c.resources.map((r) => ({ ...r, resource: `${r.id}_${c.id}` })))];
+    for (const v of views) {
+      if (v.value >= v.min && v.value <= v.max) continue;
+      const tag = `${v.resource}${v.value < v.min ? "<" : ">"}`;
+      if (seenRange.has(tag)) continue;
+      seenRange.add(tag);
+      result.checks.outOfRange.push({ choices: path, resource: v.resource, value: v.value, min: v.min, max: v.max });
+    }
+  };
   let steps = options.maxSteps ?? 5000;
   const perSpot = options.statesPerSpot ?? 10;
 
+  // Coverage: every state produced counts, played on or not.
+  const reached = new Set<string>();
+  const offered = new Map<string, string>();
+  const taken = new Set<string>();
+  const cover = (info: StateInfo) => {
+    for (const p of info.visited) reached.add(p);
+    for (const p of info.points) if (!offered.has(p.path)) offered.set(p.path, p.text);
+  };
+
   // A state reached before is not expanded again: poking around a room in a different order,
   // or two branches that join with the same variables, lead to the same futures. A spot reached
-  // in ever new states (a resource that differs on every path, a counter) is expanded perSpot times.
+  // in ever new states (a resource that differs on every path, a counter) is expanded perSpot
+  // times, or, with novelty, when some one thing about it is new there.
   const seen = new Set<string>();
   const spots = new Map<string, number>();
   const capped = new Set<string>();
-  const unseen = (save: SaveData): boolean => {
-    const key = stateKey(save.state, hidden);
-    if (seen.has(key.state)) return false;
-    seen.add(key.state);
-    const n = spots.get(key.spot) ?? 0;
+  // Novelty: at each spot, the values seen of each variable that matters. A number is new when
+  // it stands differently to the constants it is compared with than any value seen there (a
+  // threshold crossed), or when it is beyond the lowest/highest seen there with a threshold still
+  // ahead in that direction (a resource being worn down towards one); a counter past its last
+  // threshold can grow without being new. A number compared with no constant is new at every
+  // new extreme. Anything else is new when unseen.
+  const atoms = new Set<string>();
+  const envelopes = new Map<string, { min: number; max: number }>();
+  const novel = (info: StateInfo): boolean => {
+    let fresh = false;
+    const fact = (name: string, value: unknown) => {
+      if (typeof value === "number") {
+        const key = `${info.spot}\n${name}`;
+        const thresholds = shape.thresholds.get(name);
+        if (thresholds) {
+          const side = thresholds.map((t) => (value < t ? "<" : value > t ? ">" : "=")).join("");
+          const atom = `${key}${side}`;
+          if (!atoms.has(atom)) {
+            atoms.add(atom);
+            fresh = true;
+          }
+        }
+        const e = envelopes.get(key);
+        if (!e) {
+          envelopes.set(key, { min: value, max: value });
+          fresh = true;
+        } else if (value < e.min) {
+          if (!thresholds || thresholds.some((t) => t < e.min)) fresh = true;
+          e.min = value;
+        } else if (value > e.max) {
+          if (!thresholds || thresholds.some((t) => t > e.max)) fresh = true;
+          e.max = value;
+        }
+        return;
+      }
+      const atom = `${info.spot}\n${name}=${formatValue(value)}`;
+      if (atoms.has(atom)) return;
+      atoms.add(atom);
+      fresh = true;
+    };
+    fact("", "");
+    for (const name of shape.relevant) fact(name, session.read(name));
+    for (const [path, n] of Object.entries(info.counts)) fact(`#${path}`, n);
+    return fresh;
+  };
+  const unseen = (info: StateInfo): boolean => {
+    if (seen.has(info.key)) return false;
+    seen.add(info.key);
+    if (options.novelty) return novel(info);
+    const n = spots.get(info.spot) ?? 0;
     if (n >= perSpot) {
-      capped.add(key.spot);
+      capped.add(info.spot);
       return false;
     }
-    spots.set(key.spot, n + 1);
+    spots.set(info.spot, n + 1);
     return true;
   };
 
@@ -139,22 +265,31 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const first = session.start();
   for (const message of first.errors) result.errors.push({ choices: [], message });
   const start = session.save();
+  checkRange([]);
   if (first.ended) result.endings.push({ choices: [], lastText: session.log.at(-1)?.text ?? "" });
-  else if (start && first.errors.length === 0 && unseen(start)) {
-    const choices = open(first.choices);
-    for (const choice of choices) queue.push({ save: start, path: [], choices, choice, plan: [], fromFresh: true });
+  else if (start && first.errors.length === 0) {
+    const info = stateInfo(start.state, hidden, shape);
+    cover(info);
+    if (unseen(info)) {
+      const choices = open(first.choices);
+      for (const choice of choices) queue.push({ save: start, path: [], choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh: true });
+    }
   }
 
-  for (let move = queue.shift(); move; move = queue.shift()) {
+  // Breadth-first, so a loop cannot use up the budget; with novelty, depth-first: a run to an
+  // extreme (the hours waited out, a fight to the last point) widens the envelopes early, and
+  // the many states in between then need no playing on.
+  const next = () => (options.novelty ? queue.pop() : queue.shift());
+  for (let move = next(); move; move = next()) {
     if (steps-- <= 0) {
       result.truncated = true;
       break;
     }
     session.load(move.save);
-    const before = engine ? variables() : null;
     plan = move.plan;
     met = [];
     const step = session.choose(move.choice.index);
+    taken.add(move.point);
     const label = met.length > 0 ? `${move.choice.text} [${met.map((c) => c.skill + MARK[c.band]).join(" ")}]` : move.choice.text;
     const path = [...move.path, label];
     // A check met for the first time on this move gets a sibling move per other outcome.
@@ -167,31 +302,46 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     if (result.checks) result.checks.walked += met.length - move.plan.length + (move.plan.length > 0 ? 1 : 0);
     for (const message of step.errors) result.errors.push({ choices: path, message });
     if (step.errors.length > 0) continue;
+    checkRange(path);
     if (step.ended) {
       result.endings.push({ choices: path, lastText: session.log.at(-1)?.text ?? "" });
+      for (const p of session.inspect().visits) reached.add(p.path);
       continue;
     }
     const choices = open(step.choices);
     if (result.checks && step.choices.length > 0 && choices.length === 0) result.checks.lockedOut.push({ choices: path });
-    if (result.checks && before !== null) {
+    const after = session.save();
+    if (!after) continue;
+    const info = stateInfo(after.state, hidden, shape);
+    cover(info);
+    if (result.checks) {
       const failed = met.filter((c) => c.band <= 1);
       const sameChoices = choices.length === move.choices.length && choices.every((c, i) => c.text === move.choices[i].text);
-      if (failed.length > 0 && sameChoices && variables() === before) {
+      if (failed.length > 0 && sameChoices && info.vars === move.vars) {
         for (const c of failed) result.checks.noConsequence.push({ choices: path, skill: c.skill, difficulty: c.difficulty });
       }
     }
-    const next = session.save();
-    if (next) {
-      // A sibling move exists to show its outcome's path, so it goes on once even into a state
-      // seen before (a retry that changes nothing); from there the usual rule holds again.
-      const fresh = unseen(next);
-      if (fresh || (move.plan.length > 0 && move.fromFresh)) {
-        for (const choice of choices) queue.push({ save: next, path, choices, choice, plan: [], fromFresh: fresh });
-      }
+    // A sibling move exists to show its outcome's path, so it goes on once even into a state
+    // seen before (a retry that changes nothing); from there the usual rule holds again.
+    const fresh = unseen(info);
+    if (fresh || (move.plan.length > 0 && move.fromFresh)) {
+      for (const choice of choices) queue.push({ save: after, path, choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh: fresh });
     }
   }
   result.cappedSpots = capped.size;
+  const places = shape.places.map((p) => p.name);
+  result.coverage.places.reached = places.filter((p) => reached.has(p));
+  result.coverage.places.missed = places.filter((p) => !reached.has(p));
+  result.coverage.choices.offered = shape.choices.filter((c) => offered.has(c.path)).length;
+  result.coverage.choices.taken = shape.choices.filter((c) => taken.has(c.path)).length;
+  result.coverage.choices.missed = shape.choices.filter((c) => !taken.has(c.path)).map((c) => ({ place: c.place, text: offered.get(c.path) ?? null }));
   return result;
+}
+
+interface Flow {
+  outputStream?: unknown;
+  callstack?: { threads?: Record<string, unknown>[] };
+  currentChoices?: { originalChoicePath?: string; text?: string }[];
 }
 
 /**
@@ -201,7 +351,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
  * differ only in those (a RANDOM or TURNS_SINCE still to come) count as one. The spot is the
  * list of choice points offered.
  */
-function stateKey(state: string, hidden: Set<string>): { state: string; spot: string } {
+function stateInfo(state: string, hidden: Set<string>, shape: StoryShape): StateInfo {
   const j = JSON.parse(state) as Record<string, unknown>;
   delete j.turnIdx;
   delete j.turnIndices;
@@ -209,18 +359,22 @@ function stateKey(state: string, hidden: Set<string>): { state: string; spot: st
   delete j.storySeed;
   const vars = j.variablesState as Record<string, unknown> | undefined;
   for (const name of hidden) delete vars?.[name];
-  const spot: string[] = [];
+  const varsKey = JSON.stringify(canonical(vars ?? {}));
+  const visitCounts = (j.visitCounts ?? {}) as Record<string, number>;
+  const visited = Object.keys(visitCounts).map(placeName);
+  const counts: Record<string, number> = {};
+  for (const path of shape.counted) if (visitCounts[path] !== undefined) counts[path] = visitCounts[path];
+  const points: { path: string; text: string }[] = [];
   const flows = j.flows;
   if (flows && typeof flows === "object") {
-    for (const flow of Object.values(flows as Record<string, Record<string, unknown>>)) {
+    for (const flow of Object.values(flows as Record<string, Flow>)) {
       delete flow.outputStream;
       // Thread numbers only count how many choice generations there were.
-      const threads = (flow.callstack as { threads?: Record<string, unknown>[] } | undefined)?.threads;
-      for (const thread of threads ?? []) delete thread.threadIndex;
-      for (const c of (flow.currentChoices as { originalChoicePath?: string }[] | undefined) ?? []) spot.push(c.originalChoicePath ?? "");
+      for (const thread of flow.callstack?.threads ?? []) delete thread.threadIndex;
+      for (const c of flow.currentChoices ?? []) points.push({ path: c.originalChoicePath ?? "", text: c.text ?? "" });
     }
   }
-  return { state: JSON.stringify(canonical(j)), spot: spot.join("\n") };
+  return { key: JSON.stringify(canonical(j)), spot: points.map((p) => p.path).join("\n"), points, visited, counts, vars: varsKey };
 }
 
 function canonical(v: unknown): unknown {

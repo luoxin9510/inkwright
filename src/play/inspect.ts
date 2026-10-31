@@ -1,4 +1,5 @@
 import { InkList, type Story } from "inkjs/full";
+import { INTERNAL } from "./relevance";
 
 export interface Inspection {
   variables: { name: string; value: string }[];
@@ -7,10 +8,8 @@ export interface Inspection {
   turns: number;
 }
 
-/** Compiler-generated container names (choice/gather/index), not author-written knots. */
-const INTERNAL = /^(\d+|[cg]-\d+)$/;
-
-function format(value: unknown): string {
+/** A variable's value as the panel shows it: strings quoted, lists in parentheses. */
+export function formatValue(value: unknown): string {
   if (typeof value === "string") return `"${value}"`;
   if (value instanceof InkList) return `(${value.toString()})`;
   return String(value);
@@ -29,7 +28,7 @@ export function inspect(story: Story): Inspection {
   const names = globals instanceof Map ? [...globals.keys()] : Object.keys(json.variablesState ?? {});
   const variables = names.map((name) => ({
     name,
-    value: format(story.variablesState[name]),
+    value: formatValue(story.variablesState[name]),
   }));
   const visits = Object.entries(json.visitCounts ?? {})
     .map(([path, count]) => ({ segs: path.split("."), count }))

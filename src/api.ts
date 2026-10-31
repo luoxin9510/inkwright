@@ -7,6 +7,7 @@ import { T } from "./i18n";
 import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
+import { simulateStory, type SimulateOptions, type SimulateResult } from "./play/simulate";
 import type { ChoiceCheck, HudView, RollRecord, ChoiceNeed } from "./game/engine";
 import type { ConfigProblem, GameConfig } from "./game/config";
 import type { Choice } from "./play/session";
@@ -91,15 +92,24 @@ Headless (does not touch the visible panel):
      choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem.
               Any choice can be picked, including one the panel shows locked (#needs: item not carried).
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
-  explore(path, { language?, maxSteps?, statesPerSpot?, character?, bands? })
-                       -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, cappedSpots, checks? }
+  explore(path, { language?, maxSteps?, statesPerSpot?, novelty?, character?, bands? })
+                       -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, cappedSpots, coverage, checks? }
      plays every branch breadth-first (default limit 5000 choices); use it to check that all endings work.
      A state reached before is not played on again; a spot (the same choices offered) is played on from
      at most statesPerSpot states (default 10; cappedSpots counts the spots where that cut branches off).
+     novelty:true instead plays on from a state only when something about it is new at its spot (a value of a
+     variable that can change what happens next, a sequence's count): a long game stays finite and the
+     counting paths (a resource worn down to a threshold) are kept. coverage = { places{total,reached[],missed[]},
+     choices{total,offered,taken,missed[{place,text}]} } says which knots/stitches/labels and choices were never got to.
      Game mode (game.md next to the story): every check is walked as success and failure (bands [3,1] by
      default; pass bands:[4,3,2,1,0] for all), paths show the outcome ("撬开门 [strength✗]"), and
-     checks = { walked, noConsequence[{choices[], skill, difficulty}] } lists failed checks after which no
-     variable and no choice changed; character picks the PC (default: the first)
+     checks = { walked, noConsequence[{choices[], skill, difficulty}], unknownNeeds, lockedOut, outOfRange[{choices[], resource, value, min, max}] }:
+     failed checks after which no variable and no choice changed, and resources that left their min..max;
+     character picks the PC (default: the first)
+  simulate(path, { runs?, seed?, maxSteps?, language?, character? })
+                       -> { ok, diagnostics, runs, endings[{lastText, count, steps}], truncated, stuck, errors[{message,count,choices[]}], steps{min,mean,max}, resources?[{resource, end{min,mean,max}, outOfRange}] }
+     plays the story runs times (default 100) choosing at random, with real dice in game mode (the same seed
+     repeats the runs): the odds of each ending and where the resources end up, for balancing.
 
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
@@ -150,9 +160,22 @@ export class InkwrightApi {
   async explore(path: string, options: ExploreOptions = {}): Promise<ExploreResult & { ok: boolean; diagnostics: ApiDiagnostic[] }> {
     const r = await compileStory(path, this.host.readFile);
     const diagnostics = plainDiagnostics(r.diagnostics);
-    if (!r.story) return { ok: false, diagnostics, endings: [], errors: [], truncated: false, cappedSpots: 0 };
+    if (!r.story) {
+      return {
+        ok: false, diagnostics, endings: [], errors: [], truncated: false, cappedSpots: 0,
+        coverage: { places: { total: 0, reached: [], missed: [] }, choices: { total: 0, offered: 0, taken: 0, missed: [] } },
+      };
+    }
     const game = options.game ?? this.host.gameConfigFor(path) ?? undefined;
     return { ok: true, diagnostics, ...exploreStory(r.story, { ...options, game }) };
+  }
+
+  async simulate(path: string, options: SimulateOptions = {}): Promise<SimulateResult & { ok: boolean; diagnostics: ApiDiagnostic[] }> {
+    const r = await compileStory(path, this.host.readFile);
+    const diagnostics = plainDiagnostics(r.diagnostics);
+    if (!r.story) return { ok: false, diagnostics, runs: 0, endings: [], truncated: 0, stuck: 0, errors: [], steps: { min: 0, mean: 0, max: 0 } };
+    const game = options.game ?? this.host.gameConfigFor(path) ?? undefined;
+    return { ok: true, diagnostics, ...simulateStory(r.story, { ...options, game }) };
   }
 
   async compile(path: string): Promise<CompileReport> {
