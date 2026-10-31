@@ -230,3 +230,25 @@ test("novelty: a counter past the last constant it is compared with can grow wit
   expect(r.endings.map((e) => e.choices.length)).toEqual([1, 2, 3]);
   expect(r.truncated).toBe(false);
 });
+
+test("game mode: a failed check that pushes a resource already at its limit still counts as a consequence", async () => {
+  const r = exploreStory(await story([
+    "-> start",
+    generateInk(CONFIG),
+    "=== start ===",
+    "~ 恐惧 = 100",
+    "-> main",
+    "=== main ===",
+    "+ [撬 #check:力量:10]",
+    '    { 检定("力量", 10) >= 3:',
+    "        开了。",
+    "        -> END",
+    "    - else:",
+    "        ~ 恐惧 += 10",
+    "    }",
+    "    -> main",
+    "+ [走] -> END",
+  ].join("\n")), { game: CONFIG, character: "昕" });
+  expect(r.checks?.noConsequence).toEqual([]);
+  expect(r.checks?.outOfRange).toEqual([{ choices: ["撬 [力量✗]"], resource: "恐惧", value: 110, min: 0, max: 100 }]);
+});

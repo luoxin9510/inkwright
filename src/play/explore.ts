@@ -172,14 +172,17 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     });
   };
   const seenRange = new Set<string>();
-  const checkRange = (path: string[]) => {
-    if (!engine || !result.checks) return;
-    for (const o of engine.takeOverflows()) {
+  /** Reports the resources the story pushed out of range on the way here; true when it pushed any. */
+  const checkRange = (path: string[]): boolean => {
+    if (!engine || !result.checks) return false;
+    const overflows = engine.takeOverflows();
+    for (const o of overflows) {
       const tag = `${o.resource}${o.value < o.min ? "<" : ">"}`;
       if (seenRange.has(tag)) continue;
       seenRange.add(tag);
       result.checks.outOfRange.push({ choices: path, ...o });
     }
+    return overflows.length > 0;
   };
   let steps = options.maxSteps ?? 5000;
   const perSpot = options.statesPerSpot ?? 10;
@@ -299,7 +302,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     if (result.checks) result.checks.walked += met.length - move.plan.length + (move.plan.length > 0 ? 1 : 0);
     for (const message of step.errors) result.errors.push({ choices: path, message });
     if (step.errors.length > 0) continue;
-    checkRange(path);
+    // A resource already at its limit cannot move, but the story meant it to: that is a consequence.
+    const pushed = checkRange(path);
     if (step.ended) {
       result.endings.push({ choices: path, lastText: session.log.at(-1)?.text ?? "" });
       for (const p of session.inspect().visits) reached.add(p.path);
@@ -314,7 +318,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     if (result.checks) {
       const failed = met.filter((c) => c.band <= 1);
       const sameChoices = choices.length === move.choices.length && choices.every((c, i) => c.text === move.choices[i].text);
-      if (failed.length > 0 && sameChoices && info.vars === move.vars) {
+      if (failed.length > 0 && sameChoices && info.vars === move.vars && !pushed) {
         for (const c of failed) result.checks.noConsequence.push({ choices: path, skill: c.skill, difficulty: c.difficulty });
       }
     }
