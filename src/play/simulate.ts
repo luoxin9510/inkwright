@@ -38,7 +38,7 @@ export interface SimulateResult {
   errors: { message: string; count: number; choices: string[] }[];
   /** Choices per run. */
   steps: Spread;
-  /** Game mode: each resource (companions' as `fear_yi`) at the end of the runs, and how many runs ended with it out of range. */
+  /** Game mode: each resource (companions' as `fear_yi`) at the end of the runs, and how many runs pushed it outside min..max (the engine clamps it). */
   resources?: { resource: string; end: Spread; outOfRange: number }[];
 }
 
@@ -111,10 +111,11 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
     if (engine) {
       const hud = engine.hud();
       const views = [...hud.resources.map((r) => ({ ...r, resource: r.id })), ...hud.companions.flatMap((c) => c.resources.map((r) => ({ ...r, resource: `${r.id}_${c.id}` })))];
+      const overflowed = new Set(engine.takeOverflows().map((o) => o.resource));
       for (const v of views) {
         const e = ends.get(v.resource) ?? { values: [], outOfRange: 0 };
         e.values.push(v.value);
-        if (v.value < v.min || v.value > v.max) e.outOfRange++;
+        if (overflowed.has(v.resource)) e.outOfRange++;
         ends.set(v.resource, e);
       }
     }

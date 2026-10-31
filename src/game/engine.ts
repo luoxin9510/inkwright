@@ -53,6 +53,16 @@ export interface ChoiceNeed {
   known: boolean;
 }
 
+/** A resource pushed outside its min..max by the story and clamped back. */
+export interface Overflow {
+  /** The resource id, or `<resource>_<character>` for a companion's. */
+  resource: string;
+  /** The value the story set before clamping. */
+  value: number;
+  min: number;
+  max: number;
+}
+
 export interface HudView {
   character: { id: string; name: string; skills: { id: string; name: string; level: number }[] } | null;
   resources: ResourceView[];
@@ -77,6 +87,7 @@ export class GameEngine {
   private readonly force?: (check: CheckTag) => Band;
   private readonly keepRolls: number;
   private log: { seed: number; record: RollRecord }[] = [];
+  private overflows: Overflow[] = [];
 
   constructor(readonly config: GameConfig, options: EngineOptions = {}) {
     this.language = config.languages?.[0] ?? "zh";
@@ -96,7 +107,35 @@ export class GameEngine {
     if (this.bound.has(story)) return;
     this.bound.add(story);
     story.BindExternalFunction(inkNames(this.config).check, (skill: unknown, difficulty: unknown) => this.roll(skill, difficulty), false);
+    // A resource lives in min..max: whatever the story adds, it is clamped once the step is done
+    // (inkjs tells observers after a Continue), and the overshoot is kept for the checkers.
+    for (const r of this.resourceVariables()) {
+      if (!story.variablesState.GlobalVariableExistsWithName(r.name)) continue;
+      story.ObserveVariable(r.name, (_name: string, value: unknown) => {
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        const c = Math.min(r.max, Math.max(r.min, v));
+        if (c === v) return;
+        this.overflows.push({ resource: r.name, value: v, min: r.min, max: r.max });
+        story.variablesState[r.name] = c;
+      });
+    }
     this.start(story, character);
+  }
+
+  /** Every resource variable the config declares: the character's own and each character's companion ones. */
+  private resourceVariables(): { name: string; min: number; max: number }[] {
+    return [
+      ...this.config.resources.map((r) => ({ name: r.id, min: r.min, max: r.max })),
+      ...this.config.characters.flatMap((c) => (this.config.companionResources ?? []).map((r) => ({ name: `${r.id}_${c.id}`, min: r.min, max: r.max }))),
+    ];
+  }
+
+  /** The overshoots clamped since the last call (oldest first), and forgets them. */
+  takeOverflows(): Overflow[] {
+    const out = this.overflows;
+    this.overflows = [];
+    return out;
   }
 
   /** Seeds the dice and loads `character`'s preset: a new run on a Story whose state was just reset. */

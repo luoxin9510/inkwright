@@ -70,7 +70,7 @@ export interface ExploreResult {
     unknownNeeds: { choice: string; item: string }[];
     /** Spots where every choice needs something not carried: the player is stuck there. */
     lockedOut: { choices: string[] }[];
-    /** A resource (or a companion's, as `fear_yi`) outside its min..max, first time each way. */
+    /** A resource (or a companion's, as `fear_yi`) the story pushed outside its min..max (the engine clamped it), first time each way. */
     outOfRange: { choices: string[]; resource: string; value: number; min: number; max: number }[];
   };
 }
@@ -174,14 +174,11 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const seenRange = new Set<string>();
   const checkRange = (path: string[]) => {
     if (!engine || !result.checks) return;
-    const hud = engine.hud();
-    const views = [...hud.resources.map((r) => ({ ...r, resource: r.id })), ...hud.companions.flatMap((c) => c.resources.map((r) => ({ ...r, resource: `${r.id}_${c.id}` })))];
-    for (const v of views) {
-      if (v.value >= v.min && v.value <= v.max) continue;
-      const tag = `${v.resource}${v.value < v.min ? "<" : ">"}`;
+    for (const o of engine.takeOverflows()) {
+      const tag = `${o.resource}${o.value < o.min ? "<" : ">"}`;
       if (seenRange.has(tag)) continue;
       seenRange.add(tag);
-      result.checks.outOfRange.push({ choices: path, resource: v.resource, value: v.value, min: v.min, max: v.max });
+      result.checks.outOfRange.push({ choices: path, ...o });
     }
   };
   let steps = options.maxSteps ?? 5000;

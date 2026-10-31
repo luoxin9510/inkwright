@@ -114,7 +114,7 @@ for (const file of files) {
       }
       for (const u of x.checks?.unknownNeeds ?? []) warnings.push(`${tag}choice "${u.choice}" needs an item the game note does not have: ${u.item}`);
       for (const l of x.checks?.lockedOut ?? []) runtime.push(`${tag}stuck: every choice needs an item not carried (after: ${l.choices.join(" > ") || "start"})`);
-      for (const o of x.checks?.outOfRange ?? []) warnings.push(`${tag}${o.resource} = ${o.value}, outside ${o.min}..${o.max} (after: ${o.choices.join(" > ") || "start"})`);
+      for (const o of x.checks?.outOfRange ?? []) warnings.push(`${tag}${o.resource} pushed to ${o.value}, outside ${o.min}..${o.max} and clamped (after: ${o.choices.join(" > ") || "start"})`);
     }
   } else if (r.story) {
     const s = new PlaySession(r.story, { timeBudgetMs: 1000 });
@@ -135,7 +135,7 @@ for (const file of files) {
       notes.push(`${tag}${x.runs} random runs (seed ${seed}): ${range(x.steps)} choices each${extra.length ? "; " + extra.join("; ") : ""}`);
       for (const e of x.endings) notes.push(`${tag}  ${Math.round((100 * e.count) / x.runs)}% (${e.count}) ${e.lastText}  after ~${Math.round(e.steps)} choices`);
       for (const res of x.resources ?? []) {
-        notes.push(`${tag}  ${res.resource} at the end: ${range(res.end)}${res.outOfRange > 0 ? `; out of range in ${res.outOfRange} run(s)` : ""}`);
+        notes.push(`${tag}  ${res.resource} at the end: ${range(res.end)}${res.outOfRange > 0 ? `; pushed out of range in ${res.outOfRange} run(s)` : ""}`);
       }
     }
   }

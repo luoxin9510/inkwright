@@ -31,6 +31,27 @@ const faces = (...fs: number[]) => {
 };
 
 describe("GameEngine with a PlaySession", () => {
+  test("a resource the story pushes outside min..max is clamped after the step, and the overshoot is recorded", () => {
+    const engine = new GameEngine(CONFIG);
+    const story = new Compiler(`-> main\n${generateInk(CONFIG)}\n=== main ===\n~ 恐惧 += 200\n~ 恐惧_阿波 -= 50\n涨了。\n* [再] -> main\n* [走] -> END`).Compile();
+    const session = new PlaySession(story, { setup: (s) => engine.setup(s, "昕") });
+    session.start();
+    expect(session.read("恐惧")).toBe(100);
+    expect(session.read("恐惧_阿波")).toBe(0);
+    expect(engine.hud().resources.find((r) => r.id === "恐惧")?.value).toBe(100);
+    expect(engine.takeOverflows()).toEqual([
+      { resource: "恐惧", value: 200, min: 0, max: 100 },
+      { resource: "恐惧_阿波", value: -40, min: 0, max: 100 },
+    ]);
+    expect(engine.takeOverflows()).toEqual([]);
+    // Still clamped on a rebuilt Story (back, restart) and from the clamped value, not the overshoot.
+    session.restart();
+    expect(session.read("恐惧")).toBe(100);
+    session.choose(0);
+    expect(session.read("恐惧")).toBe(100);
+    expect(engine.takeOverflows().map((o) => o.value)).toEqual([200, -40, 300, -50]);
+  });
+
   test("loads the character preset, describes check choices and rolls through the EXTERNAL function", () => {
     const engine = new GameEngine(CONFIG, { rng: faces(3, 4) });
     const session = new PlaySession(compile(), { setup: (story) => engine.setup(story, "阿波") });
