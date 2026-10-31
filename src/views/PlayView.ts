@@ -4,7 +4,7 @@ import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
-import type { ChoiceCheck, HudView, RollRecord } from "../game/engine";
+import type { ChoiceCheck, ChoiceNeed, HudView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
@@ -15,6 +15,8 @@ export interface GameView {
   hud: HudView;
   /** Check info per choice, aligned with `choices`; null for plain choices. */
   checks: (ChoiceCheck | null)[];
+  /** Items each choice needs, aligned with `choices`; a missing one locks the choice. */
+  needs: ChoiceNeed[][];
   /** Speaking skill per paragraph, aligned with `log`. */
   voices: (string | null)[];
   /** The story's turn per paragraph, aligned with `log`; rolls are placed by it. */
@@ -201,6 +203,14 @@ export class PlayView extends ItemView {
       const button = choices.createEl("button", { text: c.text, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
+      const needs = s.game?.needs[i] ?? [];
+      for (const need of needs) {
+        button.createSpan({ cls: `inkwright-need${need.has ? "" : " inkwright-need-missing"}`, text: `${T().needs} ${need.name}` });
+      }
+      if (needs.some((n) => !n.has)) {
+        button.disabled = true;
+        button.addClass("inkwright-choice-locked");
+      }
       button.onclick = () => {
         this.afterChoice = true;
         this.controller.choose(c.index);
@@ -288,6 +298,12 @@ export class PlayView extends ItemView {
       const span = Math.max(1, r.max - r.min);
       bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(((r.value - r.min) / span) * 100)}%` });
       row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
+    }
+    if (game.hud.items) {
+      const row = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items" });
+      row.createSpan({ cls: "inkwright-hud-name", text: T().inventory });
+      if (game.hud.items.length === 0) row.createSpan({ cls: "inkwright-hud-value", text: T().nothingCarried });
+      for (const item of game.hud.items) row.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
     }
     for (const c of game.hud.companions) {
       const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");

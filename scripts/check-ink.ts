@@ -84,6 +84,8 @@ for (const file of files) {
       for (const c of x.checks?.noConsequence ?? []) {
         warnings.push(`${tag}failing ${c.skill} ${c.difficulty} changes nothing (no variable, same choices): ${c.choices.join(" > ")}`);
       }
+      for (const u of x.checks?.unknownNeeds ?? []) warnings.push(`${tag}choice "${u.choice}" needs an item the game note does not have: ${u.item}`);
+      for (const l of x.checks?.lockedOut ?? []) runtime.push(`${tag}stuck: every choice needs an item not carried (after: ${l.choices.join(" > ") || "start"})`);
     }
   } else if (r.story) {
     const s = new PlaySession(r.story, { timeBudgetMs: 1000 });

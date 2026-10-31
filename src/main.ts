@@ -129,7 +129,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   }
 
   choose(index: number): void {
-    if (this.session) this.apply(this.session.choose(index));
+    if (!this.session) return;
+    // A choice that needs an item not carried is shown locked; it cannot be taken.
+    const choice = this.last?.choices.find((c) => c.index === index);
+    if (choice && this.game && !this.game.canChoose(choice)) return;
+    this.apply(this.session.choose(index));
   }
 
   back(): void {
@@ -451,6 +455,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       skills: game.config.skills.map((s) => ({ id: s.id, name: localize(s.name, lang, s.id), color: s.voice?.color, stance: localize(s.voice?.stance, lang, "") || undefined })),
       hud: game.hud(),
       checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
+      needs: (step?.choices ?? []).map((c) => game.needsOf(c)),
       voices: this.session.log.map((p) => game.voiceOf(p)),
       turns: [...this.session.turns],
       rolls: game.rolls,

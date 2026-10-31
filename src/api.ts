@@ -7,7 +7,7 @@ import { T } from "./i18n";
 import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
-import type { ChoiceCheck, HudView, RollRecord } from "./game/engine";
+import type { ChoiceCheck, HudView, RollRecord, ChoiceNeed } from "./game/engine";
 import type { ConfigProblem, GameConfig } from "./game/config";
 import type { Choice } from "./play/session";
 import type { PlayState } from "./views/PlayView";
@@ -75,7 +75,7 @@ export interface PanelReport extends Inspection {
   /** Language of a bilingual story; null when the story is not bilingual. */
   language: string | null;
   /** Game mode: the current character, check info per choice, resources and companions, dice log. */
-  game: { character: string | null; checks: (ChoiceCheck | null)[]; hud: HudView; rolls: RollRecord[] } | null;
+  game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; hud: HudView; rolls: RollRecord[] } | null;
 }
 
 const HELP = `Inkwright agent API — app.plugins.plugins.inkwright.api
@@ -88,7 +88,8 @@ Headless (does not touch the visible panel):
   play(path, { from?, choices?, language? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text}],
                                         choices, ended, errors, variables[{name,value}], visits[{path,count}], turns }
      from:    knot or "knot.stitch" to start at (default: the beginning)
-     choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem
+     choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem.
+              Any choice can be picked, including one the panel shows locked (#needs: item not carried).
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
   explore(path, { language?, maxSteps?, statesPerSpot?, character?, bands? })
                        -> { ok, diagnostics, endings[{choices[],lastText}], errors[{choices[],message}], truncated, cappedSpots, checks? }
@@ -103,7 +104,8 @@ Headless (does not touch the visible panel):
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
   panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, language, game, variables, visits, turns }
-                       game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance], hud, rolls }
+                       game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance],
+                         needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice], hud (resources, companions, items carried), rolls }
   choose(indexOrText)  make a choice in the panel
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
@@ -203,7 +205,7 @@ export class InkwrightApi {
       diagnostics: plainDiagnostics(s.diagnostics),
       flows: s.flows,
       language: s.storyLanguage,
-      game: s.game ? { character: s.game.current, checks: s.game.checks, hud: s.game.hud, rolls: s.game.rolls } : null,
+      game: s.game ? { character: s.game.current, checks: s.game.checks, needs: s.game.needs, hud: s.game.hud, rolls: s.game.rolls } : null,
       ...insp,
     };
   }

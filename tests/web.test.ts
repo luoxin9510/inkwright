@@ -202,6 +202,8 @@ ${generateInk(CONFIG)}
 * [走]
     走了。
     -> END
+* [捅 #needs:刀]
+    -> END
 `;
 
 test("a game page shows the HUD, voices, check odds and the dice log, and switches character and language", () => {
@@ -213,6 +215,11 @@ test("a game page shows the HUD, voices, check odds and the dice log, and switch
   expect(hud()).toContain("恐惧 0/100");
   expect(document.querySelector("#story p.voice .who")?.textContent).toBe("洞察力");
   expect(texts("#choices button .check")).toEqual(["力量 10 · 42%"]); // 力量 2 needs 8+ on 2d6
+  // The inventory is in the HUD; a choice that needs an item not carried is shown locked.
+  expect(hud()).toContain("背包手机");
+  const locked = Array.from(document.querySelectorAll<HTMLButtonElement>("#choices button")).find((b) => b.textContent?.startsWith("捅"));
+  expect(locked?.disabled).toBe(true);
+  expect(locked?.querySelector(".need")?.textContent).toBe("需要 刀");
   (document.querySelector("#choices button") as HTMLElement).click();
   expect(texts("#dice li")).toHaveLength(1);
   expect(document.querySelector("#dice summary")?.textContent).toBe("掷骰记录 (1)");

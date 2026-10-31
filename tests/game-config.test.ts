@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Compiler, Story } from "inkjs/full";
-import { collectModifiers, fxOf, inkNames, localize, parseCheckTag, parseFxTag, parseVoiceTag, playableCharacters, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
+import { collectModifiers, fxOf, inkNames, localize, parseCheckTag, parseFxTag, parseNeedsTag, parseVoiceTag, playableCharacters, readConfig, validateConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { CONFIG } from "./fixtures/gameConfig";
 import { generateInk } from "../src/game/inkgen";
 
@@ -72,8 +72,16 @@ describe("validateConfig", () => {
       skills: [{ id: "理智" }, { id: "理智" }, { id: "bad name" }],
       characters: [{ id: "昕", skills: { 歌唱: 3, 理智: 9 } }],
       modifiers: [],
+      items: [],
     };
     expect(codes(validateConfig(bad))).toEqual(["duplicate:理智", "ident:bad name", "unknownSkill:昕,歌唱", "skillLevel:昕,理智,9,6"]);
+  });
+  test("items: ids share the namespace, bonuses name real skills, starting items exist", () => {
+    const bad: GameConfig = { ...CONFIG, items: [{ id: "刀" }, { id: "理智" }, { id: "枪", modifiers: { 射击: 1 } }], characters: [{ id: "昕", skills: {}, items: ["刀", "绳子"] }] };
+    expect(codes(validateConfig(bad))).toEqual(["duplicate:理智", "itemSkill:枪,射击", "unknownItem:昕,绳子"]);
+    const fm = () => JSON.parse(JSON.stringify(CONFIG)) as Record<string, unknown>;
+    expect(codes(readConfig({ ...fm(), items: [{ id: "刀", modifiers: "x" }] }).problems)).toEqual(["shape:items[0]"]);
+    expect(codes(readConfig({ ...fm(), characters: [{ id: "昕", items: "刀" }] }).problems)).toEqual(["shape:characters[0]"]);
   });
   test("reports a non-positive step, no characters, and duplicate companion resource ids", () => {
     const bad: GameConfig = {
@@ -92,6 +100,7 @@ describe("validateConfig", () => {
       resources: [{ id: "体力", min: 0, max: 10, initial: 11 }],
       characters: [{ id: "昕", skills: {}, companion: { 士气: 1 } }],
       modifiers: [],
+      items: [],
     };
     expect(codes(validateConfig(bad))).toEqual(["duplicate:恐惧_昕", "duplicate:检定", "resourceRange:体力", "difficulty:普通", "unknownCompanionResource:昕,士气"]);
   });
@@ -100,7 +109,7 @@ describe("validateConfig", () => {
     expect(codes(validateConfig({ ...CONFIG, rules: { kind: "rollUnder", sides: 1 } }))).toEqual(["sides:"]);
   });
   test("skill ids may not reuse the generated function parameter names", () => {
-    const problems = validateConfig({ ...CONFIG, skills: [{ id: "技能" }], characters: [{ id: "昕", skills: {} }], modifiers: [] });
+    const problems = validateConfig({ ...CONFIG, skills: [{ id: "技能" }], characters: [{ id: "昕", skills: {} }], modifiers: [], items: [] });
     expect(codes(problems)).toEqual(["duplicate:技能"]);
   });
 });
@@ -214,6 +223,21 @@ describe("generated ink", () => {
   });
 });
 
+describe("generated ink: items", () => {
+  test("a LIST of the items, the inventory VAR, and each character's starting items", () => {
+    const ink = generateInk(CONFIG);
+    expect(ink).toContain("LIST 物品 = 手机, 刀");
+    expect(ink).toContain("VAR 背包 = ()");
+    const c = new Compiler("-> main\n" + ink + "\n=== main ===\n~ 选主角(\"昕\")\n{背包 ? 手机: 有手机} {背包 ? 刀: 有刀}\n~ 背包 += 刀\n{背包 ? 刀: 有刀}\n-> END\n");
+    const story = new Story(c.Compile().ToJson() as string);
+    story.allowExternalFunctionFallbacks = true;
+    let out = "";
+    while (story.canContinue) out += story.Continue();
+    expect(out.trim().split(/\s+/)).toEqual(["有手机", "有刀"]);
+    expect(generateInk({ ...CONFIG, items: [] })).not.toContain("LIST 物品");
+  });
+});
+
 describe("generated ink with the English names (the default)", () => {
   test("declares the engine in English and the bilingual text function", () => {
     const ink = generateInk({ ...CONFIG, ink: undefined });
@@ -249,4 +273,11 @@ test("fx tags name a screen effect from the fixed list; anything else is not an 
   expect(parseFxTag("fx:boom")).toBeNull();
   expect(parseFxTag("voice:理智")).toBeNull();
   expect(fxOf(["voice:理智", "fx:flash", "fx:pulse"])).toEqual(["flash", "pulse"]);
+});
+
+test("needs tags name an item; the engine decides whether it is known and carried", () => {
+  expect(parseNeedsTag("needs:刀")).toBe("刀");
+  expect(parseNeedsTag(" needs : 枪 ")).toBe("枪");
+  expect(parseNeedsTag("needs:")).toBeNull();
+  expect(parseNeedsTag("check:力量:10")).toBeNull();
 });

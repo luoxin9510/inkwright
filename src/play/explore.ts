@@ -37,7 +37,14 @@ export interface ExploreResult {
    * Game mode: how many check outcomes were walked, and failed checks after which nothing
    * changed (no variable, same choices): the story's "failure must have consequences" rule.
    */
-  checks?: { walked: number; noConsequence: { choices: string[]; skill: string; difficulty: number }[] };
+  checks?: {
+    walked: number;
+    noConsequence: { choices: string[]; skill: string; difficulty: number }[];
+    /** Choices whose `#needs:` names an item the config does not have (each once). */
+    unknownNeeds: { choice: string; item: string }[];
+    /** Spots where every choice needs something not carried: the player is stuck there. */
+    lockedOut: { choices: string[] }[];
+  };
 }
 
 /** How a forced outcome shows in a path: `撬开门 [strength✗]`. */
@@ -91,7 +98,21 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const hidden = new Set(engine ? [inkNames(engine.config).seed, inkNames(engine.config).rolls] : []);
   const variables = () => JSON.stringify(session.inspect().variables.filter((v) => !hidden.has(v.name)));
   const result: ExploreResult = { endings: [], errors: [], truncated: false, cappedSpots: 0 };
-  if (engine) result.checks = { walked: 0, noConsequence: [] };
+  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], lockedOut: [] };
+  // Game mode: a choice that needs an item not carried cannot be taken, so it is not played.
+  const seenUnknown = new Set<string>();
+  const open = <C extends { text: string; tags: string[] }>(choices: C[]): C[] => {
+    if (!engine) return choices;
+    return choices.filter((c) => {
+      for (const n of engine.needsOf(c)) {
+        if (!n.known && !seenUnknown.has(`${c.text}\n${n.id}`)) {
+          seenUnknown.add(`${c.text}\n${n.id}`);
+          result.checks?.unknownNeeds.push({ choice: c.text, item: n.id });
+        }
+      }
+      return engine.canChoose(c);
+    });
+  };
   let steps = options.maxSteps ?? 5000;
   const perSpot = options.statesPerSpot ?? 10;
 
@@ -120,7 +141,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const start = session.save();
   if (first.ended) result.endings.push({ choices: [], lastText: session.log.at(-1)?.text ?? "" });
   else if (start && first.errors.length === 0 && unseen(start)) {
-    for (const choice of first.choices) queue.push({ save: start, path: [], choices: first.choices, choice, plan: [], fromFresh: true });
+    const choices = open(first.choices);
+    for (const choice of choices) queue.push({ save: start, path: [], choices, choice, plan: [], fromFresh: true });
   }
 
   for (let move = queue.shift(); move; move = queue.shift()) {
@@ -149,9 +171,11 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       result.endings.push({ choices: path, lastText: session.log.at(-1)?.text ?? "" });
       continue;
     }
+    const choices = open(step.choices);
+    if (result.checks && step.choices.length > 0 && choices.length === 0) result.checks.lockedOut.push({ choices: path });
     if (result.checks && before !== null) {
       const failed = met.filter((c) => c.band <= 1);
-      const sameChoices = step.choices.length === move.choices.length && step.choices.every((c, i) => c.text === move.choices[i].text);
+      const sameChoices = choices.length === move.choices.length && choices.every((c, i) => c.text === move.choices[i].text);
       if (failed.length > 0 && sameChoices && variables() === before) {
         for (const c of failed) result.checks.noConsequence.push({ choices: path, skill: c.skill, difficulty: c.difficulty });
       }
@@ -162,7 +186,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       // seen before (a retry that changes nothing); from there the usual rule holds again.
       const fresh = unseen(next);
       if (fresh || (move.plan.length > 0 && move.fromFresh)) {
-        for (const choice of step.choices) queue.push({ save: next, path, choices: step.choices, choice, plan: [], fromFresh: fresh });
+        for (const choice of choices) queue.push({ save: next, path, choices, choice, plan: [], fromFresh: fresh });
       }
     }
   }

@@ -22,6 +22,8 @@ const configZh: ConfigMessages = {
   unknownCompanionResource: (who, id) => `主角 "${who}" 有未定义的队友资源 "${id}"`,
   modifierSkill: (skill) => `修正规则指向未定义的技能 "${skill}"`,
   modifierStep: (resource) => `"${resource}" 的修正规则:step 必须为正数`,
+  unknownItem: (who, item) => `主角 "${who}" 带着未定义的物品 "${item}"`,
+  itemSkill: (item, skill) => `物品 "${item}" 加成了未定义的技能 "${skill}"`,
   languages: () => "languages 必须是两个不同的语言代码,例如 [zh, en]",
 };
 
@@ -42,6 +44,8 @@ const configEn: ConfigMessages = {
   unknownCompanionResource: (who, id) => `character "${who}" has an unknown companion resource "${id}"`,
   modifierSkill: (skill) => `modifier for an unknown skill "${skill}"`,
   modifierStep: (resource) => `modifier on "${resource}": step must be positive`,
+  unknownItem: (who, item) => `character "${who}" carries an unknown item "${item}"`,
+  itemSkill: (item, skill) => `item "${item}" boosts an unknown skill "${skill}"`,
   languages: () => "languages must be two different language codes, e.g. [zh, en]",
 };
 
@@ -116,6 +120,9 @@ const zh = {
   bands: ["大失败", "失败", "部分成功", "成功", "大成功"],
   redCheck: "一次性",
   unknownSkill: "(未知技能)",
+  inventory: "背包",
+  nothingCarried: "空",
+  needs: "需要",
   gameConfigProblem: (p: string) => `游戏配置有问题:${p}`,
   gameConfigUnusable: (p: string) => `游戏配置无法使用,已按普通剧本运行:${p}`,
   configProblem: (p: ConfigProblem): string => configZh[p.code](...p.args),
@@ -199,6 +206,9 @@ const en: Strings = {
   bands: ["Critical failure", "Failure", "Partial success", "Success", "Critical success"],
   redCheck: "one attempt",
   unknownSkill: "(unknown skill)",
+  inventory: "Inventory",
+  nothingCarried: "nothing",
+  needs: "Needs",
   gameConfigProblem: (p) => `Game config problem: ${p}`,
   gameConfigUnusable: (p) => `Game config unusable, playing as a plain story: ${p}`,
   configProblem: (p) => configEn[p.code](...p.args),

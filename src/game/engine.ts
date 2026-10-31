@@ -1,5 +1,5 @@
 import type { Story } from "inkjs/full";
-import { collectModifiers, inkNames, localize, parseCheckTag, parseVoiceTag, playableCharacters, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parseVoiceTag, playableCharacters, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, resolve, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 
 export interface EngineOptions {
@@ -38,10 +38,27 @@ export interface ResourceView {
   max: number;
 }
 
+export interface ItemView {
+  id: string;
+  name: string;
+  desc?: string;
+}
+
+/** An item a choice needs (`#needs:<item>`), and whether it is carried. */
+export interface ChoiceNeed {
+  id: string;
+  name: string;
+  has: boolean;
+  /** False when the config has no such item: a typo in the story, never satisfied. */
+  known: boolean;
+}
+
 export interface HudView {
   character: { id: string; name: string; skills: { id: string; name: string; level: number }[] } | null;
   resources: ResourceView[];
   companions: { id: string; name: string; resources: ResourceView[] }[];
+  /** What is carried, in config order; absent when the game has no items. */
+  items?: ItemView[];
 }
 
 /**
@@ -103,7 +120,7 @@ export class GameEngine {
     const known = this.config.skills.some((s) => s.id === skill);
     const level = known ? Number(this.read(skill) ?? 0) : 0;
     const difficulty = Number(difficultyArg);
-    const modifiers = known ? collectModifiers(this.config, skill, (n) => this.read(n)) : [];
+    const modifiers = known ? collectModifiers(this.config, skill, (n) => this.read(n), this.language) : [];
     const input = { level, difficulty, modifiers };
     const run = this.run();
     const seed = run?.seed ?? 0;
@@ -162,10 +179,28 @@ export class GameEngine {
       const check = parseCheckTag(tag, this.config);
       if (!check) continue;
       const level = Number(this.read(check.skill) ?? 0);
-      const modifiers = collectModifiers(this.config, check.skill, (n) => this.read(n));
+      const modifiers = collectModifiers(this.config, check.skill, (n) => this.read(n), this.language);
       return { ...check, level, modifiers, chance: chance(this.config.rules, { level, difficulty: check.difficulty, modifiers }) };
     }
     return null;
+  }
+
+  /** The items a choice needs (`#needs:<item>` tags), each with whether it is carried now. */
+  needsOf(choice: { tags: string[] }): ChoiceNeed[] {
+    const inventory = this.read(inkNames(this.config).inventory);
+    const out: ChoiceNeed[] = [];
+    for (const tag of choice.tags) {
+      const id = parseNeedsTag(tag);
+      if (id === null) continue;
+      const item = this.config.items?.find((i) => i.id === id);
+      out.push({ id, name: localize(item?.name, this.language, id), has: item !== undefined && carries(inventory, id), known: item !== undefined });
+    }
+    return out;
+  }
+
+  /** False when the choice needs an item that is not carried (or does not exist). */
+  canChoose(choice: { tags: string[] }): boolean {
+    return this.needsOf(choice).every((n) => n.has);
   }
 
   /** The skill speaking in a paragraph (from its `voice:` tag), or null. */
@@ -192,6 +227,16 @@ export class GameEngine {
       companions: this.config.characters
         .filter((c) => c.id !== current)
         .map((c) => ({ id: c.id, name: name(c), resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),
+      ...(this.config.items?.length ? { items: this.carried() } : {}),
     };
+  }
+
+  /** The items carried now, in config order. */
+  private carried(): ItemView[] {
+    const inventory = this.read(inkNames(this.config).inventory);
+    return (this.config.items ?? []).filter((i) => carries(inventory, i.id)).map((i) => {
+      const desc = localize(i.desc, this.language, "");
+      return { id: i.id, name: localize(i.name, this.language, i.id), ...(desc ? { desc } : {}) };
+    });
   }
 }
