@@ -58,6 +58,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs,
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -130,6 +131,10 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #story p.voice { border-left: 3px solid var(--voice, var(--accent)); padding-left: 10px; }
 #story p.voice .who { color: var(--voice, var(--accent)); font-weight: 600; font-size: 0.85em; margin-right: 0.5em; }
 #choices button .check { display: block; font-size: 0.75em; color: var(--muted); }
+#choices button .need { display: block; font-size: 0.75em; color: var(--muted); }
+#choices button .need.missing { color: #c33; }
+#choices button:disabled { opacity: 0.55; cursor: default; }
+#choices button:disabled:hover { border-color: var(--line); }
 #dice { font-size: 0.8em; color: var(--muted); margin-top: 1.2em; }
 #dice summary { cursor: pointer; }
 #dice ul { margin: 0.4em 0 0; padding-left: 1.2em; }
@@ -226,6 +231,7 @@ const PLAYER = `(function () {
     hudEl.hidden = false;
     if (h.character) line(h.character.name, h.character.skills.map(function (k) { return k.name + " " + k.level; }).join(" · "));
     if (h.resources.length) line(s.status, h.resources.map(function (r) { return r.name + " " + r.value + "/" + r.max; }).join(" · "));
+    if (h.items) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
     h.companions.forEach(function (c) {
       if (c.resources.length) line(c.name, c.resources.map(function (r) { return r.name + " " + r.value; }).join(" · "));
     });
@@ -323,6 +329,15 @@ const PLAYER = `(function () {
           (check.red ? " · " + str().redCheck : "");
         b.appendChild(span);
       }
+      // A choice that needs an item not carried is shown locked.
+      var needs = engine ? engine.needsOf({ tags: c.tags || [] }) : [];
+      needs.forEach(function (n) {
+        var need = document.createElement("span");
+        need.className = "need" + (n.has ? "" : " missing");
+        need.textContent = str().needs + " " + n.name;
+        b.appendChild(need);
+      });
+      if (needs.some(function (n) { return !n.has; })) b.disabled = true;
       b.onclick = function () { choose(c.index, c.text); };
       choicesEl.appendChild(b);
     });

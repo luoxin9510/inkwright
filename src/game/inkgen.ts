@@ -22,6 +22,10 @@ export function generateInk(config: GameConfig): string {
     "",
     "// Resources",
     ...config.resources.map((r) => `VAR ${r.id} = ${r.initial}`),
+    ...(config.items?.length
+      ? ["", "// Items: what the character carries (`~ " + n.inventory + " += " + config.items[0].id + "`, `{" + n.inventory + " ? " + config.items[0].id + ": …}`)",
+        `LIST ${n.items} = ${config.items.map((i) => i.id).join(", ")}`, `VAR ${n.inventory} = ()`]
+      : []),
     "",
     "// Dice: the engine sets these; saved with the state, so back/load/replay roll the same",
     `VAR ${n.seed} = 0`,
@@ -60,6 +64,7 @@ export function generateInk(config: GameConfig): string {
   for (const c of config.characters) {
     lines.push(`{ ${n.whoParam} == "${c.id}":`, `    ~ ${n.current} = ${c.id}`);
     for (const s of config.skills) lines.push(`    ~ ${s.id} = ${c.skills[s.id] ?? 0}`);
+    if (config.items?.length) lines.push(`    ~ ${n.inventory} = (${(c.items ?? []).join(", ")})`);
     lines.push("}");
   }
   lines.push("", `// A skill's current level, by name.`, `=== function ${n.skillValue}(${n.skillParam}) ===`);

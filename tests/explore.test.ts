@@ -84,7 +84,7 @@ test("game mode walks the success and the failure of every check, marking the ou
     [["走"], "走了。"],
     [["撬 [力量✗]", "走"], "走了。"],
   ]);
-  expect(r.checks).toEqual({ walked: 2, noConsequence: [] });
+  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [] });
   expect(r.truncated).toBe(false);
 });
 
@@ -130,4 +130,15 @@ test("a state reached before is not expanded again: a room poked around in any o
   expect(r.endings.map((e) => e.choices.join(" > "))).not.toContain("Take c > Take a > Leave");
   expect(r.truncated).toBe(false);
   expect(r.cappedSpots).toBe(0);
+});
+
+test("game mode: a choice whose #needs: item is not carried is not played; an unknown item is reported", async () => {
+  const src = ["-> main", generateInk(CONFIG), "=== main ===", "口袋。", "* [拿刀]", "    ~ 背包 += 刀", "    -> main",
+    "* [捅 #needs:刀]", "    捅了。", "    -> END", "* [开枪 #needs:枪]", "    -> END", "+ [走] -> END"].join("\n");
+  const r = exploreStory(await story(src), { game: CONFIG, character: "昕" });
+  const paths = r.endings.map((e) => e.choices.join(" > "));
+  expect(paths).toContain("拿刀 > 捅");
+  expect(paths).not.toContain("捅");
+  expect(paths.some((p) => p.includes("开枪"))).toBe(false);
+  expect(r.checks?.unknownNeeds).toEqual([{ choice: "开枪", item: "枪" }]);
 });

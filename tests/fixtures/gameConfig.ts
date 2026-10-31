@@ -15,8 +15,12 @@ export const CONFIG: GameConfig = {
   ],
   resources: [{ id: "恐惧", min: 0, max: 100, initial: 0 }],
   companionResources: [{ id: "恐惧", min: 0, max: 100, initial: 20 }, { id: "信任", min: 0, max: 100, initial: 50 }],
+  items: [
+    { id: "手机", name: { zh: "手机", en: "Phone" } },
+    { id: "刀", name: { zh: "刀", en: "Knife" }, desc: { zh: "衣柜最里面的那把。", en: "The one from the back of the wardrobe." }, modifiers: { 力量: 1 } },
+  ],
   characters: [
-    { id: "昕", skills: { 理智: 3, 耐力: 3, 魅力: 6, 洞察力: 3, 力量: 2 } },
+    { id: "昕", skills: { 理智: 3, 耐力: 3, 魅力: 6, 洞察力: 3, 力量: 2 }, items: ["手机"] },
     { id: "阿波", skills: { 理智: 4, 耐力: 3, 魅力: 2, 洞察力: 3, 力量: 5 }, companion: { 恐惧: 10, 信任: 60 } },
   ],
   modifiers: [

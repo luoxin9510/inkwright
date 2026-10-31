@@ -119,3 +119,10 @@
   .inkwright-fx-shake, .inkwright-fx-flash::after, .inkwright-fx-dark::after, .inkwright-fx-pulse::after, .inkwright-rolling .inkwright-die { animation: none; }
   .inkwright-rolling .inkwright-roll-band { visibility: visible; }
 }
+
+/* Items: the inventory row of the HUD, and choices that need one. */
+.inkwright-hud-items { flex-wrap: wrap; }
+.inkwright-item { color: var(--text-normal); }
+.inkwright-need { display: inline-block; margin-left: 8px; font-size: var(--font-smaller); color: var(--text-muted); white-space: nowrap; }
+.inkwright-need-missing { color: var(--text-error); }
+.inkwright-choice-locked { opacity: 0.6; cursor: default; }

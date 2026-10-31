@@ -45,6 +45,19 @@ export interface CharacterDef {
   companion?: Record<string, number>;
   /** False for a companion the player can never pick (default true). */
   playable?: boolean;
+  /** Items carried from the start; ids from `items`. */
+  items?: string[];
+}
+
+/** Something the character can carry: an ink list item, so the story can `~ inv += knife` and `{inv ? knife: …}`. */
+export interface ItemDef {
+  /** Also the ink list item name, so it must be a valid ink identifier. */
+  id: string;
+  name?: LocalizedText;
+  /** A line about it, shown with the name. */
+  desc?: LocalizedText;
+  /** Skill bonuses while carried; keys are skill ids. */
+  modifiers?: Record<string, number>;
 }
 
 /** The characters the player can pick. */
@@ -84,6 +97,8 @@ export interface GameConfig {
   /** Per-companion resources; variables are named `<resource>_<character>`. */
   companionResources?: ResourceDef[];
   characters: CharacterDef[];
+  /** Things the character can carry; the generated ink declares them as a LIST and an inventory VAR. */
+  items?: ItemDef[];
   modifiers?: ModifierRule[];
   /**
    * Languages the story is written in, e.g. ["zh", "en"] (the first is the default). The
@@ -115,6 +130,9 @@ export interface InkNames {
   /** VARs the engine writes so the dice follow the state: the run's seed and how many checks it rolled. */
   seed: string;
   rolls: string;
+  /** LIST of the items and the VAR holding what is carried. */
+  items: string;
+  inventory: string;
   /** VAR holding the story's language and the function picking text by it (bilingual stories). */
   langVar: string;
   textFn: string;
@@ -127,12 +145,12 @@ export interface InkNames {
 export const INK_PRESETS: Record<InkPreset, InkNames> = {
   en: {
     check: "check", skillValue: "skill_level", characters: "characters", current: "character", select: "pick_character",
-    seed: "dice_seed", rolls: "dice_rolls", langVar: "lang", textFn: "t",
+    seed: "dice_seed", rolls: "dice_rolls", items: "items", inventory: "inv", langVar: "lang", textFn: "t",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who",
   },
   zh: {
     check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
-    seed: "骰子种子", rolls: "掷骰次数", langVar: "语言", textFn: "双",
+    seed: "骰子种子", rolls: "掷骰次数", items: "物品", inventory: "背包", langVar: "语言", textFn: "双",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
   },
 };
@@ -183,6 +201,19 @@ export function parseVoiceTag(tag: string, config: GameConfig): string | null {
   return config.skills.some((s) => s.id === parts[1]) ? parts[1] : null;
 }
 
+/** `needs:<item>` on a choice → the item id; the engine decides whether it is known and carried. */
+export function parseNeedsTag(tag: string): string | null {
+  const parts = tag.trim().split(":").map((p) => p.trim());
+  if (parts[0] !== "needs" || parts.length !== 2 || parts[1] === "") return null;
+  return parts[1];
+}
+
+/** Whether an inventory value read from the story (an ink list) holds the item. */
+export function carries(inventory: unknown, id: string): boolean {
+  const list = inventory as { ContainsItemNamed?: (name: string) => boolean } | null;
+  return typeof list?.ContainsItemNamed === "function" && list.ContainsItemNamed(id);
+}
+
 /**
  * Screen effects a line can ask for with `#fx:<name>`: the panel and the web page play them when
  * the line first appears after a choice. A fixed vocabulary, not game data: shake the text,
@@ -219,8 +250,8 @@ function sameValue(actual: unknown, expected: string | number | boolean): boolea
   }
 }
 
-/** Modifiers that apply to a check of `skill` given the current state. */
-export function collectModifiers(config: GameConfig, skill: string, state: StateReader): Modifier[] {
+/** Modifiers that apply to a check of `skill` given the current state: the rules, then the bonuses of carried items (named in `lang`). */
+export function collectModifiers(config: GameConfig, skill: string, state: StateReader, lang = ""): Modifier[] {
   const out: Modifier[] = [];
   for (const rule of config.modifiers ?? []) {
     if (rule.skill !== undefined && rule.skill !== skill) continue;
@@ -232,6 +263,14 @@ export function collectModifiers(config: GameConfig, skill: string, state: State
       out.push({ source: rule.label ?? rule.variable, value: rule.value });
     }
   }
+  const items = config.items ?? [];
+  if (items.length > 0) {
+    const inventory = state(inkNames(config).inventory);
+    for (const item of items) {
+      const value = item.modifiers?.[skill];
+      if (value !== undefined && value !== 0 && carries(inventory, item.id)) out.push({ source: localize(item.name, lang, item.id), value });
+    }
+  }
   return out;
 }
 
@@ -241,6 +280,7 @@ const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 export const CONFIG_PROBLEM_CODES = [
   "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
+  "unknownItem", "itemSkill",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -269,6 +309,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const s of config.skills) ident(s.id);
   for (const r of config.resources) ident(r.id);
   for (const c of config.characters) ident(c.id);
+  for (const i of config.items ?? []) ident(i.id);
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
@@ -293,7 +334,12 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     if (!Number.isInteger(value) || value <= 0) bad("difficulty", name);
   }
   const skills = new Map(config.skills.map((s) => [s.id, s]));
+  const items = new Set((config.items ?? []).map((i) => i.id));
+  for (const i of config.items ?? []) {
+    for (const s of Object.keys(i.modifiers ?? {})) if (!skills.has(s)) bad("itemSkill", i.id, s);
+  }
   for (const c of config.characters) {
+    for (const id of c.items ?? []) if (!items.has(id)) bad("unknownItem", c.id, id);
     for (const [id, level] of Object.entries(c.skills)) {
       const s = skills.get(id);
       if (!s) bad("unknownSkill", c.id, id);
@@ -372,7 +418,8 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("skills", true, (e) => opt(e.name, isText) && opt(e.max, isNum) && opt(e.voice, voice));
   entries("resources", false, resource);
   entries("companionResources", false, resource);
-  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool));
+  entries("items", false, (e) => opt(e.name, isText) && opt(e.desc, isText) && opt(e.modifiers, numMap));
+  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
     if (!Array.isArray(mods)) shape("modifiers");
@@ -392,6 +439,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     resources: (fm.resources ?? []) as ResourceDef[],
     companionResources: (fm.companionResources ?? []) as ResourceDef[],
     characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
+    items: (fm.items ?? []) as ItemDef[],
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     languages: (fm.languages ?? undefined) as string[] | undefined,
     engineFile: (fm.engineFile ?? undefined) as string | undefined,

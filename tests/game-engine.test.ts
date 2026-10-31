@@ -180,3 +180,35 @@ test("start picks the first playable character; companions marked playable: fals
   expect(engine.character()).toBe("阿波");
   expect(engine.hud().companions.map((c) => c.id)).toEqual(["昕"]);
 });
+
+test("items: the HUD lists what is carried, a carried item adds its bonus, and #needs: locks a choice", () => {
+  const src = `-> main
+${generateInk(CONFIG)}
+=== main ===
+口袋。
+* [拿刀]
+    ~ 背包 += 刀
+    -> main
+* [捅 #needs:刀 #check:力量:10]
+    -> END
+* [开枪 #needs:枪]
+    -> END
++ [走] -> END
+`;
+  const engine = new GameEngine(CONFIG, { rng: faces(3, 4) });
+  const session = new PlaySession(new Compiler(src).Compile(), { setup: (story) => engine.setup(story, "昕") });
+  let step = session.start();
+  expect(engine.hud().items).toEqual([{ id: "手机", name: "手机" }]);
+  expect(engine.needsOf(step.choices[1])).toEqual([{ id: "刀", name: "刀", has: false, known: true }]);
+  expect(engine.needsOf(step.choices[2])).toEqual([{ id: "枪", name: "枪", has: false, known: false }]);
+  expect(step.choices.map((c) => engine.canChoose(c))).toEqual([true, false, false, true]);
+  expect(engine.describeChoice(step.choices[1])?.modifiers).toEqual([]);
+  step = session.choose(0);
+  expect(engine.hud().items?.map((i) => i.name)).toEqual(["手机", "刀"]);
+  expect(engine.hud().items?.[1].desc).toBe("衣柜最里面的那把。");
+  const stab = step.choices.find((c) => c.text === "捅");
+  expect(stab && engine.canChoose(stab)).toBe(true);
+  expect(stab && engine.describeChoice(stab)?.modifiers).toEqual([{ source: "刀", value: 1 }]);
+  engine.language = "en";
+  expect(engine.hud().items?.map((i) => i.name)).toEqual(["Phone", "Knife"]);
+});
