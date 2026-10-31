@@ -75,6 +75,10 @@ export interface PanelReport extends Inspection {
   flows: Flow[];
   /** Language of a bilingual story; null when the story is not bilingual. */
   language: string | null;
+  /** The latest choice of the run: its text and the index in `text` of the first paragraph it produced; null after start, undo or load. */
+  chosen: { text: string; at: number } | null;
+  /** Whether the panel's top bar is pinned. */
+  pinned: boolean;
   /** Game mode: the current character, check info per choice, resources and companions, dice log. */
   game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; hud: HudView; rolls: RollRecord[] } | null;
 }
@@ -222,6 +226,8 @@ export class InkwrightApi {
       root: s.root,
       locked: s.locked,
       startPoint: s.startPoint,
+      chosen: s.chosen,
+      pinned: s.pinned,
       text: s.log.map((p) => p.text),
       choices: s.choices,
       ended: s.ended,
