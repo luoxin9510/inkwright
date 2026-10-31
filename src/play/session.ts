@@ -207,7 +207,6 @@ export class PlaySession {
     return this.snapshot([]);
   }
 
-  /** Current variables and visit counts; empty while a halted loop left the story mid-step. */
   /** The raw value of a global variable (number, boolean, string or InkList), or undefined. */
   read(name: string): unknown {
     return this.story.variablesState[name];
@@ -219,6 +218,7 @@ export class PlaySession {
     return globals instanceof Map ? [...globals.keys()] : [];
   }
 
+  /** Current variables and visit counts; empty while a halted loop left the story mid-step. */
   inspect(): Inspection {
     if (this.halted) return { variables: [], visits: [], turns: 0 };
     const result = inspect(this.story);

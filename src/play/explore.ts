@@ -91,6 +91,8 @@ interface Move {
   choice: ChoiceRef;
   /** The choice point taken, as the story JSON names it. */
   point: string;
+  /** The variables before the move (StateInfo.vars). */
+  vars: string;
   plan: Band[];
   /** Whether the state this move starts from was fresh (not reached before) when it was queued. */
   fromFresh: boolean;
@@ -108,6 +110,8 @@ interface StateInfo {
   visited: string[];
   /** Visit counts of the containers whose next line depends on them. */
   counts: Record<string, number>;
+  /** The story's variables (without the engine's own), canonical: for "did anything change". */
+  vars: string;
 }
 
 /**
@@ -142,7 +146,6 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   });
   // The engine's own bookkeeping changes on every check; it is not a consequence.
   const hidden = new Set(engine ? [inkNames(engine.config).seed, inkNames(engine.config).rolls] : []);
-  const variables = () => JSON.stringify(session.inspect().variables.filter((v) => !hidden.has(v.name)));
   const shape = storyShape(JSON.parse(json), session.globals());
   // The engine reads these itself (locked choices, the character): they decide the future too.
   for (const name of engine ? [inkNames(engine.config).inventory, inkNames(engine.config).current] : []) shape.relevant.add(name);
@@ -200,9 +203,12 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const seen = new Set<string>();
   const spots = new Map<string, number>();
   const capped = new Set<string>();
-  // Novelty: at each spot, the values seen of each variable that matters. A number is new when it
-  // is beyond what was seen there (a lower low or a higher high: the paths that wear a resource
-  // down to its threshold all count, the ones in between do not); anything else is new when unseen.
+  // Novelty: at each spot, the values seen of each variable that matters. A number is new when
+  // it stands differently to the constants it is compared with than any value seen there (a
+  // threshold crossed), or when it is beyond the lowest/highest seen there with a threshold still
+  // ahead in that direction (a resource being worn down towards one); a counter past its last
+  // threshold can grow without being new. A number compared with no constant is new at every
+  // new extreme. Anything else is new when unseen.
   const atoms = new Set<string>();
   const envelopes = new Map<string, { min: number; max: number }>();
   const novel = (info: StateInfo): boolean => {
@@ -210,14 +216,25 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     const fact = (name: string, value: unknown) => {
       if (typeof value === "number") {
         const key = `${info.spot}\n${name}`;
+        const thresholds = shape.thresholds.get(name);
+        if (thresholds) {
+          const side = thresholds.map((t) => (value < t ? "<" : value > t ? ">" : "=")).join("");
+          const atom = `${key}${side}`;
+          if (!atoms.has(atom)) {
+            atoms.add(atom);
+            fresh = true;
+          }
+        }
         const e = envelopes.get(key);
         if (!e) {
           envelopes.set(key, { min: value, max: value });
           fresh = true;
-        } else if (value < e.min || value > e.max) {
-          e.min = Math.min(e.min, value);
-          e.max = Math.max(e.max, value);
-          fresh = true;
+        } else if (value < e.min) {
+          if (!thresholds || thresholds.some((t) => t < e.min)) fresh = true;
+          e.min = value;
+        } else if (value > e.max) {
+          if (!thresholds || thresholds.some((t) => t > e.max)) fresh = true;
+          e.max = value;
         }
         return;
       }
@@ -255,17 +272,20 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     cover(info);
     if (unseen(info)) {
       const choices = open(first.choices);
-      for (const choice of choices) queue.push({ save: start, path: [], choices, choice, point: info.points[choice.index]?.path ?? "", plan: [], fromFresh: true });
+      for (const choice of choices) queue.push({ save: start, path: [], choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh: true });
     }
   }
 
-  for (let move = queue.shift(); move; move = queue.shift()) {
+  // Breadth-first, so a loop cannot use up the budget; with novelty, depth-first: a run to an
+  // extreme (the hours waited out, a fight to the last point) widens the envelopes early, and
+  // the many states in between then need no playing on.
+  const next = () => (options.novelty ? queue.pop() : queue.shift());
+  for (let move = next(); move; move = next()) {
     if (steps-- <= 0) {
       result.truncated = true;
       break;
     }
     session.load(move.save);
-    const before = engine ? variables() : null;
     plan = move.plan;
     met = [];
     const step = session.choose(move.choice.index);
@@ -290,23 +310,22 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     }
     const choices = open(step.choices);
     if (result.checks && step.choices.length > 0 && choices.length === 0) result.checks.lockedOut.push({ choices: path });
-    if (result.checks && before !== null) {
+    const after = session.save();
+    if (!after) continue;
+    const info = stateInfo(after.state, hidden, shape);
+    cover(info);
+    if (result.checks) {
       const failed = met.filter((c) => c.band <= 1);
       const sameChoices = choices.length === move.choices.length && choices.every((c, i) => c.text === move.choices[i].text);
-      if (failed.length > 0 && sameChoices && variables() === before) {
+      if (failed.length > 0 && sameChoices && info.vars === move.vars) {
         for (const c of failed) result.checks.noConsequence.push({ choices: path, skill: c.skill, difficulty: c.difficulty });
       }
     }
-    const next = session.save();
-    if (next) {
-      const info = stateInfo(next.state, hidden, shape);
-      cover(info);
-      // A sibling move exists to show its outcome's path, so it goes on once even into a state
-      // seen before (a retry that changes nothing); from there the usual rule holds again.
-      const fresh = unseen(info);
-      if (fresh || (move.plan.length > 0 && move.fromFresh)) {
-        for (const choice of choices) queue.push({ save: next, path, choices, choice, point: info.points[choice.index]?.path ?? "", plan: [], fromFresh: fresh });
-      }
+    // A sibling move exists to show its outcome's path, so it goes on once even into a state
+    // seen before (a retry that changes nothing); from there the usual rule holds again.
+    const fresh = unseen(info);
+    if (fresh || (move.plan.length > 0 && move.fromFresh)) {
+      for (const choice of choices) queue.push({ save: after, path, choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh: fresh });
     }
   }
   result.cappedSpots = capped.size;
@@ -340,6 +359,7 @@ function stateInfo(state: string, hidden: Set<string>, shape: StoryShape): State
   delete j.storySeed;
   const vars = j.variablesState as Record<string, unknown> | undefined;
   for (const name of hidden) delete vars?.[name];
+  const varsKey = JSON.stringify(canonical(vars ?? {}));
   const visitCounts = (j.visitCounts ?? {}) as Record<string, number>;
   const visited = Object.keys(visitCounts).map(placeName);
   const counts: Record<string, number> = {};
@@ -354,7 +374,7 @@ function stateInfo(state: string, hidden: Set<string>, shape: StoryShape): State
       for (const c of flow.currentChoices ?? []) points.push({ path: c.originalChoicePath ?? "", text: c.text ?? "" });
     }
   }
-  return { key: JSON.stringify(canonical(j)), spot: points.map((p) => p.path).join("\n"), points, visited, counts };
+  return { key: JSON.stringify(canonical(j)), spot: points.map((p) => p.path).join("\n"), points, visited, counts, vars: varsKey };
 }
 
 function canonical(v: unknown): unknown {

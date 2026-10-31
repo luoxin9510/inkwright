@@ -213,3 +213,20 @@ test("game mode: a resource outside its range is reported once each way; the eng
   expect(r.checks?.outOfRange).toEqual([{ choices: ["吓"], resource: "恐惧", value: 200, min: 0, max: 100 }]);
   expect(r.coverage.places).toEqual({ total: 1, reached: ["main"], missed: [] });
 });
+
+test("novelty: a counter past the last constant it is compared with can grow without being new", async () => {
+  const s = await story([
+    "VAR r = 0",
+    "-> loop",
+    "=== loop ===",
+    "{ r == 1: One. }",
+    "+ [again]",
+    "    ~ r += 1",
+    "    -> loop",
+    "+ [leave] -> END",
+  ].join("\n"));
+  const r = exploreStory(s, { novelty: true });
+  // r = 0, 1 (the threshold) and 2 (past it) are each new; 3 and on are not.
+  expect(r.endings.map((e) => e.choices.length)).toEqual([1, 2, 3]);
+  expect(r.truncated).toBe(false);
+});

@@ -19,7 +19,11 @@ export interface StoryShape {
   counted: Set<string>;
   /** Names called as functions (ink or EXTERNAL): their containers are code, not places the reader gets to. */
   functions: Set<string>;
+  /** The constants each variable is compared with (`hp <= 2`, `battery == 0`), sorted: where its value changes something. */
+  thresholds: Map<string, number[]>;
 }
+
+const COMPARISONS = new Set(["<", "<=", ">", ">=", "==", "!="]);
 
 /** Compiler-generated container names (choice/gather/index), not author-written. */
 export const INTERNAL = /^(\d+|[cg]-\d+)$/;
@@ -37,7 +41,12 @@ export function storyShape(json: unknown, globals: Iterable<string>): StoryShape
   const reads = new Set<string>();
   // x -> y: x is assigned into y (y = f(x)); x matters when y does.
   const feeds = new Map<string, Set<string>>();
-  const shape: StoryShape = { relevant: new Set(), places: [], choices: [], counted: new Set(), functions: new Set() };
+  const shape: StoryShape = { relevant: new Set(), places: [], choices: [], counted: new Set(), functions: new Set(), thresholds: new Map() };
+  const threshold = (name: string, value: unknown) => {
+    if (typeof value !== "number") return;
+    const list = shape.thresholds.get(name) ?? [];
+    if (!list.includes(value)) shape.thresholds.set(name, [...list, value].sort((a, b) => a - b));
+  };
   const feed = (x: string, y: string) => {
     if (!feeds.has(x)) feeds.set(x, new Set());
     feeds.get(x)?.add(y);
@@ -94,6 +103,9 @@ export function storyShape(json: unknown, globals: Iterable<string>): StoryShape
       const name = meta["VAR?"];
       if (typeof name !== "string" || !names.has(name)) continue;
       if (text > 0 || container[i + 1] === "out") continue;
+      // `x op c` and `c x op`: the constant is a threshold of x.
+      if (typeof container[i + 2] === "string" && COMPARISONS.has(container[i + 2] as string)) threshold(name, container[i + 1]);
+      if (typeof container[i + 1] === "string" && COMPARISONS.has(container[i + 1] as string)) threshold(name, container[i - 1]);
       if (frame) frame.push(name);
       else reads.add(name);
     }
