@@ -208,6 +208,17 @@ export class PlaySession {
   }
 
   /** Current variables and visit counts; empty while a halted loop left the story mid-step. */
+  /** The raw value of a global variable (number, boolean, string or InkList), or undefined. */
+  read(name: string): unknown {
+    return this.story.variablesState[name];
+  }
+
+  /** The names of the story's global variables, in declaration order. */
+  globals(): string[] {
+    const globals = (this.story.variablesState as unknown as { _globalVariables?: Map<string, unknown> })._globalVariables;
+    return globals instanceof Map ? [...globals.keys()] : [];
+  }
+
   inspect(): Inspection {
     if (this.halted) return { variables: [], visits: [], turns: 0 };
     const result = inspect(this.story);

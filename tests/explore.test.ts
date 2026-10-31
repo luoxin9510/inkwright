@@ -84,7 +84,7 @@ test("game mode walks the success and the failure of every check, marking the ou
     [["走"], "走了。"],
     [["撬 [力量✗]", "走"], "走了。"],
   ]);
-  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [], lockedOut: [] });
+  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [], lockedOut: [], outOfRange: [] });
   expect(r.truncated).toBe(false);
 });
 
@@ -149,4 +149,67 @@ test("game mode: a spot where every choice needs something not carried is report
   const r = exploreStory(await story(src), { game: CONFIG, character: "昕" });
   expect(r.endings).toEqual([]);
   expect(r.checks?.lockedOut).toEqual([{ choices: ["走"] }]);
+});
+
+test("novelty keeps the counting path the spot cap loses: a resource worn down to its threshold", async () => {
+  const s = await story([
+    "VAR n = 0",
+    "-> loop",
+    "=== loop ===",
+    "+ [wait]",
+    "    ~ n += 1",
+    "    { n >= 12: Done. -> END }",
+    "    -> loop",
+  ].join("\n"));
+  const capped = exploreStory(s);
+  expect(capped.endings).toEqual([]);
+  expect(capped.cappedSpots).toBe(1);
+  const r = exploreStory(s, { novelty: true });
+  expect(r.endings).toEqual([{ choices: Array<string>(12).fill("wait"), lastText: "Done." }]);
+  expect(r.truncated).toBe(false);
+  expect(r.cappedSpots).toBe(0);
+});
+
+test("novelty ignores what only changes the text: a loop that counts only for show ends at once", async () => {
+  const s = await story([
+    "VAR t = 0",
+    "-> loop",
+    "=== loop ===",
+    "Seen {t}.",
+    "+ [again]",
+    "    ~ t += 1",
+    "    -> loop",
+    "+ [leave] -> END",
+  ].join("\n"));
+  const r = exploreStory(s, { novelty: true });
+  expect(r.endings).toEqual([{ choices: ["leave"], lastText: "Seen 0." }]);
+  expect(r.truncated).toBe(false);
+});
+
+test("coverage lists the places and choices never got to", async () => {
+  const s = await story([
+    "-> k",
+    "=== k ===",
+    "* [a] -> END",
+    "* {false} [never] -> END",
+    "=== orphan ===",
+    "Lost. -> END",
+  ].join("\n"));
+  const r = exploreStory(s);
+  expect(r.coverage.places).toEqual({ total: 2, reached: ["k"], missed: ["orphan"] });
+  expect(r.coverage.choices).toEqual({ total: 2, offered: 1, taken: 1, missed: [{ place: "k", text: null }] });
+});
+
+test("game mode: a resource outside its range is reported once each way; the engine's functions are not places", async () => {
+  const r = exploreStory(await story([
+    "-> main",
+    generateInk(CONFIG),
+    "=== main ===",
+    "* [吓]",
+    "    ~ 恐惧 += 200",
+    "    -> main",
+    "* [走] -> END",
+  ].join("\n")), { game: CONFIG, character: "昕" });
+  expect(r.checks?.outOfRange).toEqual([{ choices: ["吓"], resource: "恐惧", value: 200, min: 0, max: 100 }]);
+  expect(r.coverage.places).toEqual({ total: 1, reached: ["main"], missed: [] });
 });
