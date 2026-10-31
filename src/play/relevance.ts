@@ -11,6 +11,8 @@ export interface StoryShape {
    * a choice condition, a function argument, a return, or into another such variable.
    */
   relevant: Set<string>;
+  /** The relevant variables some choice's condition reads: what decides which choices are offered. */
+  gates: Set<string>;
   /** Author-named containers whose visits are counted (knots, stitches, labels), as the state's visitCounts name them. */
   places: { path: string; name: string }[];
   /** Choice points, as currentChoices[].originalChoicePath names them, with the place they belong to. */
@@ -41,7 +43,7 @@ export function storyShape(json: unknown, globals: Iterable<string>): StoryShape
   const reads = new Set<string>();
   // x -> y: x is assigned into y (y = f(x)); x matters when y does.
   const feeds = new Map<string, Set<string>>();
-  const shape: StoryShape = { relevant: new Set(), places: [], choices: [], counted: new Set(), functions: new Set(), thresholds: new Map() };
+  const shape: StoryShape = { relevant: new Set(), gates: new Set(), places: [], choices: [], counted: new Set(), functions: new Set(), thresholds: new Map() };
   const threshold = (name: string, value: unknown) => {
     if (typeof value !== "number") return;
     const list = shape.thresholds.get(name) ?? [];
@@ -69,10 +71,13 @@ export function storyShape(json: unknown, globals: Iterable<string>): StoryShape
         continue;
       }
       if (op === "/ev") {
-        // The value may be taken by an assignment right after the block.
+        // The value may be taken by an assignment right after the block; a choice right after
+        // it makes the block the choice's condition (its text, in `str`, was skipped).
         const next = asMeta(container[i + 1]);
         const target = next?.["VAR="] ?? next?.["temp="];
+        const gate = next?.["*"] !== undefined;
         for (const name of frames.pop() ?? []) {
+          if (gate) shape.gates.add(name);
           if (typeof target !== "string") reads.add(name);
           else if (name === target) continue;
           else if (typeof next?.["VAR="] === "string" && names.has(target)) feed(name, target);

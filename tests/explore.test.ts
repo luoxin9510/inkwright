@@ -231,6 +231,41 @@ test("novelty: a counter past the last constant it is compared with can grow wit
   expect(r.truncated).toBe(false);
 });
 
+test("novelty 2 plays on from a pair seen piecewise: a choice needing a flag from one place and a reading from another", async () => {
+  // Depth-first, the corridor is first crossed without the flag, read and unread; then with the
+  // flag, unread. Coming back read and flagged, nothing about it is new one at a time, so the
+  // office is never entered with both and the choice needing both is never offered.
+  const s = await story([
+    "VAR erased = false",
+    "VAR seen = false",
+    "VAR written = false",
+    "-> start",
+    "=== start ===",
+    "+ [erase]",
+    "    ~ erased = true",
+    "    -> corridor",
+    "+ [keep] -> corridor",
+    "=== corridor ===",
+    "+ [library] -> library",
+    "+ [office] -> office",
+    "=== library ===",
+    "+ [read]",
+    "    ~ seen = true",
+    "    -> corridor",
+    "=== office ===",
+    "+ {seen and erased and not written} [write]",
+    "    ~ written = true",
+    "    -> office",
+    "+ [leave] -> END",
+  ].join("\n"));
+  const one = exploreStory(s, { novelty: true });
+  expect(one.coverage.choices.missed).toEqual([{ place: "office", text: null }]);
+  const two = exploreStory(s, { novelty: 2 });
+  expect(two.coverage.choices.missed).toEqual([]);
+  expect(two.endings.some((e) => e.choices.includes("write"))).toBe(true);
+  expect(two.truncated).toBe(false);
+});
+
 test("game mode: a failed check that pushes a resource already at its limit still counts as a consequence", async () => {
   const r = exploreStory(await story([
     "-> start",

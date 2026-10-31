@@ -20,9 +20,12 @@ export interface ExploreOptions {
    * variable that can change what happens next, or the visit count of a sequence. States that
    * differ only in what is printed, or only in a combination seen piecewise, are not played on.
    * Keeps a long game finite without cutting off the counting paths (a resource worn down to
-   * its threshold) that the spot cap loses.
+   * its threshold) that the spot cap loses. `2` makes the same judgement again among the states that
+   * share each gate's value (a variable some choice condition reads): a reading, a flag or a
+   * resource that is nothing new at the spot may be new among the states where that door is
+   * already open, which reaches a branch two things must agree on. Costs a few times more steps.
    */
-  novelty?: boolean;
+  novelty?: boolean | number;
   /** Language for a bilingual story. */
   language?: string;
   /** Per-step loop guard, as in PlaySession (default 1000 ms). */
@@ -55,6 +58,8 @@ export interface ExploreResult {
   errors: { choices: string[]; message: string }[];
   /** True when maxSteps ran out before every branch was played. */
   truncated: boolean;
+  /** Choices made in all: how much of maxSteps the walk took. */
+  steps: number;
   /** Spots reached in more states than statesPerSpot; the extra states were not played on. */
   cappedSpots: number;
   /** What the exploration got to. */
@@ -153,7 +158,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const engineCode = new Set(engine ? [inkNames(engine.config).select, inkNames(engine.config).check] : []);
   shape.places = shape.places.filter((p) => !engineCode.has(p.path.split(".")[0]));
   const result: ExploreResult = {
-    endings: [], errors: [], truncated: false, cappedSpots: 0,
+    endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0,
     coverage: { places: { total: shape.places.length, reached: [], missed: [] }, choices: { total: shape.choices.length, offered: 0, taken: 0, missed: [] } },
   };
   if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], lockedOut: [], outOfRange: [] };
@@ -184,7 +189,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     }
     return overflows.length > 0;
   };
-  let steps = options.maxSteps ?? 5000;
+  const maxSteps = options.maxSteps ?? 5000;
+  let steps = maxSteps;
   const perSpot = options.statesPerSpot ?? 10;
 
   // Coverage: every state produced counts, played on or not.
@@ -208,17 +214,24 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   // threshold crossed), or when it is beyond the lowest/highest seen there with a threshold still
   // ahead in that direction (a resource being worn down towards one); a counter past its last
   // threshold can grow without being new. A number compared with no constant is new at every
-  // new extreme. Anything else is new when unseen.
+  // new extreme. Anything else is new when unseen. At order 2 the same judgement is made again
+  // among the states that share each gate's value (a flag, a string or a number a choice
+  // condition reads, the number as it stands to its constants; lists would make a context per
+  // combination of items): a flag, a reading or a resource that is nothing new at the spot may
+  // be new among the states where the door is already open.
+  const order = typeof options.novelty === "number" ? options.novelty : options.novelty ? 1 : 0;
   const atoms = new Set<string>();
   const envelopes = new Map<string, { min: number; max: number }>();
   const novel = (info: StateInfo): boolean => {
     let fresh = false;
-    const fact = (name: string, value: unknown) => {
+    const gates: string[] = [];
+    const fact = (ctx: string, name: string, value: unknown) => {
       if (typeof value === "number") {
-        const key = `${info.spot}\n${name}`;
+        const key = `${ctx}\n${name}`;
         const thresholds = shape.thresholds.get(name);
         if (thresholds) {
           const side = thresholds.map((t) => (value < t ? "<" : value > t ? ">" : "=")).join("");
+          if (ctx === info.spot && shape.gates.has(name)) gates.push(`${name}${side}`);
           const atom = `${key}${side}`;
           if (!atoms.has(atom)) {
             atoms.add(atom);
@@ -238,14 +251,22 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
         }
         return;
       }
-      const atom = `${info.spot}\n${name}=${formatValue(value)}`;
+      const sig = `${name}=${formatValue(value)}`;
+      // A list (an inventory) takes a new value with every item picked up: too many contexts.
+      if (ctx === info.spot && shape.gates.has(name) && typeof value !== "object") gates.push(sig);
+      const atom = `${ctx}\n${sig}`;
       if (atoms.has(atom)) return;
       atoms.add(atom);
       fresh = true;
     };
-    fact("", "");
-    for (const name of shape.relevant) fact(name, session.read(name));
-    for (const [path, n] of Object.entries(info.counts)) fact(`#${path}`, n);
+    const values = [...shape.relevant].map((name) => [name, session.read(name)] as const);
+    const judge = (ctx: string) => {
+      fact(ctx, "", "");
+      for (const [name, value] of values) fact(ctx, name, value);
+      for (const [path, n] of Object.entries(info.counts)) fact(ctx, `#${path}`, n);
+    };
+    judge(info.spot);
+    if (order >= 2) for (const gate of gates) judge(`${info.spot}\n${gate}`);
     return fresh;
   };
   const unseen = (info: StateInfo): boolean => {
@@ -330,6 +351,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     }
   }
   result.cappedSpots = capped.size;
+  result.steps = Math.min(maxSteps, maxSteps - steps);
   const places = shape.places.map((p) => p.name);
   result.coverage.places.reached = places.filter((p) => reached.has(p));
   result.coverage.places.missed = places.filter((p) => !reached.has(p));
