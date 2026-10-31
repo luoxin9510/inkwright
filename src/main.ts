@@ -31,6 +31,8 @@ interface Settings {
   saves: Record<string, SaveSlot[]>;
   /** Language bilingual stories are played in; null: each story's own default. */
   storyLanguage: string | null;
+  /** Keep the play panel's top bar in view while the text scrolls. */
+  pinBar?: boolean;
 }
 
 /** What readGameNote found: the note, its config (null when unusable) and the warnings to show. */
@@ -198,6 +200,20 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   toggleLock(): void {
     if (this.config.locked !== null) void this.setLocked(null);
     else void this.lockCurrent();
+  }
+
+  togglePin(): void {
+    void this.setPinBar(!(this.config.pinBar ?? false));
+  }
+
+  getPinBar(): boolean {
+    return this.config.pinBar ?? false;
+  }
+
+  async setPinBar(value: boolean): Promise<void> {
+    this.config.pinBar = value;
+    await this.saveData(this.config);
+    this.pushState();
   }
 
   async openDiagnostic(d: Diagnostic): Promise<void> {
@@ -483,6 +499,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       flows: this.flows,
       startPoint: this.startPoint,
       canGoBack: this.session?.canGoBack ?? false,
+      chosen: this.session?.lastChoice ?? null,
+      pinned: this.config.pinBar ?? false,
       storyLanguage: this.session?.language ?? null,
       game: this.gameView(),
       saves: this.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt })),

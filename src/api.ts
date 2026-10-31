@@ -113,7 +113,8 @@ Headless (does not touch the visible panel):
 
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel
-  panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, language, game, variables, visits, turns }
+  panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, language, game, variables, visits, turns,
+                         chosen (the latest choice: { text, at = index of the first paragraph it produced } or null), pinned }
                        game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance],
                          needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice], hud (resources, companions, items carried), rolls }
   choose(indexOrText)  make a choice in the panel

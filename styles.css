@@ -75,6 +75,13 @@
 .inkwright-save-info { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .inkwright-save-time { font-size: var(--font-smaller); color: var(--text-faint); }
 .inkwright-bar button:disabled { opacity: 0.4; }
+.inkwright-bar-pinned { position: sticky; top: 0; z-index: 2; margin: -12px 0 12px; padding: 12px 0 8px; background: var(--background-primary); box-shadow: 0 6px 6px -6px var(--background-modifier-box-shadow); }
+.inkwright-pin { margin-left: auto; }
+.inkwright-pin-on { color: var(--text-accent); }
+.inkwright-turn { display: flex; align-items: center; gap: 0.6em; margin: 1.2em 0 0.8em; color: var(--text-accent); font-size: var(--font-smaller); }
+.inkwright-turn::before, .inkwright-turn::after { content: ""; flex: 1; border-top: 1px solid var(--text-accent); opacity: 0.6; }
+.inkwright-turn-text { font-style: italic; white-space: pre-wrap; }
+.inkwright-turn-text::before { content: "› "; }
 
 /* inkwright: game mode */
 .inkwright-hud { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: var(--font-smaller); }
