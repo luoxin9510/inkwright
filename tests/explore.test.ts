@@ -84,7 +84,7 @@ test("game mode walks the success and the failure of every check, marking the ou
     [["走"], "走了。"],
     [["撬 [力量✗]", "走"], "走了。"],
   ]);
-  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [] });
+  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [], lockedOut: [] });
   expect(r.truncated).toBe(false);
 });
 
@@ -141,4 +141,12 @@ test("game mode: a choice whose #needs: item is not carried is not played; an un
   expect(paths).not.toContain("捅");
   expect(paths.some((p) => p.includes("开枪"))).toBe(false);
   expect(r.checks?.unknownNeeds).toEqual([{ choice: "开枪", item: "枪" }]);
+  expect(r.checks?.lockedOut).toEqual([]);
+});
+
+test("game mode: a spot where every choice needs something not carried is reported as stuck", async () => {
+  const src = ["-> main", generateInk(CONFIG), "=== main ===", "口袋。", "* [走]", "    门。", "    * * [捅 #needs:刀]", "        -> END"].join("\n");
+  const r = exploreStory(await story(src), { game: CONFIG, character: "昕" });
+  expect(r.endings).toEqual([]);
+  expect(r.checks?.lockedOut).toEqual([{ choices: ["走"] }]);
 });

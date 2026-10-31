@@ -42,6 +42,8 @@ export interface ExploreResult {
     noConsequence: { choices: string[]; skill: string; difficulty: number }[];
     /** Choices whose `#needs:` names an item the config does not have (each once). */
     unknownNeeds: { choice: string; item: string }[];
+    /** Spots where every choice needs something not carried: the player is stuck there. */
+    lockedOut: { choices: string[] }[];
   };
 }
 
@@ -96,7 +98,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const hidden = new Set(engine ? [inkNames(engine.config).seed, inkNames(engine.config).rolls] : []);
   const variables = () => JSON.stringify(session.inspect().variables.filter((v) => !hidden.has(v.name)));
   const result: ExploreResult = { endings: [], errors: [], truncated: false, cappedSpots: 0 };
-  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [] };
+  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], lockedOut: [] };
   // Game mode: a choice that needs an item not carried cannot be taken, so it is not played.
   const seenUnknown = new Set<string>();
   const open = <C extends { text: string; tags: string[] }>(choices: C[]): C[] => {
@@ -170,6 +172,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       continue;
     }
     const choices = open(step.choices);
+    if (result.checks && step.choices.length > 0 && choices.length === 0) result.checks.lockedOut.push({ choices: path });
     if (result.checks && before !== null) {
       const failed = met.filter((c) => c.band <= 1);
       const sameChoices = choices.length === move.choices.length && choices.every((c, i) => c.text === move.choices[i].text);
