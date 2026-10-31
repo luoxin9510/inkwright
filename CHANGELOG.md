@@ -2,6 +2,11 @@
 
 Release notes for each version; the GitHub release carries the same text and the built plugin.
 
+## Unreleased
+
+- `check-ink --novelty 2` (and `api.explore(path, { novelty: 2 })`): the explorer judges novelty again within each value of a gate (a variable some choice condition reads), so a branch that needs two things to agree (a door opened in one place, hours or a reading kept from another) is reached where the one-at-a-time rule had already seen each piecewise. Slower; `--novelty` alone is unchanged. `api.explore` also returns `steps`, the choices made, and `check-ink` prints it.
+- Tutorial (ink-games vault): chapter 7, game mode, in five lessons with example games (configuration and engine, checks and voices, resources and companions, items and effects, checking and export); lesson 6.1 notes the tags game mode reads.
+
 ## 0.4.0 — 2026-10-31
 
 Game mode, from the first rules to a playable night. Requires Obsidian 1.13.0 or later.

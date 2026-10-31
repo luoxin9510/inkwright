@@ -5,8 +5,10 @@
 // bilingual story. A story with a game note (game.md) next to it is explored in game mode, once per
 // character, walking the success and the failure of every check. --novelty plays on from a state only
 // when something about it is new at its spot (long games stay finite without losing the counting paths);
-// --random N also plays N runs at random with real dice and reports the odds of each ending.
-// Usage: npm run check-ink -- <folder> [--quiet] [--all] [--novelty] [--random N] [--seed S] [--lang zh|en] [--max-steps N] [--states-per-spot N]
+// --novelty 2 also plays on from a pair of values first seen together there (slower, finds branches
+// that need two things to agree); --random N also plays N runs at random with real dice and reports
+// the odds of each ending.
+// Usage: npm run check-ink -- <folder> [--quiet] [--all] [--novelty [N]] [--random N] [--seed S] [--lang zh|en] [--max-steps N] [--states-per-spot N]
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
@@ -32,7 +34,10 @@ async function inkFiles(dir: string): Promise<string[]> {
 const root = process.argv[2];
 const quiet = process.argv.includes("--quiet");
 const all = process.argv.includes("--all");
-const novelty = process.argv.includes("--novelty");
+// --novelty [N]: N = 2 also plays on from a pair of values first seen together at a spot.
+const noveltyAt = process.argv.indexOf("--novelty");
+const noveltyOrder = noveltyAt >= 0 ? Number(process.argv[noveltyAt + 1]) : NaN;
+const novelty: boolean | number = noveltyAt < 0 ? false : Number.isInteger(noveltyOrder) && noveltyOrder > 0 ? noveltyOrder : true;
 const langAt = process.argv.indexOf("--lang");
 const language = langAt >= 0 ? process.argv[langAt + 1] : undefined;
 /** The number after a flag, or the default when the flag is missing or its value is not a number. */
@@ -105,7 +110,7 @@ for (const file of files) {
       endings.push(...x.endings.map((e) => `${tag}${e.lastText}  <- ${e.choices.join(" > ")}`));
       if (x.cappedSpots > 0) notes.push(`${tag}${x.cappedSpots} spot(s) reached in more states than played on (${statesPerSpot} each; raise --states-per-spot, or use --novelty)`);
       const cov = x.coverage;
-      notes.push(`${tag}coverage: ${cov.places.reached.length}/${cov.places.total} places reached, ${cov.choices.taken}/${cov.choices.total} choices taken (${cov.choices.offered} offered)`);
+      notes.push(`${tag}coverage: ${cov.places.reached.length}/${cov.places.total} places reached, ${cov.choices.taken}/${cov.choices.total} choices taken (${cov.choices.offered} offered); ${x.steps} choices played`);
       if (cov.places.missed.length > 0) warnings.push(`${tag}never reached: ${list(cov.places.missed)}`);
       const missed = cov.choices.missed.map((m) => (m.text !== null ? `"${m.text}" in ${m.place || "the start"}` : `an unoffered choice in ${m.place || "the start"}`));
       if (missed.length > 0) warnings.push(`${tag}never taken: ${list(missed)}`);

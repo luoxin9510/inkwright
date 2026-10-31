@@ -31,6 +31,7 @@ test("a variable matters when it is read for control, not when it is only printe
   ].join("\n"));
   // source feeds derived, which is compared; counter only updates itself; printed is only shown.
   expect([...s.relevant].sort()).toEqual(["derived", "flag", "gate", "source"]);
+  expect([...s.gates]).toEqual(["flag"]);
   expect([...s.thresholds]).toEqual([["gate", [0]], ["derived", [3]]]);
 });
 
@@ -54,6 +55,7 @@ test("a condition inside text only picks words; a choice condition counts even w
     "+ [stay] -> END",
   ].join("\n"));
   expect([...s.relevant]).toEqual(["b"]);
+  expect([...s.gates]).toEqual(["b"]);
   expect([...s.functions].sort()).toEqual(["clamp", "t"]);
 });
 

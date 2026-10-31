@@ -103,7 +103,8 @@ Headless (does not touch the visible panel):
      at most statesPerSpot states (default 10; cappedSpots counts the spots where that cut branches off).
      novelty:true instead plays on from a state only when something about it is new at its spot (a value of a
      variable that can change what happens next, a sequence's count): a long game stays finite and the
-     counting paths (a resource worn down to a threshold) are kept. coverage = { places{total,reached[],missed[]},
+     counting paths (a resource worn down to a threshold) are kept. novelty:2 judges again within each value of a
+     gate (a variable a choice condition reads), so a branch two things must agree on is reached (slower). coverage = { places{total,reached[],missed[]},
      choices{total,offered,taken,missed[{place,text}]} } says which knots/stitches/labels and choices were never got to.
      Game mode (game.md next to the story): every check is walked as success and failure (bands [3,1] by
      default; pass bands:[4,3,2,1,0] for all), paths show the outcome ("撬开门 [strength✗]"), and
@@ -167,7 +168,7 @@ export class InkwrightApi {
     const diagnostics = plainDiagnostics(r.diagnostics);
     if (!r.story) {
       return {
-        ok: false, diagnostics, endings: [], errors: [], truncated: false, cappedSpots: 0,
+        ok: false, diagnostics, endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0,
         coverage: { places: { total: 0, reached: [], missed: [] }, choices: { total: 0, offered: 0, taken: 0, missed: [] } },
       };
     }
