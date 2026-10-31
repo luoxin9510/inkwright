@@ -1,7 +1,7 @@
 {
   "id": "inkwright",
   "name": "Inkwright",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minAppVersion": "1.13.0",
   "description": "Write, playtest and debug ink interactive fiction: live play panel, saves, knot graph, web export and bilingual stories. English and Chinese interface.",
   "author": "luoxin9510",
