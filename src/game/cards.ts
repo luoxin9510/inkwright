@@ -62,7 +62,8 @@ export async function resolveDecks(
       continue;
     }
     const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name, "zh"));
-    files.push(...sorted.map((n) => n.path));
+    // The folder counts as read too: a note added to or taken out of it changes the deck.
+    files.push(folder, ...sorted.map((n) => n.path));
     resolved.push({ ...d, from: undefined, cards: [...d.cards, ...sorted.map(cardFromNote)] });
   }
   const next = { ...config, decks: resolved };

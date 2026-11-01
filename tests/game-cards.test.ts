@@ -53,7 +53,7 @@ describe("decks from a folder of notes", () => {
     const folders: Record<string, CardNote[]> = { "games/x/牌/手段": [note("口哨", { cost: 2 }), note("手电", { cost: 1 }, "照过去。")] };
     const r = await resolveDecks(config, async (f) => folders[f] ?? null, "games/x/");
     expect(r.problems).toEqual([]);
-    expect(r.files).toEqual(["牌/手段/口哨.md", "牌/手段/手电.md"]);
+    expect(r.files).toEqual(["games/x/牌/手段", "牌/手段/口哨.md", "牌/手段/手电.md"]);
     expect(r.config.decks?.[0]).toEqual({ id: "tricks", from: undefined, cards: [{ id: "口哨", name: "口哨", attrs: { cost: 2 } }, { id: "手电", name: "手电", desc: "照过去。", attrs: { cost: 1 } }] });
     expect(r.config.decks?.[1]).toEqual({ id: "fixed", cards: [{ id: "k" }] });
     expect(generateInk(r.config)).toContain("LIST tricks = 口哨, 手电");

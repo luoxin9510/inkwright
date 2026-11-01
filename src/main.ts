@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, type WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -94,7 +94,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (this.targetRoot() !== this.root) this.schedule();
     }));
     const touch = (path: string) => {
-      if (isDependency(path, this.files)) this.schedule();
+      // A note added to or removed from a deck's folder changes the deck: the folder itself is a dependency.
+      if (isDependency(path, this.files) || this.files.includes(path.slice(0, path.lastIndexOf("/")))) this.schedule();
     };
     this.registerEvent(this.app.vault.on("modify", (f) => touch(f.path)));
     // The game note is read from the metadata cache, which updates after `modify`: compile again then.
@@ -317,7 +318,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return resolveConfig(config, this.configSource, root.slice(0, root.lastIndexOf("/") + 1));
   }
 
-  /** What a game note may point at: notes by path, and folders of card notes (frontmatter from the metadata cache, body from the file). */
+  /**
+   * What a game note may point at: notes by path, and folders of card notes. A card note is read
+   * from the file, frontmatter included (the metadata cache can lag behind a modify event).
+   */
   private readonly configSource: ConfigSource = {
     read: (p) => this.readFile(p).catch(() => null),
     notes: async (folder) => {
@@ -326,10 +330,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       const out: CardNote[] = [];
       for (const child of f.children) {
         if (!(child instanceof TFile) || child.extension !== "md") continue;
-        const cache = this.app.metadataCache.getFileCache(child);
-        const text = await this.app.vault.cachedRead(child);
-        const end = cache?.frontmatterPosition?.end.offset;
-        out.push({ path: child.path, name: child.basename, frontmatter: cache?.frontmatter, body: end === undefined ? text : text.slice(end) });
+        const text = await this.app.vault.read(child);
+        const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+        let frontmatter: Record<string, unknown> | undefined;
+        try {
+          const parsed: unknown = m ? parseYaml(m[1]) : undefined;
+          frontmatter = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+        } catch {
+          frontmatter = undefined;
+        }
+        out.push({ path: child.path, name: child.basename, frontmatter, body: m ? text.slice(m[0].length) : text });
       }
       return out;
     },
@@ -589,7 +599,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (!included.includes(enginePath)) warnings.push(T().engineNotIncluded(file));
       else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) warnings.push(T().engineStale(file));
     }
-    return { note, config, warnings, files: resolved?.files ?? [] };
+    // Images drawn by the panel are dependencies too, so a replaced or renamed picture shows up.
+    const images = config ? [config.map?.image, ...(config.decks ?? []).flatMap((d) => d.cards.map((c) => c.image))].map((p) => this.vaultFile(p, root)?.path).filter((p): p is string => p !== undefined) : [];
+    return { note, config, warnings, files: [...(resolved?.files ?? []), ...images] };
   }
 
   private applyGameNote(read: GameNoteRead | null): void {

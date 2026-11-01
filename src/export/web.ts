@@ -162,7 +162,7 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #hands .hand { margin-bottom: 0.5em; }
 #hands .name { font-size: 0.8em; color: var(--muted); }
 #hands .cards { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
-#hands .card { flex: 0 0 auto; width: 92px; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+#hands .card { flex: 0 0 auto; width: 92px; height: auto; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
   text-align: left; font: inherit; font-size: 0.85em; line-height: 1.3; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
   scroll-snap-align: start; transition: transform 120ms ease, border-color 120ms ease; }
 #hands .card.illustrated { width: 108px; padding: 0 0 8px; overflow: hidden; }
