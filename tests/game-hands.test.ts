@@ -60,6 +60,8 @@ describe("hands", () => {
     expect(readConfig({ rules: { kind: "sum", dice: [6] }, skills: [{ id: "wits" }], characters: [{ id: "you" }], hands: [{ name: "x" }] }).problems).toEqual([{ code: "shape", args: ["hands[0]"] }]);
     expect(validateConfig({ ...HANDS, hands: [{ id: "线索" }] })).toContainEqual({ code: "duplicate", args: ["线索"] });
     expect(validateConfig({ ...HANDS, hands: [{ id: "my hand" }] })).toContainEqual({ code: "ident", args: ["my hand"] });
+    // The generated names are in the same namespace: a hand called like the played VAR is a duplicate, not a compile error later.
+    expect(validateConfig({ ...HANDS, hands: [{ id: "出牌" }] })).toContainEqual({ code: "duplicate", args: ["出牌"] });
   });
 
   test("the generated ink declares each hand and the played VAR", () => {
