@@ -316,3 +316,45 @@ test("a game page shows each hand as cards; a #play choice waits for a tapped ca
   expect(cards().map((c) => c.textContent)).toEqual(["CluesBloody handprint"]);
   expect(document.querySelector("#hands .hand .name")?.textContent).toBe("Hand");
 });
+
+test("a game page draws the map: places, a question mark until revealed, counters, tokens, and a place that a choice goes to is a button", () => {
+  setLanguage("zh");
+  const config = {
+    ...CONFIG,
+    map: {
+      width: 400, height: 300,
+      places: [
+        { id: "门厅", name: { zh: "门厅", en: "Hall" }, x: 100, y: 150, links: ["书房", "地窖"] },
+        { id: "书房", name: { zh: "书房", en: "Study" }, x: 300, y: 80, links: ["门厅"], counter: "线索_书房", counterName: { zh: "线索", en: "Clues" } },
+        { id: "地窖", name: { zh: "地窖", en: "Cellar" }, x: 300, y: 250, hidden: true, links: ["门厅"] },
+      ],
+      tokens: [{ id: "食尸鬼", name: { zh: "食尸鬼", en: "Ghoul" }, color: "#c33", at: "地窖" }],
+    },
+  };
+  const src = `-> main\n${generateInk(config)}\nVAR 线索_书房 = 2\n=== main ===\n在 {所在}。\n+ [去书房 #go:书房]\n    ~ 所在 = 书房\n    ~ 线索_书房 -= 1\n    -> main\n+ [下地窖 #go:地窖]\n    ~ 已揭示 += 地窖\n    ~ 所在 = 地窖\n    ~ 食尸鬼_在 = ()\n    -> main\n+ [走]\n    -> END\n`;
+  const html = buildWebPage({ title: "M", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "m", languageVar: "语言", game: config, engine: GAME_ENGINE, mapImage: "data:image/svg+xml;base64,PHN2Zy8+" });
+  mount(html);
+  const places = () => Array.from(document.querySelectorAll<HTMLElement>("#map .place"));
+  expect(document.querySelector<HTMLElement>("#map")?.hidden).toBe(false);
+  expect(document.querySelector("#map img")?.getAttribute("src")).toBe("data:image/svg+xml;base64,PHN2Zy8+");
+  expect(document.querySelectorAll("#map line")).toHaveLength(2);
+  expect(places().map((p) => [p.tagName, p.className, p.textContent])).toEqual([
+    ["DIV", "place here", "门厅"],
+    ["BUTTON", "place go", "书房2"],
+    ["BUTTON", "place unknown go", "?"],
+  ]);
+  expect(places()[0].style.left).toBe("25%");
+  expect(document.querySelector<HTMLElement>("#map .token")?.title).toBe("食尸鬼");
+  // Tapping the study takes the choice that goes there.
+  places()[1].click();
+  expect(texts("#story p").slice(-2)).toEqual(["去书房", "在 书房。"]);
+  expect(places().map((p) => p.className)).toEqual(["place", "place here go", "place unknown go"]);
+  expect(places()[1].querySelector(".counter")?.textContent).toBe("1");
+  places()[2].click();
+  expect(places()[2].className).toBe("place here go");
+  expect(places()[2].textContent).toBe("地窖");
+  expect(document.querySelector("#map .token")).toBeNull();
+  (document.querySelector("#back") as HTMLElement).click();
+  expect(places()[2].textContent).toBe("?");
+  expect(document.querySelector("#map .token")).not.toBeNull();
+});
