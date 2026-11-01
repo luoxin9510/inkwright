@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Compiler } from "inkjs/full";
-import { GameEngine } from "../src/game/engine";
+import { GameEngine, type CheckRecord } from "../src/game/engine";
 import { generateInk } from "../src/game/inkgen";
 import { PlaySession } from "../src/play/session";
 import { CONFIG } from "./fixtures/gameConfig";
@@ -73,7 +73,7 @@ describe("GameEngine with a PlaySession", () => {
     expect(after.paragraphs[0].text).toBe("锁开了。"); // 3 + 4 + 5 = 12 >= 10
     expect(engine.rolls).toHaveLength(1);
     expect(engine.rolls[0]).toMatchObject({ skill: "力量", difficulty: 10, rolls: [3, 4], total: 12, band: 3, turn: 0 });
-    expect(engine.rolls[0].chance.success).toBeCloseTo(30 / 36, 6);
+    expect((engine.rolls[0] as CheckRecord).chance.success).toBeCloseTo(30 / 36, 6);
   });
 
   test("modifiers from the story state change the odds and the roll", () => {
@@ -126,7 +126,7 @@ describe("GameEngine with a PlaySession", () => {
     expect(engine.character()).toBe("阿波");
     expect(step.choices.length).toBe(3);
     session.choose(0);
-    expect(engine.rolls.at(-1)?.band).toBe(4);
+    expect((engine.rolls.at(-1) as CheckRecord).band).toBe(4);
   });
 
   test("replaying the run in another language rolls the same dice and keeps one record per check", () => {

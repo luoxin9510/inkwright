@@ -1,5 +1,6 @@
-import { inkNames, playableCharacters, type GameConfig } from "./config";
-import { averageRoll } from "./dice";
+import { inkNames, localize, playableCharacters, type GameConfig, type LocalizedText, type TableRow } from "./config";
+import { averageFormula, averageRoll, formatFormula } from "./dice";
+import { parseRange, tableFormula } from "./tables";
 
 /**
  * The ink a game needs so its stories can run anywhere: skill and resource
@@ -83,5 +84,53 @@ export function generateInk(config: GameConfig): string {
   const level = `${n.skillValue}(${n.skillParam})`;
   const wins = config.rules.kind === "sum" ? `${level} + ${avg} >= ${n.difficultyParam}` : `${avg} <= ${level}`;
   lines.push(`{ ${wins}:`, "    ~ return 3", "}", "~ return 1");
+
+  // Free dice and tables: the engine rolls through one EXTERNAL (and shows the faces); the table
+  // lookups are plain ink, so the story reads the same row with or without the engine.
+  lines.push(
+    "",
+    `// Dice outside a check: {${n.roll}("2d6+3")} → the total.`,
+    `EXTERNAL ${n.dice}(${n.formulaParam}, ${n.labelParam})`,
+    "",
+    `=== function ${n.roll}(${n.formulaParam}) ===`,
+    `~ return ${n.dice}(${n.formulaParam}, "")`,
+  );
+  const tables = (config.tables ?? []).map((t) => ({ ...t, rows: t.rows ?? [], formula: tableFormula(t) }));
+  const averages = new Map<string, number>();
+  for (const t of tables) if (t.formula) averages.set(formatFormula(t.formula), averageFormula(t.formula));
+  lines.push("", "// Without the engine the dice are flat: each table's average, 1 for anything else.", `=== function ${n.dice}(${n.formulaParam}, ${n.labelParam}) ===`);
+  for (const [text, avg] of averages) lines.push(`{ ${n.formulaParam} == "${text}":`, `    ~ return ${avg}`, "}");
+  lines.push("~ return 1");
+  if (tables.length > 0) {
+    const text = (t: LocalizedText) => {
+      const esc = (x: string) => x.replace(/["{}]/g, (c) => (c === '"' ? "'" : c === "{" ? "(" : ")")).replace(/\s+/g, " ");
+      return first !== undefined && second !== undefined
+        ? `${n.textFn}("${esc(localize(t, first, ""))}", "${esc(localize(t, second, ""))}")`
+        : `"${esc(localize(t, "", ""))}"`;
+    };
+    lines.push(
+      "",
+      `// Tables: {${n.table}("${tables[0].id}")} rolls and reads a row; ${n.tableRoll}(${n.tableParam}) is the total alone, ${n.tableText}/${n.tableId}(${n.tableParam}, ${n.totalParam}) look a total up.`,
+      `=== function ${n.tableRoll}(${n.tableParam}) ===`,
+    );
+    for (const t of tables) lines.push(`{ ${n.tableParam} == "${t.id}":`, `    ~ return ${n.dice}("${t.formula ? formatFormula(t.formula) : "1d1"}", "${t.id}")`, "}");
+    lines.push("~ return 0");
+    const lookups: [string, (r: TableRow) => string][] = [[n.tableText, (r) => text(r.text)], [n.tableId, (r) => `"${(r.id ?? "").replace(/["{}]/g, "")}"`]];
+    for (const [fn, value] of lookups) {
+      lines.push("", `=== function ${fn}(${n.tableParam}, ${n.totalParam}) ===`);
+      for (const t of tables) {
+        // Rows with ranges are read in ascending order (`total <= hi`); without, the total is the row number. The last row catches the rest.
+        const ranged = t.rows.some((r) => parseRange(r.range) !== null);
+        const rows = ranged ? [...t.rows].sort((a, b) => (parseRange(a.range)?.lo ?? 0) - (parseRange(b.range)?.lo ?? 0)) : t.rows;
+        rows.forEach((r, i) => {
+          const last = i === rows.length - 1;
+          const cond = last ? "" : ranged ? ` and ${n.totalParam} <= ${parseRange(r.range)?.hi ?? 0}` : ` and ${n.totalParam} == ${i + 1}`;
+          lines.push(`{ ${n.tableParam} == "${t.id}"${cond}:`, `    ~ return ${value(r)}`, "}");
+        });
+      }
+      lines.push(`~ return ""`);
+    }
+    lines.push("", `=== function ${n.table}(${n.tableParam}) ===`, `~ return ${n.tableText}(${n.tableParam}, ${n.tableRoll}(${n.tableParam}))`);
+  }
   return lines.join("\n") + "\n";
 }

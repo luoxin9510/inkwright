@@ -158,6 +158,11 @@ export class PlaySession {
     return this.chosen.at(-1) ?? null;
   }
 
+  /** Every choice made in this run, oldest first; empty after a load (a save keeps the text, not the choices). */
+  get choicesMade(): readonly { text: string; at: number }[] {
+    return this.chosen;
+  }
+
   get canGoBack(): boolean {
     return this.history.length > 0;
   }

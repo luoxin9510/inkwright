@@ -10,10 +10,11 @@
 // the odds of each ending.
 // Usage: npm run check-ink -- <folder> [--quiet] [--all] [--novelty [N]] [--random N] [--seed S] [--lang zh|en] [--max-steps N] [--states-per-spot N]
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
 import { resolveInclude, scanIncludes } from "../src/compile/paths";
 import { playableCharacters, readConfig, type GameConfig } from "../src/game/config";
+import { resolveTables } from "../src/game/tables";
 import { gameNote } from "./game-note";
 import { T } from "../src/i18n";
 import { exploreStory, type ExploreResult } from "../src/play/explore";
@@ -96,6 +97,13 @@ for (const file of files) {
       const read = readConfig(note.frontmatter);
       for (const p of read.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
       game = read.config;
+      if (game) {
+        // Tables kept in other notes: paths relative to the game's folder.
+        const dir = dirname(file);
+        const r = await resolveTables(game, (p) => readFile(join(dir, p), "utf8").catch(() => null), "");
+        for (const p of r.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
+        game = r.config;
+      }
     }
   }
   const characters = game ? playableCharacters(game).map((c) => ({ tag: `[${c.id}] `, character: c.id })) : [{ tag: "", character: undefined }];

@@ -1,4 +1,5 @@
 import type { Modifier, RulesConfig } from "./dice";
+import { tableProblems } from "./tables";
 
 /**
  * A game's rules as data. Nothing here names a particular game: skills,
@@ -60,6 +61,34 @@ export interface ItemDef {
   modifiers?: Record<string, number>;
 }
 
+/** One row of a random table: the dice range it covers (`1-3`, `4`, `66`; none = one face per row) and its text. */
+export interface TableRow {
+  range?: string;
+  text: LocalizedText;
+  /** For stories that branch on the row: `table_id("encounter", total)`. */
+  id?: string;
+}
+
+/**
+ * A random table the story rolls on with `{table("encounter")}`: rows written here, or read from
+ * the first markdown table of another note (`from`, a path relative to the game's folder). The
+ * dice are given (`dice: 2d6`) or inferred from the ranges (d66 when they read like it, else one
+ * die as big as the top bound; one face per row when there are no ranges).
+ */
+export interface TableDef {
+  /** Also the name the story passes: `table("encounter")`; a valid ink identifier. */
+  id: string;
+  name?: LocalizedText;
+  dice?: string;
+  rows?: TableRow[];
+  from?: string;
+}
+
+/** Where "write this session to a note" puts its note: a path with `{dir}`, `{story}`, `{date}`, `{time}`, `{character}`. */
+export interface JournalConfig {
+  path?: string;
+}
+
 /** The characters the player can pick. */
 export function playableCharacters(config: GameConfig): CharacterDef[] {
   return config.characters.filter((c) => c.playable !== false);
@@ -99,7 +128,11 @@ export interface GameConfig {
   characters: CharacterDef[];
   /** Things the character can carry; the generated ink declares them as a LIST and an inventory VAR. */
   items?: ItemDef[];
+  /** Random tables the story rolls on (`{table("id")}`). */
+  tables?: TableDef[];
   modifiers?: ModifierRule[];
+  /** Where the play log is written as a note. */
+  journal?: JournalConfig;
   /**
    * Languages the story is written in, e.g. ["zh", "en"] (the first is the default). The
    * generated ink then declares the language variable and the text function (`{t("中文", "English")}`).
@@ -136,22 +169,36 @@ export interface InkNames {
   /** VAR holding the story's language and the function picking text by it (bilingual stories). */
   langVar: string;
   textFn: string;
+  /** EXTERNAL the engine rolls free dice through (`roll_dice(formula, label)`), and the story-facing `roll(formula)`. */
+  dice: string;
+  roll: string;
+  /** Tables: `table(name)` rolls and reads a row; `table_roll(name)` the total; `table_text`/`table_id(name, total)` the lookups. */
+  table: string;
+  tableRoll: string;
+  tableText: string;
+  tableId: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
   whoParam: string;
+  formulaParam: string;
+  labelParam: string;
+  tableParam: string;
+  totalParam: string;
 }
 
 export const INK_PRESETS: Record<InkPreset, InkNames> = {
   en: {
     check: "check", skillValue: "skill_level", characters: "characters", current: "character", select: "pick_character",
     seed: "dice_seed", rolls: "dice_rolls", items: "items", inventory: "inv", langVar: "lang", textFn: "t",
-    skillParam: "skill", difficultyParam: "difficulty", whoParam: "who",
+    dice: "roll_dice", roll: "roll", table: "table", tableRoll: "table_roll", tableText: "table_text", tableId: "table_id",
+    skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
   },
   zh: {
     check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
     seed: "骰子种子", rolls: "掷骰次数", items: "物品", inventory: "背包", langVar: "语言", textFn: "双",
-    skillParam: "技能", difficultyParam: "难度", whoParam: "谁",
+    dice: "掷骰", roll: "掷", table: "查表", tableRoll: "掷表", tableText: "表文", tableId: "表号",
+    skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
   },
 };
 export const DEFAULT_INK_NAMES: InkNames = INK_PRESETS.en;
@@ -280,7 +327,7 @@ const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 export const CONFIG_PROBLEM_CODES = [
   "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
-  "unknownItem", "itemSkill",
+  "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -310,6 +357,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const r of config.resources) ident(r.id);
   for (const c of config.characters) ident(c.id);
   for (const i of config.items ?? []) ident(i.id);
+  for (const t of config.tables ?? []) ident(t.id);
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
@@ -353,6 +401,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     if (m.skill !== undefined && !skills.has(m.skill)) bad("modifierSkill", m.skill);
     if (m.kind === "perStep" && !(m.step > 0)) bad("modifierStep", m.resource);
   }
+  for (const t of config.tables ?? []) problems.push(...tableProblems(t));
   return problems;
 }
 
@@ -419,6 +468,10 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("resources", false, resource);
   entries("companionResources", false, resource);
   entries("items", false, (e) => opt(e.name, isText) && opt(e.desc, isText) && opt(e.modifiers, numMap));
+  // A row is `{ range?, text, id? }`, or the shorthand with the text under the language codes: `{ range: 1-3, zh: 狼, en: Wolf }`.
+  const row = (r: unknown) => isObj(r) && opt(r.range, (v) => isStr(v) || isNum(v)) && opt(r.id, (v) => isStr(v) || isNum(v)) && (isText(r.text) || Object.keys(r).some((k) => k !== "range" && k !== "id" && isStr(r[k])));
+  entries("tables", false, (e) => opt(e.name, isText) && opt(e.dice, (v) => isStr(v) || isNum(v)) && opt(e.from, isStr) && opt(e.rows, (v) => Array.isArray(v) && v.every(row)));
+  if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
@@ -440,10 +493,35 @@ export function readConfig(fm: unknown): LoadedConfig {
     companionResources: (fm.companionResources ?? []) as ResourceDef[],
     characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
     items: (fm.items ?? []) as ItemDef[],
+    tables: (Array.isArray(fm.tables) ? fm.tables : []).filter(isObj).map(readTable),
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
+    journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,
     engineFile: (fm.engineFile ?? undefined) as string | undefined,
     ink: fm.ink ?? undefined,
   };
   return { config, problems: validateConfig(config) };
+}
+
+/** A string or a number from the frontmatter as text; undefined for anything else. */
+const scalarText = (v: unknown): string | undefined => (isStr(v) ? v : isNum(v) ? String(v) : undefined);
+
+/** A table entry from the frontmatter, its rows normalized to `{ range?, text, id? }` (the shorthand's language keys become `text`). */
+function readTable(e: Record<string, unknown>): TableDef {
+  const t: TableDef = { id: scalarText(e.id) ?? "" };
+  if (isText(e.name)) t.name = e.name;
+  const dice = scalarText(e.dice);
+  if (dice !== undefined) t.dice = dice;
+  if (isStr(e.from)) t.from = e.from;
+  if (Array.isArray(e.rows)) {
+    t.rows = (e.rows as Record<string, unknown>[]).map((r) => {
+      const row: TableRow = { text: isText(r.text) ? r.text : Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== "range" && k !== "id" && isStr(v))) as Record<string, string> };
+      const range = scalarText(r.range);
+      if (range !== undefined) row.range = range;
+      const id = scalarText(r.id);
+      if (id !== undefined) row.id = id;
+      return row;
+    });
+  }
+  return t;
 }

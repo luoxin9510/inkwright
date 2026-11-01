@@ -243,11 +243,14 @@ const PLAYER = `(function () {
     diceEl.querySelector("summary").textContent = s.diceLog + " (" + rolls.length + ")";
     ul.textContent = "";
     rolls.slice().reverse().forEach(function (r) {
-      var li = document.createElement("li");
-      var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
-      li.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty + ": " +
-        (r.rolls.length ? r.rolls.join("+") : "—") + " +" + r.level + mods + " = " + r.total +
-        " · " + s.bands[r.band] + " (" + Math.round(r.chance.success * 100) + "%)";
+      var li = document.createElement("li"), faces = r.rolls.length ? r.rolls.join("+") : "—";
+      if (r.kind === "dice") {
+        li.textContent = (r.table ? r.table.name + " " + r.formula : r.formula) + ": " + (r.unknown ? "?" : faces + " = " + r.total + (r.table ? " · " + r.table.text : ""));
+      } else {
+        var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
+        li.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty + ": " +
+          faces + " +" + r.level + mods + " = " + r.total + " · " + s.bands[r.band] + " (" + Math.round(r.chance.success * 100) + "%)";
+      }
       ul.appendChild(li);
     });
   }
@@ -358,21 +361,42 @@ const PLAYER = `(function () {
     shown = log.length;
   }
 
-  function rollCard(r) {
-    var s = str(), card = document.createElement("div");
-    card.className = "roll b" + r.band;
-    var skill = document.createElement("span");
-    skill.className = "skill";
-    skill.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty;
-    card.appendChild(skill);
+  function faces(rolls) {
     var dice = document.createElement("span");
-    r.rolls.forEach(function (face) {
+    rolls.forEach(function (face) {
       var die = document.createElement("span");
       die.className = "die";
       die.textContent = face;
       dice.appendChild(die);
     });
-    card.appendChild(dice);
+    return dice;
+  }
+
+  function rollCard(r) {
+    var s = str(), card = document.createElement("div");
+    var skill = document.createElement("span");
+    skill.className = "skill";
+    if (r.kind === "dice") {
+      // Free dice or a table: the formula (or the table and its dice), the faces, the total, the row.
+      card.className = "roll free";
+      skill.textContent = r.table ? r.table.name + " " + r.formula : r.formula;
+      card.appendChild(skill);
+      card.appendChild(faces(r.rolls));
+      var total = document.createElement("span");
+      total.textContent = r.unknown ? "?" : "= " + r.total;
+      card.appendChild(total);
+      if (r.table) {
+        var row = document.createElement("span");
+        row.className = "band";
+        row.textContent = r.table.text;
+        card.appendChild(row);
+      }
+      return card;
+    }
+    card.className = "roll b" + r.band;
+    skill.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty;
+    card.appendChild(skill);
+    card.appendChild(faces(r.rolls));
     var sum = document.createElement("span");
     var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
     sum.textContent = "+" + r.level + mods + " = " + r.total;

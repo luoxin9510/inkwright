@@ -25,6 +25,11 @@ const configZh: ConfigMessages = {
   unknownItem: (who, item) => `主角 "${who}" 带着未定义的物品 "${item}"`,
   itemSkill: (item, skill) => `物品 "${item}" 加成了未定义的技能 "${skill}"`,
   languages: () => "languages 必须是两个不同的语言代码,例如 [zh, en]",
+  tableRows: (id) => `随机表 "${id}" 要有 rows,或者用 from 指向一篇带表格的笔记`,
+  tableDice: (id, dice) => `随机表 "${id}" 的骰子 "${dice}" 看不懂;写成 1d6、2d6+1、d66、d100 这样`,
+  tableRange: (id, detail) => `随机表 "${id}" 的范围和骰子对不上:${detail}`,
+  tableRow: (id, n) => `随机表 "${id}" 第 ${n} 行没有文字`,
+  tableFile: (id, path) => `随机表 "${id}":找不到笔记 "${path}",或者它里面没有表格`,
 };
 
 const configEn: ConfigMessages = {
@@ -47,6 +52,11 @@ const configEn: ConfigMessages = {
   unknownItem: (who, item) => `character "${who}" carries an unknown item "${item}"`,
   itemSkill: (item, skill) => `item "${item}" boosts an unknown skill "${skill}"`,
   languages: () => "languages must be two different language codes, e.g. [zh, en]",
+  tableRows: (id) => `table "${id}" needs rows, or from: a note with a markdown table`,
+  tableDice: (id, dice) => `table "${id}": cannot read the dice "${dice}"; write 1d6, 2d6+1, d66 or d100`,
+  tableRange: (id, detail) => `table "${id}": the ranges do not match the dice: ${detail}`,
+  tableRow: (id, n) => `table "${id}": row ${n} has no text`,
+  tableFile: (id, path) => `table "${id}": note "${path}" not found, or it has no markdown table`,
 };
 
 const zh = {
@@ -123,6 +133,11 @@ const zh = {
   noRolls: "还没有掷过骰子。",
   bands: ["大失败", "失败", "部分成功", "成功", "大成功"],
   redCheck: "一次性",
+  badFormula: "(公式不对)",
+  writeJournal: "把这局写成笔记",
+  journalWritten: "已写入笔记:",
+  nothingToJournal: "现在没有可以写成笔记的内容。",
+  journalUnknownKey: (keys: string) => `journal.path 里有不认识的占位符,已略过:${keys}`,
   unknownSkill: "(未知技能)",
   inventory: "背包",
   nothingCarried: "空",
@@ -213,6 +228,11 @@ const en: Strings = {
   noRolls: "No rolls yet.",
   bands: ["Critical failure", "Failure", "Partial success", "Success", "Critical success"],
   redCheck: "one attempt",
+  badFormula: "(bad formula)",
+  writeJournal: "Write this session to a note",
+  journalWritten: "Note written: ",
+  nothingToJournal: "There is nothing to write to a note yet.",
+  journalUnknownKey: (keys) => `Unknown placeholder in journal.path, skipped: ${keys}`,
   unknownSkill: "(unknown skill)",
   inventory: "Inventory",
   nothingCarried: "nothing",

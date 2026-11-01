@@ -30,8 +30,9 @@ export interface ApiHost {
   deleteSave(id: string): Promise<void>;
   exportWeb(path?: string | null): Promise<{ path: string | null; diagnostics: Diagnostic[] }>;
   generateEngine(path?: string | null): Promise<{ path: string | null; problems: ConfigProblem[] }>;
-  /** The usable game config next to a story, or null. */
-  gameConfigFor(path: string): GameConfig | null;
+  /** The usable game config next to a story (its note-kept tables read in), or null. */
+  gameConfigFor(path: string): Promise<GameConfig | null>;
+  writeJournal(): Promise<{ path: string | null }>;
   savesForRoot(): { id: string; name: string; savedAt: string }[];
 }
 
@@ -136,8 +137,10 @@ Visible play panel (the user sees what you do):
 Export:
   exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
                        -> { ok, path, diagnostics }; path defaults to the panel's main story
-  generateEngine(path?) game mode: write the engine ink (variables, character presets, check fallback) from the
-                       story's game.md next to it (default _engine.ink) -> { ok, path, problems[] }
+  generateEngine(path?) game mode: write the engine ink (variables, character presets, check fallback, dice and
+                       tables) from the story's game.md next to it (default _engine.ink) -> { ok, path, problems[] }
+  journal()            write the panel's run so far (text, choices, rolls) as a markdown note; the path comes from
+                       game.md's journal.path (default {dir}日志/{date} {time}.md) -> { ok, path }
 
 CLI example:
   obsidian vault=ink-games eval code='app.plugins.plugins.inkwright.api.play("游戏/雨夜来客/main.ink",{choices:[1,"油灯"]}).then(JSON.stringify)'`;
@@ -163,6 +166,11 @@ export class InkwrightApi {
     return { ok: r.path !== null, path: r.path, problems: r.problems.map((p) => T().configProblem(p)) };
   }
 
+  async journal(): Promise<{ ok: boolean; path: string | null }> {
+    const r = await this.host.writeJournal();
+    return { ok: r.path !== null, path: r.path };
+  }
+
   async explore(path: string, options: ExploreOptions = {}): Promise<ExploreResult & { ok: boolean; diagnostics: ApiDiagnostic[] }> {
     const r = await compileStory(path, this.host.readFile);
     const diagnostics = plainDiagnostics(r.diagnostics);
@@ -172,7 +180,7 @@ export class InkwrightApi {
         coverage: { places: { total: 0, reached: [], missed: [] }, choices: { total: 0, offered: 0, taken: 0, missed: [] } },
       };
     }
-    const game = options.game ?? this.host.gameConfigFor(path) ?? undefined;
+    const game = options.game ?? (await this.host.gameConfigFor(path)) ?? undefined;
     return { ok: true, diagnostics, ...exploreStory(r.story, { ...options, game }) };
   }
 
@@ -180,7 +188,7 @@ export class InkwrightApi {
     const r = await compileStory(path, this.host.readFile);
     const diagnostics = plainDiagnostics(r.diagnostics);
     if (!r.story) return { ok: false, diagnostics, runs: 0, endings: [], truncated: 0, stuck: 0, errors: [], steps: { min: 0, mean: 0, max: 0 } };
-    const game = options.game ?? this.host.gameConfigFor(path) ?? undefined;
+    const game = options.game ?? (await this.host.gameConfigFor(path)) ?? undefined;
     return { ok: true, diagnostics, ...simulateStory(r.story, { ...options, game }) };
   }
 

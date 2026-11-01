@@ -1,6 +1,7 @@
 import type { Story } from "inkjs/full";
 import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parseVoiceTag, playableCharacters, type CheckTag, type GameConfig, type LocalizedText } from "./config";
-import { chance, resolve, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
+import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
+import { rowAt, tableFormula } from "./tables";
 
 export interface EngineOptions {
   /** Random source for the dice; default: dice derived from the run's seed, so replays match. */
@@ -12,7 +13,8 @@ export interface EngineOptions {
 }
 
 /** One resolved check, for the dice log. */
-export interface RollRecord extends CheckResult {
+export interface CheckRecord extends CheckResult {
+  kind: "check";
   skill: string;
   chance: Chance;
   /** Position of the check in its run: the story's roll counter before it. */
@@ -22,6 +24,24 @@ export interface RollRecord extends CheckResult {
   /** Set when the story named a skill the config does not have (a typo): rolled at level 0. */
   unknown?: true;
 }
+
+/** One free roll (`roll("2d6+3")`) or table roll (`table("encounter")`), for the dice log. */
+export interface DiceRecord {
+  kind: "dice";
+  /** The formula as rolled (`2d6+3`, `d66`), or the text the story passed when it was not one. */
+  formula: string;
+  rolls: number[];
+  total: number;
+  /** Position in the run's roll counter, shared with the checks. */
+  index: number;
+  turn: number;
+  /** Set when the formula could not be read: nothing rolled, total 0. */
+  unknown?: true;
+  /** For a table roll: the table and the row the total landed on (text in the engine's language). */
+  table?: { id: string; name: string; text: string; rowId?: string };
+}
+
+export type RollRecord = CheckRecord | DiceRecord;
 
 /** What the panel shows on a choice that is a check. */
 export interface ChoiceCheck extends CheckTag {
@@ -107,6 +127,9 @@ export class GameEngine {
     if (this.bound.has(story)) return;
     this.bound.add(story);
     story.BindExternalFunction(inkNames(this.config).check, (skill: unknown, difficulty: unknown) => this.roll(skill, difficulty), false);
+    // Lookahead-safe: a roll is read inline, often inside a bilingual string (`{t("…{table("x")}…", …)}`), where
+    // ink forbids unsafe externals. Faces are a hash of (seed, index), so a call repeated by lookahead rolls the same.
+    story.BindExternalFunction(inkNames(this.config).dice, (formula: unknown, label: unknown) => this.rollDice(formula, label), true);
     // A resource lives in min..max: whatever the story adds, it is clamped once the step is done
     // (inkjs tells observers after a Continue), and the overshoot is kept for the checkers.
     for (const r of this.resourceVariables()) {
@@ -168,13 +191,51 @@ export class GameEngine {
     const forced = this.force?.({ skill, difficulty, red: false });
     const result = resolve(this.config.rules, input, rng, forced);
     if (run) this.write(inkNames(this.config).rolls, index + 1);
-    // Rolling check `index` again (back, replay) replaces its record; other runs' records go.
-    this.log = this.log.filter((e) => e.seed === seed && e.record.index < index);
-    const record: RollRecord = { ...result, skill, index, turn: this.story?.state.currentTurnIndex ?? -1, chance: chance(this.config.rules, input) };
+    const record: CheckRecord = { ...result, kind: "check", skill, index, turn: this.story?.state.currentTurnIndex ?? -1, chance: chance(this.config.rules, input) };
     if (!known) record.unknown = true;
+    this.remember(seed, index, record);
+    return result.band;
+  }
+
+  /** A free roll from the story (`roll_dice(formula, label)`): the label names a table when the roll is for one. */
+  private rollDice(formulaArg: unknown, labelArg: unknown): number {
+    const text = GameEngine.text(formulaArg) ?? "";
+    const label = GameEngine.text(labelArg) ?? "";
+    const table = label === "" ? undefined : this.config.tables?.find((t) => t.id === label);
+    // A table's dice come from the table itself; the text is only what the generated ink passes along.
+    const formula = table ? tableFormula(table) : parseFormula(text);
+    const run = this.run();
+    const seed = run?.seed ?? 0;
+    const index = run?.count ?? (this.log.at(-1)?.record.index ?? -1) + 1;
+    const turn = this.story?.state.currentTurnIndex ?? -1;
+    if (run) this.write(inkNames(this.config).rolls, index + 1);
+    // ink's lookahead calls a lookahead-safe function, rewinds, then calls it again for real: the
+    // same roll of the same run gives the faces it gave, so an injected rng is not drawn twice.
+    const again = this.log.find((e) => e.seed === seed && e.record.index === index && e.record.kind === "dice" && e.record.formula === (formula ? formatFormula(formula) : text) && (e.record.table?.id ?? "") === (table?.id ?? ""));
+    if (again) return again.record.total;
+    if (!formula) {
+      this.remember(seed, index, { kind: "dice", formula: text, rolls: [], total: 0, index, turn, unknown: true });
+      return 0;
+    }
+    const rng = this.rng ?? (run ? seededDice(seed, index) : Math.random);
+    const { rolls, total } = rollFormula(formula, rng);
+    const record: DiceRecord = { kind: "dice", formula: formatFormula(formula), rolls, total, index, turn };
+    if (table) {
+      const hit = rowAt(table, total);
+      record.table = {
+        id: table.id, name: localize(table.name, this.language, table.id), text: hit ? localize(hit.row.text, this.language, "") : "",
+        ...(hit?.row.id !== undefined ? { rowId: hit.row.id } : {}),
+      };
+    }
+    this.remember(seed, index, record);
+    return total;
+  }
+
+  /** Keeps a roll's record: rolling roll `index` again (back, replay) replaces it, other runs' records go. */
+  private remember(seed: number, index: number, record: RollRecord): void {
+    this.log = this.log.filter((e) => e.seed === seed && e.record.index < index);
     this.log.push({ seed, record });
     if (this.log.length > this.keepRolls) this.log.splice(0, this.log.length - this.keepRolls);
-    return result.band;
   }
 
   /** The run's dice seed and roll counter from the story's variables; null when the story lacks them. */

@@ -241,8 +241,17 @@ export class PlayView extends ItemView {
     }
   }
 
-  /** One resolved check as a card in the text: skill and difficulty, the faces, the sum, the outcome. */
+  /** One roll as a card in the text: a check (skill and difficulty, faces, sum, outcome) or free dice (formula or table, faces, total, the row). */
   private renderRoll(parent: HTMLElement, r: RollRecord, game: GameView): HTMLElement {
+    if (r.kind === "dice") {
+      const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free" });
+      card.createSpan({ cls: "inkwright-roll-skill", text: r.table ? `${r.table.name} ${r.formula}` : r.formula });
+      const dice = card.createSpan({ cls: "inkwright-roll-dice" });
+      for (const face of r.rolls) dice.createSpan({ cls: "inkwright-die", text: String(face) });
+      card.createSpan({ cls: "inkwright-roll-sum", text: r.unknown ? T().badFormula : `= ${r.total}` });
+      if (r.table) card.createSpan({ cls: "inkwright-roll-band", text: r.table.text });
+      return card;
+    }
     const card = parent.createDiv({ cls: `inkwright-roll inkwright-roll-${r.band}` });
     const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
     card.createSpan({ cls: "inkwright-roll-skill", text: `${name} ${r.difficulty}` });
@@ -340,10 +349,15 @@ export class PlayView extends ItemView {
     }
     const t = box.createEl("table");
     for (const r of [...game.rolls].reverse()) {
-      const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
       const dice = r.rolls.length > 0 ? r.rolls.join("+") : "—";
-      const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
       const tr = t.createEl("tr");
+      if (r.kind === "dice") {
+        tr.createEl("td", { text: r.table ? `${r.table.name} ${r.formula}` : r.formula });
+        tr.createEl("td", { text: r.unknown ? T().badFormula : `${dice} = ${r.total}${r.table ? ` · ${r.table.text}` : ""}` });
+        continue;
+      }
+      const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
+      const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
       tr.createEl("td", { text: `${name} ${r.difficulty}` });
       tr.createEl("td", { text: `${dice} +${r.level}${mods} = ${r.total} · ${T().bands[r.band]} (${Math.round(r.chance.success * 100)}%)` });
     }
