@@ -132,3 +132,54 @@ export function seededDice(seed: number, index: number): Rng {
 export function averageRoll(rules: RulesConfig): number {
   return rules.kind === "sum" ? sum(rules.dice.map((s) => (s + 1) / 2)) : (rules.sides + 1) / 2;
 }
+
+/**
+ * A dice formula a story rolls freely, outside any check: `2d6+3`, `d20`, `1d100` (or `d%`),
+ * `d66` (two d6 read as tens and units). Count and sides are integers; the bonus may be negative.
+ */
+export interface DiceFormula {
+  count: number;
+  sides: number;
+  bonus: number;
+  /** Two d6 read as tens and units: 11..66. */
+  d66: boolean;
+}
+
+const FORMULA = /^\s*(\d*)[dD](\d+|%)\s*(?:([+-])\s*(\d+))?\s*$/;
+
+/** Parses `NdM[+K|-K]`, `dM`, `d%` and `d66`; null when the text is not a formula. */
+export function parseFormula(text: string): DiceFormula | null {
+  const m = FORMULA.exec(text);
+  if (!m) return null;
+  const [, countText, sidesText, sign, bonusText] = m;
+  const bonus = bonusText === undefined ? 0 : (sign === "-" ? -1 : 1) * Number(bonusText);
+  if (countText === "" && sidesText === "66") return { count: 2, sides: 6, bonus, d66: true };
+  const count = countText === "" ? 1 : Number(countText);
+  const sides = sidesText === "%" ? 100 : Number(sidesText);
+  if (!Number.isInteger(count) || count < 1 || count > 100 || !Number.isInteger(sides) || sides < 2) return null;
+  return { count, sides, bonus, d66: false };
+}
+
+/** The formula as a story would write it: `2d6+3`, `d66`, `1d20-1`. */
+export function formatFormula(f: DiceFormula): string {
+  const bonus = f.bonus === 0 ? "" : f.bonus > 0 ? `+${f.bonus}` : String(f.bonus);
+  return (f.d66 ? "d66" : `${f.count}d${f.sides}`) + bonus;
+}
+
+/** Rolls a formula: the faces, and the total with the bonus (tens and units for d66). */
+export function rollFormula(f: DiceFormula, rng: Rng): { rolls: number[]; total: number } {
+  const rolls = Array.from({ length: f.count }, () => 1 + Math.floor(rng() * f.sides));
+  const total = f.d66 ? rolls[0] * 10 + rolls[1] + f.bonus : sum(rolls) + f.bonus;
+  return { rolls, total };
+}
+
+/** The lowest and highest total the formula can give. */
+export function formulaSpan(f: DiceFormula): { min: number; max: number } {
+  return f.d66 ? { min: 11 + f.bonus, max: 66 + f.bonus } : { min: f.count + f.bonus, max: f.count * f.sides + f.bonus };
+}
+
+/** The expected total, rounded: what the ink fallback returns without an engine to roll. */
+export function averageFormula(f: DiceFormula): number {
+  const { min, max } = formulaSpan(f);
+  return Math.round((min + max) / 2);
+}

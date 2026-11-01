@@ -14,6 +14,8 @@ import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
 import { engineFile, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
 import { generateInk } from "./game/inkgen";
+import { resolveTables } from "./game/tables";
+import { renderJournal } from "./play/journal";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
@@ -35,11 +37,12 @@ interface Settings {
   pinBar?: boolean;
 }
 
-/** What readGameNote found: the note, its config (null when unusable) and the warnings to show. */
+/** What readGameNote found: the note, its config (null when unusable), the warnings to show, and the other notes it reads (tables). */
 interface GameNoteRead {
   note: TFile;
   config: GameConfig | null;
   warnings: string[];
+  files: string[];
 }
 
 export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
@@ -82,6 +85,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "unlock-main", name: T().unlock, callback: () => void this.setLocked(null) });
     this.addCommand({ id: "export-web", name: T().exportWeb, callback: () => void this.exportWeb() });
     this.addCommand({ id: "generate-engine", name: T().generateEngine, callback: () => void this.generateEngine() });
+    this.addCommand({ id: "write-journal", name: T().writeJournal, callback: () => void this.writeJournal() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -274,7 +278,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       runtime: INK_RUNTIME,
       id: path,
       languageVar: findLanguageVar(result.story),
-      game: this.gameConfigFor(path) ?? undefined,
+      game: (await this.gameConfigFor(path)) ?? undefined,
       engine: GAME_ENGINE,
     });
     const existing = this.app.vault.getAbstractFileByPath(out);
@@ -284,9 +288,60 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { path: out, diagnostics: result.diagnostics };
   }
 
-  gameConfigFor(path: string): GameConfig | null {
+  async gameConfigFor(path: string): Promise<GameConfig | null> {
     const note = findGameNote(this.app, path);
-    return note ? loadGameConfig(this.app, note).config : null;
+    const config = note ? loadGameConfig(this.app, note).config : null;
+    return config ? (await this.resolveConfig(path, config)).config : null;
+  }
+
+  /** The config with its note-kept tables read in; paths in `from` are relative to the story's folder. */
+  private resolveConfig(root: string, config: GameConfig): Promise<{ config: GameConfig; problems: ConfigProblem[]; files: string[] }> {
+    return resolveTables(config, (p) => this.readFile(p).catch(() => null), root.slice(0, root.lastIndexOf("/") + 1));
+  }
+
+  /**
+   * Writes the panel's run so far (text, choices, rolls) as a markdown note. The path comes from the
+   * game note's `journal.path` (`{dir}`, `{story}`, `{date}`, `{time}`, `{character}`), default
+   * `{dir}日志/{date} {time}.md`; an existing note is never overwritten.
+   */
+  async writeJournal(): Promise<{ path: string | null }> {
+    const session = this.session;
+    const root = this.root;
+    if (!session || root === null || session.log.length === 0) {
+      new Notice(T().nothingToJournal);
+      return { path: null };
+    }
+    const game = this.gameView();
+    const now = new Date();
+    const dir = root.slice(0, root.lastIndexOf("/") + 1);
+    const story = dir === "" ? this.app.vault.getName() : dir.slice(0, -1).split("/").pop() ?? "story";
+    const character = game?.characters.find((c) => c.id === game.current)?.name ?? null;
+    const language = (session.language ?? getLanguage()) === "en" ? "en" : "zh";
+    const text = renderJournal({
+      title: story, date: now, language, character, log: session.log, turns: session.turns, choices: session.choicesMade,
+      rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills,
+    });
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const values: Record<string, string> = {
+      dir, story, character: character ?? "",
+      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}-${pad(now.getMinutes())}`,
+    };
+    const template = this.game?.config.journal?.path ?? "{dir}日志/{date} {time}.md";
+    let path = template.replace(/\{(\w+)\}/g, (m, key: string) => values[key] ?? m).replace(/\/+/g, "/").replace(/^\//, "").trim();
+    if (!path.endsWith(".md")) path += ".md";
+    const folder = path.slice(0, path.lastIndexOf("/"));
+    let made = "";
+    for (const part of folder === "" ? [] : folder.split("/")) {
+      made = made === "" ? part : `${made}/${part}`;
+      if (!this.app.vault.getAbstractFileByPath(made)) await this.app.vault.createFolder(made);
+    }
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      const base = path.slice(0, -3);
+      for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = `${base} (${n}).md`;
+    }
+    await this.app.vault.create(path, text);
+    new Notice(T().journalWritten + path);
+    return { path };
   }
 
   /** Writes the game's engine ink (from its game note) next to the main story; defaults to the current one. */
@@ -300,11 +355,14 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       new Notice(T().noGameNote);
       return { path: null, problems: [] };
     }
-    const { config, problems } = loadGameConfig(this.app, note);
-    if (!config) {
-      new Notice(T().gameConfigUnusable(problems.map((p) => T().configProblem(p)).join("; ")));
-      return { path: null, problems };
+    const read = loadGameConfig(this.app, note);
+    if (!read.config) {
+      new Notice(T().gameConfigUnusable(read.problems.map((p) => T().configProblem(p)).join("; ")));
+      return { path: null, problems: read.problems };
     }
+    const resolved = await this.resolveConfig(path, read.config);
+    const config = resolved.config;
+    const problems = [...read.problems, ...resolved.problems];
     const out = path.slice(0, path.lastIndexOf("/") + 1) + engineFile(config);
     const ink = generateInk(config);
     const existing = this.app.vault.getAbstractFileByPath(out);
@@ -435,23 +493,25 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private async readGameNote(root: string, included: string[]): Promise<GameNoteRead | null> {
     const note = findGameNote(this.app, root);
     if (!note) return null;
-    const { config, problems } = loadGameConfig(this.app, note);
+    const read = loadGameConfig(this.app, note);
+    const resolved = read.config ? await this.resolveConfig(root, read.config) : null;
+    const config = resolved?.config ?? null;
     const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
-    const warnings = problems.map((p) => message(T().configProblem(p)));
+    const warnings = [...read.problems, ...(resolved?.problems ?? [])].map((p) => message(T().configProblem(p)));
     if (config) {
       const file = engineFile(config);
       const enginePath = root.slice(0, root.lastIndexOf("/") + 1) + file;
       if (!included.includes(enginePath)) warnings.push(T().engineNotIncluded(file));
       else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) warnings.push(T().engineStale(file));
     }
-    return { note, config, warnings };
+    return { note, config, warnings, files: resolved?.files ?? [] };
   }
 
   private applyGameNote(read: GameNoteRead | null): void {
     this.game = null;
     if (!read) return;
-    // Edits to the game note recompile, like edits to any INCLUDEd file.
-    if (!this.files.includes(read.note.path)) this.files.push(read.note.path);
+    // Edits to the game note, or to a note a table is read from, recompile like edits to any INCLUDEd file.
+    for (const path of [read.note.path, ...read.files]) if (!this.files.includes(path)) this.files.push(path);
     for (const text of read.warnings) this.diagnostics.push({ severity: "warning", file: read.note.path, line: null, message: text, raw: "" });
     if (!read.config) return;
     if (this.character !== null && !playableCharacters(read.config).some((c) => c.id === this.character)) this.character = null;
