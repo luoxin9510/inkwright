@@ -132,5 +132,38 @@ export function generateInk(config: GameConfig): string {
     }
     lines.push("", `=== function ${n.table}(${n.tableParam}) ===`, `~ return ${n.tableText}(${n.tableParam}, ${n.tableRoll}(${n.tableParam}))`);
   }
+
+  // Decks: one LIST per deck and a VAR holding the pile; the engine picks the card's position with
+  // the same seeded dice (the count goes along as the formula), the ink takes that card out.
+  const decks = config.decks ?? [];
+  if (decks.length > 0) {
+    const first = decks[0];
+    lines.push("", `// Decks: ${n.draw}("${first.id}") takes a random card out of the pile (an empty list once none is left); ${n.shuffle} puts them all back; ${n.deckLeft} counts the pile. A hand is a list the story keeps: ~ hand += ${n.draw}("${first.id}").`);
+    for (const d of decks) {
+      const ids = d.cards.map((c) => c.id).join(", ");
+      lines.push(`LIST ${d.id} = ${ids}`, `VAR ${d.id}${n.pileSuffix} = (${ids})`);
+    }
+    lines.push(
+      "", "// The k-th card of a list, lowest first.",
+      `=== function ${n.nthCard}(${n.stackParam}, ${n.kParam}) ===`,
+      `~ temp c = LIST_MIN(${n.stackParam})`,
+      `{ ${n.kParam} <= 1 or LIST_COUNT(${n.stackParam}) <= 1:`, "    ~ return c", "}",
+      `~ return ${n.nthCard}(${n.stackParam} - c, ${n.kParam} - 1)`,
+      "", `=== function ${n.draw}(${n.deckParam}) ===`,
+    );
+    for (const d of decks) {
+      const pile = `${d.id}${n.pileSuffix}`;
+      lines.push(
+        `{ ${n.deckParam} == "${d.id}" and LIST_COUNT(${pile}) > 0:`,
+        `    ~ temp c = ${n.nthCard}(${pile}, ${n.dice}(LIST_COUNT(${pile}), "${d.id}"))`,
+        `    ~ ${pile} -= c`, "    ~ return c", "}",
+      );
+    }
+    lines.push("~ temp none = ()", "~ return none", "", `=== function ${n.shuffle}(${n.deckParam}) ===`);
+    for (const d of decks) lines.push(`{ ${n.deckParam} == "${d.id}":`, `    ~ ${d.id}${n.pileSuffix} = LIST_ALL(${d.id})`, "}");
+    lines.push("", `=== function ${n.deckLeft}(${n.deckParam}) ===`);
+    for (const d of decks) lines.push(`{ ${n.deckParam} == "${d.id}":`, `    ~ return LIST_COUNT(${d.id}${n.pileSuffix})`, "}");
+    lines.push("~ return 0");
+  }
   return lines.join("\n") + "\n";
 }

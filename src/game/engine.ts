@@ -1,5 +1,5 @@
 import type { Story } from "inkjs/full";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parseVoiceTag, playableCharacters, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -39,6 +39,8 @@ export interface DiceRecord {
   unknown?: true;
   /** For a table roll: the table and the row the total landed on (text in the engine's language). */
   table?: { id: string; name: string; text: string; rowId?: string };
+  /** For a draw: the deck and the card that came out (named in the engine's language). */
+  deck?: { id: string; name: string; card: string; cardId: string; desc?: string };
 }
 
 export type RollRecord = CheckRecord | DiceRecord;
@@ -89,6 +91,8 @@ export interface HudView {
   companions: { id: string; name: string; resources: ResourceView[] }[];
   /** What is carried, in config order; absent when the game has no items. */
   items?: ItemView[];
+  /** Each deck's pile, absent when the game has no decks. */
+  decks?: { id: string; name: string; left: number; total: number }[];
 }
 
 /**
@@ -202,8 +206,10 @@ export class GameEngine {
     const text = GameEngine.text(formulaArg) ?? "";
     const label = GameEngine.text(labelArg) ?? "";
     const table = label === "" ? undefined : this.config.tables?.find((t) => t.id === label);
-    // A table's dice come from the table itself; the text is only what the generated ink passes along.
-    const formula = table ? tableFormula(table) : parseFormula(text);
+    const deck = label === "" ? undefined : this.config.decks?.find((d) => d.id === label);
+    // A table's dice come from the table itself, a deck's from its pile; the text is only what the generated ink passes along.
+    const left = deck ? this.pile(deck.id, deck.cards) : [];
+    const formula = table ? tableFormula(table) : deck ? { count: 1, sides: Math.max(1, left.length), bonus: 0, d66: false } : parseFormula(text);
     const run = this.run();
     const seed = run?.seed ?? 0;
     const index = run?.count ?? (this.log.at(-1)?.record.index ?? -1) + 1;
@@ -211,7 +217,7 @@ export class GameEngine {
     if (run) this.write(inkNames(this.config).rolls, index + 1);
     // ink's lookahead calls a lookahead-safe function, rewinds, then calls it again for real: the
     // same roll of the same run gives the faces it gave, so an injected rng is not drawn twice.
-    const again = this.log.find((e) => e.seed === seed && e.record.index === index && e.record.kind === "dice" && e.record.formula === (formula ? formatFormula(formula) : text) && (e.record.table?.id ?? "") === (table?.id ?? ""));
+    const again = this.log.find((e) => e.seed === seed && e.record.index === index && e.record.kind === "dice" && e.record.formula === (formula ? formatFormula(formula) : text) && (e.record.table?.id ?? "") === (table?.id ?? "") && (e.record.deck?.id ?? "") === (deck?.id ?? ""));
     if (again) return again.record.total;
     if (!formula) {
       this.remember(seed, index, { kind: "dice", formula: text, rolls: [], total: 0, index, turn, unknown: true });
@@ -227,8 +233,19 @@ export class GameEngine {
         ...(hit?.row.id !== undefined ? { rowId: hit.row.id } : {}),
       };
     }
+    if (deck) {
+      const card = left[total - 1];
+      const desc = card ? localize(card.desc, this.language, "") : "";
+      record.deck = { id: deck.id, name: localize(deck.name, this.language, deck.id), card: card ? localize(card.name, this.language, card.id) : "", cardId: card?.id ?? "", ...(desc ? { desc } : {}) };
+    }
     this.remember(seed, index, record);
     return total;
+  }
+
+  /** The cards still in a deck's pile, in list order (the generated ink draws the k-th lowest). */
+  private pile(deck: string, cards: CardDef[]): CardDef[] {
+    const pile = this.read(`${deck}${inkNames(this.config).pileSuffix}`);
+    return cards.filter((c) => carries(pile, c.id));
   }
 
   /** Keeps a roll's record: rolling roll `index` again (back, replay) replaces it, other runs' records go. */
@@ -328,6 +345,7 @@ export class GameEngine {
         .filter((c) => c.id !== current)
         .map((c) => ({ id: c.id, name: name(c), resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),
       ...(this.config.items?.length ? { items: this.carried() } : {}),
+      ...(this.config.decks?.length ? { decks: this.config.decks.map((d) => ({ id: d.id, name: name(d), left: this.pile(d.id, d.cards).length, total: d.cards.length })) } : {}),
     };
   }
 

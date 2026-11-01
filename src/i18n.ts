@@ -30,6 +30,7 @@ const configZh: ConfigMessages = {
   tableRange: (id, detail) => `随机表 "${id}" 的范围和骰子对不上:${detail}`,
   tableRow: (id, n) => `随机表 "${id}" 第 ${n} 行没有文字`,
   tableFile: (id, path) => `随机表 "${id}":找不到笔记 "${path}",或者它里面没有表格`,
+  deckCards: (id) => `牌堆 "${id}" 一张牌都没有`,
 };
 
 const configEn: ConfigMessages = {
@@ -57,6 +58,7 @@ const configEn: ConfigMessages = {
   tableRange: (id, detail) => `table "${id}": the ranges do not match the dice: ${detail}`,
   tableRow: (id, n) => `table "${id}": row ${n} has no text`,
   tableFile: (id, path) => `table "${id}": note "${path}" not found, or it has no markdown table`,
+  deckCards: (id) => `deck "${id}" has no cards`,
 };
 
 const zh = {
@@ -140,6 +142,7 @@ const zh = {
   journalUnknownKey: (keys: string) => `journal.path 里有不认识的占位符,已略过:${keys}`,
   unknownSkill: "(未知技能)",
   inventory: "背包",
+  decks: "牌堆",
   nothingCarried: "空",
   needs: "需要",
   gameConfigProblem: (p: string) => `游戏配置有问题:${p}`,
@@ -235,6 +238,7 @@ const en: Strings = {
   journalUnknownKey: (keys) => `Unknown placeholder in journal.path, skipped: ${keys}`,
   unknownSkill: "(unknown skill)",
   inventory: "Inventory",
+  decks: "Decks",
   nothingCarried: "nothing",
   needs: "Needs",
   gameConfigProblem: (p) => `Game config problem: ${p}`,
