@@ -22,6 +22,8 @@ export interface GameView {
   /** The map with the state read into it; null when the game has none. `mapImage` is its image as a URL the panel can show. */
   map: MapView | null;
   mapImage: string | null;
+  /** Card art by card id, as URLs the panel can show. */
+  cardImages: Record<string, string>;
   /** Speaking skill per paragraph, aligned with `log`. */
   voices: (string | null)[];
   /** The story's turn per paragraph, aligned with `log`; rolls are placed by it. */
@@ -228,7 +230,7 @@ export class PlayView extends ItemView {
     const spot = `${s.root ?? ""}\n${s.log.length}\n${s.choices.map((c) => c.text).join("\n")}`;
     if (spot !== this.pickedAt) this.picked = null;
     this.pickedAt = spot;
-    if (s.game?.hud.hands) this.renderHands(el, s.game.hud.hands);
+    if (s.game?.hud.hands) this.renderHands(el, s.game.hud.hands, s.game.cardImages);
 
     const choices = el.createDiv({ cls: "inkwright-choices" });
     s.choices.forEach((c, i) => {
@@ -380,7 +382,7 @@ export class PlayView extends ItemView {
   }
 
   /** Each hand as a row of cards (tap to pick one, tap again to put it back); the picked card's description shows under the row. */
-  private renderHands(el: HTMLElement, hands: HandView[]): void {
+  private renderHands(el: HTMLElement, hands: HandView[], images: Record<string, string>): void {
     const wrap = el.createDiv({ cls: "inkwright-hands" });
     for (const hand of hands) {
       const box = wrap.createDiv({ cls: "inkwright-hand" });
@@ -392,9 +394,15 @@ export class PlayView extends ItemView {
       const row = box.createDiv({ cls: "inkwright-cards" });
       const on = this.picked?.hand === hand.id ? hand.cards.find((c) => c.id === this.picked?.card) : undefined;
       for (const card of hand.cards) {
-        const button = row.createEl("button", { cls: `inkwright-card${on?.id === card.id ? " inkwright-card-on" : ""}`, attr: { "aria-pressed": String(on?.id === card.id) } });
+        const art = card.image === undefined ? undefined : images[card.id];
+        const button = row.createEl("button", { cls: `inkwright-card${on?.id === card.id ? " inkwright-card-on" : ""}${art ? " inkwright-card-illustrated" : ""}`, attr: { "aria-pressed": String(on?.id === card.id) } });
+        if (art) button.createEl("img", { cls: "inkwright-card-art", attr: { src: art, alt: "" } });
         button.createSpan({ cls: "inkwright-card-deck", text: card.deckName });
         button.createSpan({ cls: "inkwright-card-name", text: card.name });
+        if (card.attrs?.length) {
+          const attrs = button.createDiv({ cls: "inkwright-card-attrs" });
+          for (const a of card.attrs) attrs.createSpan({ cls: "inkwright-card-attr", text: `${a.name} ${a.value}`, attr: { title: a.name } });
+        }
         button.onclick = () => {
           this.picked = on?.id === card.id ? null : { hand: hand.id, card: card.id };
           // Re-render in place: the rows keep their scroll position, so a card at the far end stays in view.

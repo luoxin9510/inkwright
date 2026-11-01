@@ -14,7 +14,8 @@ import { dirname, join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
 import { resolveInclude, scanIncludes } from "../src/compile/paths";
 import { playableCharacters, readConfig, type GameConfig } from "../src/game/config";
-import { resolveTables } from "../src/game/tables";
+import { resolveConfig, type ConfigSource } from "../src/game/resolve";
+import { parse as parseYaml } from "yaml";
 import { gameNote } from "./game-note";
 import { T } from "../src/i18n";
 import { exploreStory, type ExploreResult } from "../src/play/explore";
@@ -98,9 +99,34 @@ for (const file of files) {
       for (const p of read.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
       game = read.config;
       if (game) {
-        // Tables kept in other notes: paths relative to the game's folder.
+        // Tables kept in other notes, decks kept as folders, a map drawn in a canvas: paths relative to the game's folder.
         const dir = dirname(file);
-        const r = await resolveTables(game, (p) => readFile(join(dir, p), "utf8").catch(() => null), "");
+        const source: ConfigSource = {
+          read: (p) => readFile(join(dir, p), "utf8").catch(() => null),
+          notes: async (folder) => {
+            const abs = join(dir, folder);
+            let names: string[];
+            try {
+              names = await readdir(abs);
+            } catch {
+              return null;
+            }
+            const out = [];
+            for (const name of names.filter((n) => n.endsWith(".md"))) {
+              const text = await readFile(join(abs, name), "utf8");
+              const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+              let fm: unknown;
+              try {
+                fm = m ? parseYaml(m[1]) : undefined;
+              } catch {
+                fm = undefined;
+              }
+              out.push({ path: join(abs, name), name: name.slice(0, -3), frontmatter: fm && typeof fm === "object" ? (fm as Record<string, unknown>) : undefined, body: m ? text.slice(m[0].length) : text });
+            }
+            return out;
+          },
+        };
+        const r = await resolveConfig(game, source, "");
         for (const p of r.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
         game = r.config;
       }

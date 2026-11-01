@@ -83,6 +83,10 @@ export interface CardView {
   desc?: string;
   deck: string;
   deckName: string;
+  /** Card art as the config names it (a vault path); the panel turns it into a URL. */
+  image?: string;
+  /** The numbers on the card, named for the player (`attributes` in the config, else the key). */
+  attrs?: { key: string; name: string; value: number }[];
 }
 
 /** A hand (`hands` in the config) with the cards it holds now, in deck order. */
@@ -445,6 +449,13 @@ export class GameEngine {
     return this.needsOf(choice).every((n) => n.has) && (play === null || (play.known && play.cards.length > 0));
   }
 
+  /** A card as the panel shows it: localized name and description, art, and its numbers named. */
+  private cardView(c: CardDef, deck: string, deckName: string): CardView {
+    const desc = localize(c.desc, this.language, "");
+    const attrs = Object.entries(c.attrs ?? {}).map(([key, value]) => ({ key, name: localize(this.config.attributes?.[key], this.language, key), value }));
+    return { id: c.id, name: localize(c.name, this.language, c.id), ...(desc ? { desc } : {}), deck, deckName, ...(c.image ? { image: c.image } : {}), ...(attrs.length > 0 ? { attrs } : {}) };
+  }
+
   /** The cards a hand variable holds, in deck order. */
   private cardsIn(hand: string): CardView[] {
     const list = this.read(hand);
@@ -453,8 +464,7 @@ export class GameEngine {
       const deckName = localize(d.name, this.language, d.id);
       for (const c of d.cards) {
         if (!carries(list, c.id)) continue;
-        const desc = localize(c.desc, this.language, "");
-        out.push({ id: c.id, name: localize(c.name, this.language, c.id), ...(desc ? { desc } : {}), deck: d.id, deckName });
+        out.push(this.cardView(c, d.id, deckName));
       }
     }
     return out;
