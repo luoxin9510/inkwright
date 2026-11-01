@@ -39,6 +39,7 @@ PRD: `docs/game-engine-prd.md` — TTRPG-style rules engine on top of Inkwright 
 - Web export (M4): `buildWebPage({ game, engine })` embeds the config and the engine bundle (`virtual:game-engine` = `scripts/engine-bundle.mjs` building `src/game/browser.ts` into the global `InkwrightGame`; same plugin in esbuild.config.mjs and vitest.config.ts, and export-web builds it at run time). The page's player then has a character picker, HUD, check odds on choices, voice paragraphs and a dice log; `engine.start(story, character)` re-seeds after `ResetState`. `pick_character` takes the id as a string, so the engine needs no inkjs import.
 - `api.explore` takes `novelty`, returns `coverage` and `checks.outOfRange`; `api.simulate(path, {runs, seed, character})` is the random player. Both take the game config from the note next to the story.
 - Next: the first slice script (M3).
+- Tabletop PRD: `docs/tabletop-prd.md` — solo TTRPG / board-game support on top of game mode: five primitives (free rolls, random tables, decks, `#input`, play log to a note), what qualifies, the order to build them in. Read it before adding any of those.
 
 ## Layout
 - `src/compile/` pure logic: `paths` (INCLUDE scan/resolve, relative to the main story's folder), `include` (async preload → sync `CachedFileHandler`), `diagnostics` (parse `ERROR: 'file' line N: msg`, translate), `zh.ts` (zh table; each regex matches a real inkjs message), `compile.ts`.
