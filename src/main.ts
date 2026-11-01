@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, moment, type WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, moment, normalizePath, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -322,12 +322,22 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills,
     });
     const pad = (n: number) => String(n).padStart(2, "0");
+    // A name goes into a file name: no separators, nothing a file system rejects, no "..".
+    const clean = (v: string) => v.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/\.{2,}/g, "-").trim();
     const values: Record<string, string> = {
-      dir, story, character: character ?? "",
+      dir, story: clean(story), character: clean(character ?? ""),
       date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}-${pad(now.getMinutes())}`,
     };
     const template = this.game?.config.journal?.path ?? "{dir}日志/{date} {time}.md";
-    let path = template.replace(/\{(\w+)\}/g, (m, key: string) => values[key] ?? m).replace(/\/+/g, "/").replace(/^\//, "").trim();
+    const unknown: string[] = [];
+    const filled = template.replace(/\{(\w+)\}/g, (_m, key: string) => {
+      if (Object.prototype.hasOwnProperty.call(values, key)) return values[key];
+      unknown.push(key);
+      return "";
+    });
+    if (unknown.length > 0) new Notice(T().journalUnknownKey(unknown.join(", ")));
+    // Stays inside the vault: "." and ".." segments are dropped, the rest normalized the way Obsidian wants it.
+    let path = normalizePath(filled.split(/[\\/]/).map((seg) => seg.trim()).filter((seg) => seg !== "" && seg !== "." && seg !== "..").join("/"));
     if (!path.endsWith(".md")) path += ".md";
     const folder = path.slice(0, path.lastIndexOf("/"));
     let made = "";
