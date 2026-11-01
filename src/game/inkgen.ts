@@ -173,5 +173,15 @@ export function generateInk(config: GameConfig): string {
     for (const h of hands) lines.push(`VAR ${h.id} = ()`);
     lines.push(`VAR ${n.played} = ()`);
   }
+  // Map: the places as a LIST, where the player is, which places are revealed, and each token's place.
+  const map = config.map;
+  if (map && map.places.length > 0) {
+    const shown = map.places.filter((p) => !p.hidden).map((p) => p.id);
+    lines.push("", `// Map: ${n.here} is where the player stands (~ ${n.here} = ${map.places[0].id}), ${n.revealed} the places shown (~ ${n.revealed} += …); a token's place is its own VAR (an empty list keeps it off the map).`);
+    lines.push(`LIST ${n.places} = ${map.places.map((p) => p.id).join(", ")}`);
+    lines.push(`VAR ${n.here} = (${shown[0] ?? ""})`);
+    lines.push(`VAR ${n.revealed} = (${shown.join(", ")})`);
+    for (const t of map.tokens ?? []) lines.push(`VAR ${t.id}${n.atSuffix} = (${t.at ?? ""})`);
+  }
   return lines.join("\n") + "\n";
 }

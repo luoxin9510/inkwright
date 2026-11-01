@@ -15,6 +15,8 @@ export interface WebPageOptions {
   /** Game mode: the game's config and the engine script (virtual:game-engine) to embed. */
   game?: GameConfig;
   engine?: string;
+  /** The map's image as a data URI (the page carries it along). */
+  mapImage?: string;
 }
 
 /** Title from a `# title: ...` global tag, else the fallback. */
@@ -69,6 +71,7 @@ export function buildWebPage(o: WebPageOptions): string {
     ui: getLanguage(),
     strings: { zh: strings("zh"), en: strings("en") },
     languageVar: o.languageVar ?? null,
+    mapImage: o.mapImage ?? null,
     languages: STORY_LANGUAGES,
     loopMs: LOOP_SECONDS * 1000,
     fx: FX,
@@ -86,6 +89,7 @@ export function buildWebPage(o: WebPageOptions): string {
 <main>
 <h1>${escapeHtml(o.title)}</h1>
 <div id="hud" hidden></div>
+<div id="map" hidden></div>
 <div id="story"></div>
 <div id="hands" hidden></div>
 <div id="choices"></div>
@@ -136,6 +140,21 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #choices button .need.missing { color: #c33; }
 #choices button:disabled { opacity: 0.55; cursor: default; }
 #choices button:disabled:hover { border-color: var(--line); }
+#map { position: relative; width: 100%; margin: 0 0 1.2em; border-radius: 8px; overflow: hidden; background: var(--line); }
+#map img { display: block; width: 100%; height: 100%; }
+#map svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#map line { stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
+#map line.dim { stroke-dasharray: 4 4; opacity: 0.5; }
+#map .place { position: absolute; transform: translate(-50%, -50%); min-width: 44px; min-height: 32px; padding: 2px 8px; display: flex; align-items: center; justify-content: center; gap: 4px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; font-size: 0.8em; white-space: nowrap; }
+#map button.place { cursor: pointer; }
+#map .place.unknown { color: var(--muted); border-style: dashed; }
+#map .place.here { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+#map .place.go { border-color: var(--accent); animation: go 1.2s ease-in-out infinite; }
+@keyframes go { 50% { box-shadow: 0 0 0 4px var(--accent); } }
+#map .counter { min-width: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 0.75em; text-align: center; }
+#map .token { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #c33; color: #fff; font-size: 0.7em; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%); border: 2px solid var(--bg); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { #map .place.go { animation: none; } }
 #hands { margin-top: 1.2em; }
 #hands .hand { margin-bottom: 0.5em; }
 #hands .name { font-size: 0.8em; color: var(--muted); }
@@ -210,7 +229,7 @@ const PLAYER = `(function () {
   var G = cfg.game && window.InkwrightGame ? window.InkwrightGame : null;
   var engine = G ? new G.GameEngine(cfg.game) : null;
   var playable = cfg.game ? cfg.game.characters.filter(function (c) { return c.playable !== false; }) : [];
-  var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice"), handsEl = document.getElementById("hands");
+  var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice"), handsEl = document.getElementById("hands"), mapEl = document.getElementById("map");
   var charEl = document.getElementById("character"), CHAR_KEY = "inkwright-character:" + cfg.id;
   if (engine) engine.setup(story, storage(true, CHAR_KEY) || undefined);
 
@@ -229,6 +248,76 @@ const PLAYER = `(function () {
     var lang = language() || cfg.ui, found = null;
     cfg.game.skills.forEach(function (k) { if (k.id === id) found = k; });
     return { name: found ? G.localize(found.name, lang, id) : id, color: found && found.voice ? found.voice.color : null };
+  }
+
+  // The map: the image (or a plain board), lines between linked places, the places (a question mark until revealed,
+  // a ring where the player stands, pulsing when a choice goes there; tapping one takes that choice), counters and tokens.
+  function renderMap() {
+    var choices = story.currentChoices.map(function (c) { return { index: c.index, tags: c.tags || [] }; });
+    var m = engine ? engine.map(choices) : null;
+    mapEl.textContent = "";
+    mapEl.hidden = !m;
+    if (!m) return;
+    mapEl.style.aspectRatio = m.width + " / " + m.height;
+    if (cfg.mapImage) {
+      var img = document.createElement("img");
+      img.src = cfg.mapImage;
+      img.alt = "";
+      mapEl.appendChild(img);
+    }
+    var NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + m.width + " " + m.height);
+    svg.setAttribute("preserveAspectRatio", "none");
+    var byId = {}, drawn = {};
+    m.places.forEach(function (p) { byId[p.id] = p; });
+    m.places.forEach(function (p) {
+      p.links.forEach(function (l) {
+        var q = byId[l], key = [p.id, l].sort().join("|");
+        if (!q || drawn[key]) return;
+        drawn[key] = true;
+        var line = document.createElementNS(NS, "line");
+        line.setAttribute("x1", p.x); line.setAttribute("y1", p.y); line.setAttribute("x2", q.x); line.setAttribute("y2", q.y);
+        if (!p.revealed || !q.revealed) line.setAttribute("class", "dim");
+        svg.appendChild(line);
+      });
+    });
+    mapEl.appendChild(svg);
+    var pct = function (v, of) { return (v / of * 100) + "%"; };
+    m.places.forEach(function (p) {
+      var goes = p.go !== undefined, el = document.createElement(goes ? "button" : "div"), n = document.createElement("span");
+      el.className = "place" + (p.revealed ? "" : " unknown") + (p.here ? " here" : "") + (goes ? " go" : "");
+      if (goes) el.type = "button";
+      el.style.left = pct(p.x, m.width);
+      el.style.top = pct(p.y, m.height);
+      n.textContent = p.revealed ? p.name : "?";
+      el.appendChild(n);
+      if (p.revealed && p.counter) {
+        var c = document.createElement("span");
+        c.className = "counter";
+        c.textContent = p.counter.value;
+        c.title = p.counter.name;
+        el.appendChild(c);
+      }
+      if (goes) {
+        var choice = story.currentChoices.filter(function (c) { return c.index === p.go; })[0];
+        el.onclick = function () { choose(p.go, choice ? choice.text : p.name, null); };
+      }
+      mapEl.appendChild(el);
+    });
+    var stacks = {};
+    m.tokens.forEach(function (t) {
+      var p = t.at ? byId[t.at] : null;
+      if (!p) return;
+      var k = stacks[p.id] || 0, tok = document.createElement("span");
+      stacks[p.id] = k + 1;
+      tok.className = "token";
+      tok.textContent = Array.from(t.name)[0] || "";
+      tok.title = t.name;
+      if (t.color) tok.style.background = t.color;
+      tok.style.left = "calc(" + pct(p.x, m.width) + " + " + (k * 14) + "px)";
+      tok.style.top = "calc(" + pct(p.y, m.height) + " - 22px)";
+      mapEl.appendChild(tok);
+    });
   }
 
   // Each hand as a row of cards: tap one to pick it (its description shows under the row), tap again to put it back.
@@ -383,6 +472,7 @@ const PLAYER = `(function () {
       }
       if (fresh && i >= shown && e.fx) fx = fx.concat(e.fx);
     });
+    renderMap();
     renderHands();
     choicesEl.textContent = "";
     story.currentChoices.forEach(function (c) {

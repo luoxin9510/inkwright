@@ -135,6 +135,24 @@
 .inkwright-need-missing { color: var(--text-error); }
 .inkwright-choice-locked { opacity: 0.6; cursor: default; }
 .inkwright-choice-pick { display: block; font-size: var(--font-smaller); color: var(--text-muted); }
+/* Map: the image (or a plain board) with lines between linked places, the places, their counters and tokens. */
+.inkwright-map { position: relative; width: 100%; aspect-ratio: var(--inkwright-map-ratio, 4 / 3); margin-top: 12px; border-radius: 8px; overflow: hidden; background: var(--background-secondary); }
+.inkwright-map-board { border: 1px solid var(--background-modifier-border); }
+.inkwright-map-image { display: block; width: 100%; height: 100%; }
+.inkwright-map-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.inkwright-map-links line { stroke: var(--text-muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.inkwright-map-links line.inkwright-link-dim { stroke-dasharray: 4 4; opacity: 0.5; }
+.inkwright-place { position: absolute; transform: translate(-50%, -50%); min-width: 44px; min-height: 32px; padding: 2px 8px; display: flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-primary); color: var(--text-normal); font-size: var(--font-smaller); box-shadow: none; white-space: nowrap; }
+button.inkwright-place { cursor: pointer; }
+.inkwright-place-hidden { color: var(--text-muted); border-style: dashed; }
+.inkwright-place-here { border-color: var(--interactive-accent); box-shadow: 0 0 0 2px var(--interactive-accent); }
+.inkwright-place-go { border-color: var(--interactive-accent); animation: inkwright-go 1.2s ease-in-out infinite; }
+@keyframes inkwright-go { 50% { box-shadow: 0 0 0 4px var(--interactive-accent); } }
+.inkwright-place-counter { min-width: 18px; padding: 0 4px; border-radius: 9px; background: var(--interactive-accent); color: var(--text-on-accent); font-size: var(--font-smallest); text-align: center; }
+.inkwright-token { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: var(--inkwright-token, var(--color-red)); color: white; font-size: var(--font-smallest); display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%); border: 2px solid var(--background-primary); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .inkwright-place-go { animation: none; }
+}
 /* Hands: a row of cards between the text and the choices; tap one to pick it (and read it), tap again to put it back. */
 .inkwright-hands { margin-top: 12px; }
 .inkwright-hand { margin-bottom: 8px; }

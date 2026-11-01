@@ -31,6 +31,9 @@ const configZh: ConfigMessages = {
   tableRow: (id, n) => `随机表 "${id}" 第 ${n} 行没有文字`,
   tableFile: (id, path) => `随机表 "${id}":找不到笔记 "${path}",或者它里面没有表格`,
   deckCards: (id) => `牌堆 "${id}" 一张牌都没有`,
+  mapPlaces: () => "map 里一个地点都没有",
+  mapLink: (place, link) => `地点 "${place}" 的 links 里有未定义的地点 "${link}"`,
+  mapPlace: (token, place) => `记号 "${token}" 的起始地点 "${place}" 未定义`,
 };
 
 const configEn: ConfigMessages = {
@@ -59,6 +62,9 @@ const configEn: ConfigMessages = {
   tableRow: (id, n) => `table "${id}": row ${n} has no text`,
   tableFile: (id, path) => `table "${id}": note "${path}" not found, or it has no markdown table`,
   deckCards: (id) => `deck "${id}" has no cards`,
+  mapPlaces: () => "map has no places",
+  mapLink: (place, link) => `place "${place}" links to an unknown place "${link}"`,
+  mapPlace: (token, place) => `token "${token}" starts at an unknown place "${place}"`,
 };
 
 const zh = {

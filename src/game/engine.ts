@@ -1,6 +1,6 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -98,6 +98,37 @@ export interface ChoicePlay {
   name: string;
   cards: CardView[];
   known: boolean;
+}
+
+/** A place as the map draws it: position in map units, whether it is revealed, whether the player is there, and which choice goes there. */
+export interface PlaceView {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  links: string[];
+  revealed: boolean;
+  here: boolean;
+  counter?: { name: string; value: number };
+  /** Index of the choice tagged `#go:<this place>`, when one is offered. */
+  go?: number;
+}
+
+export interface TokenView {
+  id: string;
+  name: string;
+  color?: string;
+  /** The place it stands on, or null when off the map. */
+  at: string | null;
+}
+
+/** The map as the panel draws it; coordinates are in `width` x `height` units. */
+export interface MapView {
+  image?: string;
+  width: number;
+  height: number;
+  places: PlaceView[];
+  tokens: TokenView[];
 }
 
 /** A resource pushed outside its min..max by the story and clamped back. */
@@ -357,6 +388,46 @@ export class GameEngine {
   playPayload(hand: string, card: string): Payload | null {
     if (!this.cardsIn(hand).some((c) => c.id === card)) return null;
     return { var: inkNames(this.config).played, item: card };
+  }
+
+  /** The place a choice goes to (`#go:<place>`), or null. */
+  goOf(choice: { tags: string[] }): string | null {
+    for (const tag of choice.tags) {
+      const id = parseGoTag(tag);
+      if (id !== null) return id;
+    }
+    return null;
+  }
+
+  /** The map with the story's state read into it: where the player is, what is revealed, where tokens stand; null when the game has no map. */
+  map(choices: { index: number; tags: string[] }[] = []): MapView | null {
+    const def = this.config.map;
+    if (!def || def.places.length === 0) return null;
+    const names = inkNames(this.config);
+    const here = this.read(names.here);
+    const revealed = this.read(names.revealed);
+    // A place is tappable for the first open choice going there; a locked choice (item missing, empty hand) or one that also needs a card picked stays a button only.
+    const goes = new Map<string, number>();
+    for (const c of choices) {
+      const place = this.goOf(c);
+      if (place !== null && !goes.has(place) && this.canChoose(c) && this.playOf(c) === null) goes.set(place, c.index);
+    }
+    const placeOf = (v: unknown): string | null => def.places.find((p) => carries(v, p.id))?.id ?? null;
+    return {
+      ...(def.image ? { image: def.image } : {}),
+      width: def.width ?? 100,
+      height: def.height ?? 100,
+      places: def.places.map((p) => {
+        const go = goes.get(p.id);
+        const counter = p.counter === undefined ? undefined : { name: localize(p.counterName, this.language, p.counter), value: Number(this.read(p.counter) ?? 0) };
+        return {
+          id: p.id, name: localize(p.name, this.language, p.id), x: p.x, y: p.y, links: p.links ?? [],
+          revealed: !p.hidden || carries(revealed, p.id), here: carries(here, p.id),
+          ...(counter ? { counter } : {}), ...(go === undefined ? {} : { go }),
+        };
+      }),
+      tokens: (def.tokens ?? []).map((t) => ({ id: t.id, name: localize(t.name, this.language, t.id), ...(t.color ? { color: t.color } : {}), at: placeOf(this.read(`${t.id}${names.atSuffix}`)) })),
+    };
   }
 
   /** A card's name in the current language (its id when the config does not know it). */

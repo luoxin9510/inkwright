@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, moment, normalizePath, type WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, arrayBufferToBase64, moment, normalizePath, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -150,6 +150,27 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.apply(this.session.choose(index, payload));
   }
 
+  /** The map's image file, looked up next to the story first, then as a vault path; null when there is none. */
+  private mapFile(config: GameConfig, storyPath: string): TFile | null {
+    const image = config.map?.image;
+    if (!image) return null;
+    const dir = storyPath.slice(0, storyPath.lastIndexOf("/") + 1);
+    for (const p of [normalizePath(dir + image), normalizePath(image)]) {
+      const file = this.app.vault.getAbstractFileByPath(p);
+      if (file instanceof TFile) return file;
+    }
+    return null;
+  }
+
+  /** The map's image as a data URI for the exported page; undefined when there is none. */
+  private async mapDataUri(config: GameConfig, storyPath: string): Promise<string | undefined> {
+    const file = this.mapFile(config, storyPath);
+    if (!file) return undefined;
+    const mime: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
+    const data = await this.app.vault.readBinary(file);
+    return `data:${mime[file.extension.toLowerCase()] ?? "application/octet-stream"};base64,${arrayBufferToBase64(data)}`;
+  }
+
   /** A choice made, its text carrying the name of the card it was played with. */
   private withCard(c: Chosen): { text: string; at: number } {
     const card = c.payload && "item" in c.payload && this.game ? this.game.cardName(c.payload.item) : null;
@@ -286,14 +307,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     const out = exportFileName(path);
     const fallback = out.slice(out.lastIndexOf("/") + 1).replace(/\.html$/, "");
+    const game = await this.gameConfigFor(path);
     const html = buildWebPage({
       title: storyTitle(result.story.globalTags, fallback),
       storyJson: result.story.ToJson() as string,
       runtime: INK_RUNTIME,
       id: path,
       languageVar: findLanguageVar(result.story),
-      game: (await this.gameConfigFor(path)) ?? undefined,
+      game: game ?? undefined,
       engine: GAME_ENGINE,
+      mapImage: game ? await this.mapDataUri(game, path) : undefined,
     });
     const existing = this.app.vault.getAbstractFileByPath(out);
     if (existing instanceof TFile) await this.app.vault.modify(existing, html);
@@ -557,6 +580,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
       needs: (step?.choices ?? []).map((c) => game.needsOf(c)),
       plays: (step?.choices ?? []).map((c) => game.playOf(c)),
+      map: game.map(step?.choices ?? []),
+      mapImage: this.root === null ? null : (() => { const f = this.mapFile(game.config, this.root); return f ? this.app.vault.getResourcePath(f) : null; })(),
       voices: this.session.log.map((p) => game.voiceOf(p)),
       turns: [...this.session.turns],
       rolls: game.rolls,

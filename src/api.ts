@@ -8,7 +8,7 @@ import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
 import { simulateStory, type SimulateOptions, type SimulateResult } from "./play/simulate";
-import type { ChoiceCheck, ChoicePlay, HudView, RollRecord, ChoiceNeed } from "./game/engine";
+import type { ChoiceCheck, ChoicePlay, HudView, MapView, RollRecord, ChoiceNeed } from "./game/engine";
 import type { ConfigProblem, GameConfig } from "./game/config";
 import type { Choice } from "./play/session";
 import type { PlayState } from "./views/PlayView";
@@ -81,7 +81,7 @@ export interface PanelReport extends Inspection {
   /** Whether the panel's top bar is pinned. */
   pinned: boolean;
   /** Game mode: the current character, check info per choice, resources and companions, dice log. */
-  game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; plays: (ChoicePlay | null)[]; hud: HudView; rolls: RollRecord[] } | null;
+  game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; plays: (ChoicePlay | null)[]; hud: HudView; map: MapView | null; rolls: RollRecord[] } | null;
 }
 
 const HELP = `Inkwright agent API — app.plugins.plugins.inkwright.api
@@ -124,7 +124,7 @@ Visible play panel (the user sees what you do):
                        game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance],
                          needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice],
                          plays[per choice: the hand a #play choice takes a card from, { hand, name, cards[{ id, name, desc, deck }], known }],
-                         hud (resources, companions, items carried, decks, hands), rolls }
+                         hud (resources, companions, items carried, decks, hands), map (places with here/revealed/counter/go, tokens), rolls }
   choose(indexOrText, card?)  make a choice in the panel; a #play choice needs the id of a card in its hand
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
@@ -246,7 +246,7 @@ export class InkwrightApi {
       diagnostics: plainDiagnostics(s.diagnostics),
       flows: s.flows,
       language: s.storyLanguage,
-      game: s.game ? { character: s.game.current, checks: s.game.checks, needs: s.game.needs, plays: s.game.plays, hud: s.game.hud, rolls: s.game.rolls } : null,
+      game: s.game ? { character: s.game.current, checks: s.game.checks, needs: s.game.needs, plays: s.game.plays, hud: s.game.hud, map: s.game.map, rolls: s.game.rolls } : null,
       ...insp,
     };
   }

@@ -4,7 +4,7 @@ import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
-import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, RollRecord } from "../game/engine";
+import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, MapView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
@@ -19,6 +19,9 @@ export interface GameView {
   needs: ChoiceNeed[][];
   /** The hand each choice plays a card from (`#play`), aligned with `choices`; null for other choices. */
   plays: (ChoicePlay | null)[];
+  /** The map with the state read into it; null when the game has none. `mapImage` is its image as a URL the panel can show. */
+  map: MapView | null;
+  mapImage: string | null;
   /** Speaking skill per paragraph, aligned with `log`. */
   voices: (string | null)[];
   /** The story's turn per paragraph, aligned with `log`; rolls are placed by it. */
@@ -151,6 +154,7 @@ export class PlayView extends ItemView {
 
     if (s.flows.length > 0) this.renderStartFrom(el, s);
     if (s.hasStory && s.game) this.renderHud(el, s.game);
+    if (s.hasStory && s.game?.map) this.renderMap(el, s.game.map, s.game.mapImage);
     if (s.inspection) this.renderInspector(el, s.inspection);
     if (s.hasStory && s.game) this.renderDice(el, s.game);
     if (s.hasStory && s.saves.length > 0) this.renderSaves(el, s);
@@ -329,6 +333,50 @@ export class PlayView extends ItemView {
     if (check.red) badge.createSpan({ cls: "inkwright-check-red", text: ` · ${T().redCheck}` });
     const parts = [`${name} ${check.level}`, ...check.modifiers.map((m) => `${m.value > 0 ? "+" : ""}${m.value} ${m.source}`)];
     button.title = parts.join(", ");
+  }
+
+  /** The map: the image (or a plain board), lines between linked places, each place (a question mark until revealed, a ring where the player stands, pulsing when a choice goes there), counters and tokens. */
+  private renderMap(el: HTMLElement, map: MapView, image: string | null): void {
+    const box = el.createDiv({ cls: `inkwright-map${image ? "" : " inkwright-map-board"}` });
+    box.setCssProps({ "--inkwright-map-ratio": `${map.width} / ${map.height}` });
+    if (image) box.createEl("img", { cls: "inkwright-map-image", attr: { src: image, alt: "" } });
+    const svg = box.createSvg("svg", { cls: "inkwright-map-links", attr: { viewBox: `0 0 ${map.width} ${map.height}`, preserveAspectRatio: "none" } });
+    const byId = new Map(map.places.map((p) => [p.id, p]));
+    const drawn = new Set<string>();
+    for (const p of map.places) {
+      for (const l of p.links) {
+        const q = byId.get(l);
+        const key = [p.id, l].sort().join("\n");
+        if (!q || drawn.has(key)) continue;
+        drawn.add(key);
+        svg.createSvg("line", { cls: p.revealed && q.revealed ? "" : "inkwright-link-dim", attr: { x1: p.x, y1: p.y, x2: q.x, y2: q.y } });
+      }
+    }
+    const at = (x: number, y: number) => ({ left: `${(x / map.width) * 100}%`, top: `${(y / map.height) * 100}%` });
+    for (const p of map.places) {
+      const cls = `inkwright-place${p.revealed ? "" : " inkwright-place-hidden"}${p.here ? " inkwright-place-here" : ""}${p.go === undefined ? "" : " inkwright-place-go"}`;
+      const place = p.go === undefined ? box.createDiv({ cls }) : box.createEl("button", { cls });
+      place.setCssProps(at(p.x, p.y));
+      place.createSpan({ cls: "inkwright-place-name", text: p.revealed ? p.name : "?" });
+      if (p.revealed && p.counter) place.createSpan({ cls: "inkwright-place-counter", text: String(p.counter.value), attr: { title: p.counter.name } });
+      const go = p.go;
+      if (go !== undefined) {
+        place.onclick = () => {
+          this.afterChoice = true;
+          this.controller.choose(go);
+        };
+      }
+    }
+    // Tokens stand on their place, side by side when several share one.
+    const stacks = new Map<string, number>();
+    for (const t of map.tokens) {
+      const p = t.at === null ? undefined : byId.get(t.at);
+      if (!p) continue;
+      const k = stacks.get(p.id) ?? 0;
+      stacks.set(p.id, k + 1);
+      const token = box.createSpan({ cls: "inkwright-token", text: Array.from(t.name)[0] ?? "", attr: { title: t.name } });
+      token.setCssProps({ left: `calc(${(p.x / map.width) * 100}% + ${k * 14}px)`, top: `calc(${(p.y / map.height) * 100}% - 22px)`, ...(t.color ? { "--inkwright-token": t.color } : {}) });
+    }
   }
 
   /** Each hand as a row of cards (tap to pick one, tap again to put it back); the picked card's description shows under the row. */
