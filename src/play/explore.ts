@@ -4,7 +4,7 @@ import type { Band } from "../game/dice";
 import { GameEngine } from "../game/engine";
 import { formatValue } from "./inspect";
 import { placeName, storyShape, type StoryShape } from "./relevance";
-import { PlaySession, type SaveData } from "./session";
+import { PlaySession, type Payload, type SaveData } from "./session";
 import { seededRandom } from "./simulate";
 
 export interface ExploreOptions {
@@ -74,6 +74,8 @@ export interface ExploreResult {
     noConsequence: { choices: string[]; skill: string; difficulty: number }[];
     /** Choices whose `#needs:` names an item the config does not have (each once). */
     unknownNeeds: { choice: string; item: string }[];
+    /** Choices whose `#play:` names a hand the config does not have (each once). */
+    unknownHands: { choice: string; hand: string }[];
     /** Spots where every choice needs something not carried: the player is stuck there. */
     lockedOut: { choices: string[] }[];
     /** A resource (or a companion's, as `fear_yi`) the story pushed outside its min..max (the engine clamped it), first time each way. */
@@ -102,6 +104,9 @@ interface Move {
   plan: Band[];
   /** Whether the state this move starts from was fresh (not reached before) when it was queued. */
   fromFresh: boolean;
+  /** The card a `#play` choice is taken with, and how the path names the move. */
+  payload?: Payload;
+  label?: string;
 }
 
 /** What a saved state looks like to the explorer. */
@@ -145,6 +150,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
       rng: seededRandom(1),
     })
     : null;
+  // Cards in the paths are named in the story's language.
+  if (engine && options.language === "en") engine.language = "en";
   const json = story.ToJson() as string;
   // In game mode a fresh Story per exploration: the engine binds the check function, which a Story takes only once.
   const session = new PlaySession(engine ? new Story(json) : story, {
@@ -165,8 +172,8 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0,
     coverage: { places: { total: shape.places.length, reached: [], missed: [] }, choices: { total: shape.choices.length, offered: 0, taken: 0, missed: [] } },
   };
-  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], lockedOut: [], outOfRange: [] };
-  // Game mode: a choice that needs an item not carried cannot be taken, so it is not played.
+  if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], unknownHands: [], lockedOut: [], outOfRange: [] };
+  // Game mode: a choice that needs an item not carried (or plays from an empty hand) cannot be taken, so it is not played.
   const seenUnknown = new Set<string>();
   const open = <C extends { text: string; tags: string[] }>(choices: C[]): C[] => {
     if (!engine) return choices;
@@ -177,9 +184,25 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
           result.checks?.unknownNeeds.push({ choice: c.text, item: n.id });
         }
       }
+      const play = engine.playOf(c);
+      if (play && !play.known && !seenUnknown.has(`${c.text}\nplay:${play.hand}`)) {
+        seenUnknown.add(`${c.text}\nplay:${play.hand}`);
+        result.checks?.unknownHands.push({ choice: c.text, hand: play.hand });
+      }
       return engine.canChoose(c);
     });
   };
+  /** The moves from a state: one per open choice; a choice that plays from a hand gets one per card in it. */
+  const movesFrom = (save: SaveData, path: string[], choices: (ChoiceRef & { tags: string[] })[], info: StateInfo, fromFresh: boolean): Move[] =>
+    choices.flatMap((choice) => {
+      const base: Move = { save, path, choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh };
+      const play = engine?.playOf(choice);
+      if (!play || !engine) return [base];
+      return play.cards.flatMap((card) => {
+        const payload = engine.playPayload(play.hand, card.id);
+        return payload ? [{ ...base, payload, label: `${choice.text} ▸ ${card.name}` }] : [];
+      });
+    });
   const seenRange = new Set<string>();
   /** Reports the resources the story pushed out of range on the way here; true when it pushed any. */
   const checkRange = (path: string[]): boolean => {
@@ -296,8 +319,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     const info = stateInfo(start.state, hidden, shape);
     cover(info);
     if (unseen(info)) {
-      const choices = open(first.choices);
-      for (const choice of choices) queue.push({ save: start, path: [], choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh: true });
+      queue.push(...movesFrom(start, [], open(first.choices), info, true));
     }
   }
 
@@ -313,9 +335,10 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     session.load(move.save);
     plan = move.plan;
     met = [];
-    const step = session.choose(move.choice.index);
+    const step = session.choose(move.choice.index, move.payload);
     taken.add(move.point);
-    const label = met.length > 0 ? `${move.choice.text} [${met.map((c) => c.skill + MARK[c.band]).join(" ")}]` : move.choice.text;
+    const text = move.label ?? move.choice.text;
+    const label = met.length > 0 ? `${text} [${met.map((c) => c.skill + MARK[c.band]).join(" ")}]` : text;
     const path = [...move.path, label];
     // A check met for the first time on this move gets a sibling move per other outcome.
     for (let k = move.plan.length; k < met.length; k++) {
@@ -350,9 +373,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     // A sibling move exists to show its outcome's path, so it goes on once even into a state
     // seen before (a retry that changes nothing); from there the usual rule holds again.
     const fresh = unseen(info);
-    if (fresh || (move.plan.length > 0 && move.fromFresh)) {
-      for (const choice of choices) queue.push({ save: after, path, choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh: fresh });
-    }
+    if (fresh || (move.plan.length > 0 && move.fromFresh)) queue.push(...movesFrom(after, path, choices, info, fresh));
   }
   result.cappedSpots = capped.size;
   result.steps = Math.min(maxSteps, maxSteps - steps);

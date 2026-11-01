@@ -64,6 +64,8 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
   const maxSteps = options.maxSteps ?? 1000;
   const random = seededRandom(options.seed ?? 1);
   const engine = options.game ? new GameEngine(options.game, { rng: random }) : null;
+  // Cards in the paths are named in the story's language.
+  if (engine && options.language === "en") engine.language = "en";
   // A fresh Story: the one given may be mid-play, and the engine binds its check function once per Story.
   const session = new PlaySession(new Story(story.ToJson() as string), {
     language: options.language,
@@ -98,8 +100,12 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
         break;
       }
       const pick = open[Math.floor(random() * open.length)];
-      path.push(pick.text);
-      step = session.choose(pick.index);
+      // A choice that plays from a hand is taken with a random card in it.
+      const play = engine?.playOf(pick);
+      const card = play && play.cards.length > 0 ? play.cards[Math.floor(random() * play.cards.length)] : null;
+      const payload = engine && play && card ? engine.playPayload(play.hand, card.id) ?? undefined : undefined;
+      path.push(card ? `${pick.text} ▸ ${card.name}` : pick.text);
+      step = session.choose(pick.index, payload);
       steps++;
     }
     stepCounts.push(steps);

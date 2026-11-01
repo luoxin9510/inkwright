@@ -126,6 +126,7 @@ for (const file of files) {
         warnings.push(`${tag}failing ${c.skill} ${c.difficulty} changes nothing (no variable, same choices): ${c.choices.join(" > ")}`);
       }
       for (const u of x.checks?.unknownNeeds ?? []) warnings.push(`${tag}choice "${u.choice}" needs an item the game note does not have: ${u.item}`);
+      for (const u of x.checks?.unknownHands ?? []) warnings.push(`${tag}choice "${u.choice}" plays from a hand the game note does not have: ${u.hand}`);
       for (const l of x.checks?.lockedOut ?? []) runtime.push(`${tag}stuck: every choice needs an item not carried (after: ${l.choices.join(" > ") || "start"})`);
       for (const o of x.checks?.outOfRange ?? []) warnings.push(`${tag}${o.resource} pushed to ${o.value}, outside ${o.min}..${o.max} and clamped (after: ${o.choices.join(" > ") || "start"})`);
     }

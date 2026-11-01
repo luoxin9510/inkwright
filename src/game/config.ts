@@ -103,6 +103,16 @@ export interface DeckDef {
   cards: CardDef[];
 }
 
+/**
+ * A hand: a list variable of cards the panel shows as a row of cards (`VAR <id> = ()` is generated;
+ * the story adds and removes: `~ hand += draw("clues")`). A choice tagged `#play:<id>` is taken with
+ * one of its cards: the engine writes the card into the `played` VAR, the story reads it.
+ */
+export interface HandDef {
+  id: string;
+  name?: LocalizedText;
+}
+
 /** Where "write this session to a note" puts its note: a path with `{dir}`, `{story}`, `{date}`, `{time}`, `{character}`. */
 export interface JournalConfig {
   path?: string;
@@ -151,6 +161,8 @@ export interface GameConfig {
   tables?: TableDef[];
   /** Decks the story draws from (`draw("id")`). */
   decks?: DeckDef[];
+  /** Hands of cards the panel shows and the player plays from (`#play:<hand>`). */
+  hands?: HandDef[];
   modifiers?: ModifierRule[];
   /** Where the play log is written as a note. */
   journal?: JournalConfig;
@@ -204,6 +216,8 @@ export interface InkNames {
   deckLeft: string;
   nthCard: string;
   pileSuffix: string;
+  /** VAR the engine writes the card chosen for a `#play` choice into, before the choice is taken. */
+  played: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -222,7 +236,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     check: "check", skillValue: "skill_level", characters: "characters", current: "character", select: "pick_character",
     seed: "dice_seed", rolls: "dice_rolls", items: "items", inventory: "inv", langVar: "lang", textFn: "t",
     dice: "roll_dice", roll: "roll", table: "table", tableRoll: "table_roll", tableText: "table_text", tableId: "table_id",
-    draw: "draw", shuffle: "shuffle", deckLeft: "deck_left", nthCard: "nth_card", pileSuffix: "_pile",
+    draw: "draw", shuffle: "shuffle", deckLeft: "deck_left", nthCard: "nth_card", pileSuffix: "_pile", played: "played",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
     deckParam: "deck", stackParam: "stack", kParam: "k",
   },
@@ -230,7 +244,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
     seed: "骰子种子", rolls: "掷骰次数", items: "物品", inventory: "背包", langVar: "语言", textFn: "双",
     dice: "掷骰", roll: "掷", table: "查表", tableRoll: "掷表", tableText: "表文", tableId: "表号",
-    draw: "抽牌", shuffle: "洗牌", deckLeft: "剩余牌数", nthCard: "第几张", pileSuffix: "_牌堆",
+    draw: "抽牌", shuffle: "洗牌", deckLeft: "剩余牌数", nthCard: "第几张", pileSuffix: "_牌堆", played: "出牌",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
     deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
@@ -286,6 +300,13 @@ export function parseVoiceTag(tag: string, config: GameConfig): string | null {
 export function parseNeedsTag(tag: string): string | null {
   const parts = tag.trim().split(":").map((p) => p.trim());
   if (parts[0] !== "needs" || parts.length !== 2 || parts[1] === "") return null;
+  return parts[1];
+}
+
+/** `play:<hand>` on a choice → the hand id; the engine decides whether it exists and holds a card. */
+export function parsePlayTag(tag: string): string | null {
+  const parts = tag.trim().split(":").map((p) => p.trim());
+  if (parts[0] !== "play" || parts.length !== 2 || parts[1] === "") return null;
   return parts[1];
 }
 
@@ -398,6 +419,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of d.cards) ident(c.id);
     if (d.cards.length === 0) bad("deckCards", d.id);
   }
+  for (const h of config.hands ?? []) ident(h.id);
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
@@ -513,6 +535,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("tables", false, (e) => opt(e.name, isText) && opt(e.dice, (v) => isStr(v) || isNum(v)) && opt(e.from, isStr) && opt(e.rows, (v) => Array.isArray(v) && v.every(row)));
   const card = (c: unknown) => isObj(c) && isStr(c.id) && opt(c.name, isText) && opt(c.desc, isText);
   entries("decks", false, (e) => opt(e.name, isText) && Array.isArray(e.cards) && e.cards.every(card));
+  entries("hands", false, (e) => opt(e.name, isText));
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
@@ -537,6 +560,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     items: (fm.items ?? []) as ItemDef[],
     tables: (Array.isArray(fm.tables) ? fm.tables : []).filter(isObj).map(readTable),
     decks: (fm.decks ?? []) as DeckDef[],
+    hands: (fm.hands ?? []) as HandDef[],
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,

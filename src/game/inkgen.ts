@@ -138,7 +138,7 @@ export function generateInk(config: GameConfig): string {
   const decks = config.decks ?? [];
   if (decks.length > 0) {
     const first = decks[0];
-    lines.push("", `// Decks: ${n.draw}("${first.id}") takes a random card out of the pile (an empty list once none is left); ${n.shuffle} puts them all back; ${n.deckLeft} counts the pile. A hand is a list the story keeps: ~ hand += ${n.draw}("${first.id}").`);
+    lines.push("", `// Decks: ${n.draw}("${first.id}") takes a random card out of the pile (an empty list once none is left); ${n.shuffle} puts them all back; ${n.deckLeft} counts the pile. A hand is a list the story keeps (declared under hands to show as cards): ~ hand += ${n.draw}("${first.id}").`);
     for (const d of decks) {
       const ids = d.cards.map((c) => c.id).join(", ");
       lines.push(`LIST ${d.id} = ${ids}`, `VAR ${d.id}${n.pileSuffix} = (${ids})`);
@@ -164,6 +164,14 @@ export function generateInk(config: GameConfig): string {
     lines.push("", `=== function ${n.deckLeft}(${n.deckParam}) ===`);
     for (const d of decks) lines.push(`{ ${n.deckParam} == "${d.id}":`, `    ~ return LIST_COUNT(${d.id}${n.pileSuffix})`, "}");
     lines.push("~ return 0");
+  }
+  // Hands: the panel shows each as a row of cards; a choice tagged `#play:<hand>` is taken with one
+  // of them, which the engine writes into the played VAR first.
+  const hands = config.hands ?? [];
+  if (hands.length > 0) {
+    lines.push("", `// Hands: shown as cards in the panel; the story fills them (~ ${hands[0].id} += ${n.draw}("…")). A choice tagged #play:${hands[0].id} puts the card the player picked into ${n.played} before the choice runs: ~ ${hands[0].id} -= ${n.played}.`);
+    for (const h of hands) lines.push(`VAR ${h.id} = ()`);
+    lines.push(`VAR ${n.played} = ()`);
   }
   return lines.join("\n") + "\n";
 }

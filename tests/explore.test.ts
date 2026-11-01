@@ -84,7 +84,7 @@ test("game mode walks the success and the failure of every check, marking the ou
     [["走"], "走了。"],
     [["撬 [力量✗]", "走"], "走了。"],
   ]);
-  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [], lockedOut: [], outOfRange: [] });
+  expect(r.checks).toEqual({ walked: 2, noConsequence: [], unknownNeeds: [], unknownHands: [], lockedOut: [], outOfRange: [] });
   expect(r.truncated).toBe(false);
 });
 

@@ -4,7 +4,7 @@ import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
-import type { ChoiceCheck, ChoiceNeed, HudView, RollRecord } from "../game/engine";
+import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
@@ -17,6 +17,8 @@ export interface GameView {
   checks: (ChoiceCheck | null)[];
   /** Items each choice needs, aligned with `choices`; a missing one locks the choice. */
   needs: ChoiceNeed[][];
+  /** The hand each choice plays a card from (`#play`), aligned with `choices`; null for other choices. */
+  plays: (ChoicePlay | null)[];
   /** Speaking skill per paragraph, aligned with `log`. */
   voices: (string | null)[];
   /** The story's turn per paragraph, aligned with `log`; rolls are placed by it. */
@@ -56,7 +58,8 @@ export interface PlayController {
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
   startAt(path: string | null): void;
-  choose(index: number): void;
+  /** Takes a choice; a `#play` choice is taken with the id of a card picked from its hand. */
+  choose(index: number, card?: string): void;
   setStoryLanguage(lang: string): void;
   selectCharacter(id: string): void;
   toggleLock(): void;
@@ -74,6 +77,9 @@ export class PlayView extends ItemView {
   private shownLog = 0;
   /** Set when a choice button was clicked, so the next text that arrives is scrolled to. */
   private afterChoice = false;
+  /** The card tapped in a hand, for the next `#play` choice; forgotten when the choices change. */
+  private picked: { hand: string; card: string } | null = null;
+  private pickedAt = "";
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -214,22 +220,32 @@ export class PlayView extends ItemView {
     for (const msg of s.runtimeErrors) story.createDiv({ cls: "inkwright-diag inkwright-diag-error", text: msg });
     if (s.ended) story.createEl("p", { text: T().ended, cls: "inkwright-ended" });
 
+    // A card picked in a hand belongs to this spot: the next text, or other choices, drop it.
+    const spot = `${s.root ?? ""}\n${s.log.length}\n${s.choices.map((c) => c.text).join("\n")}`;
+    if (spot !== this.pickedAt) this.picked = null;
+    this.pickedAt = spot;
+    if (s.game?.hud.hands) this.renderHands(el, s.game.hud.hands);
+
     const choices = el.createDiv({ cls: "inkwright-choices" });
     s.choices.forEach((c, i) => {
-      const button = choices.createEl("button", { text: c.text, cls: "inkwright-choice" });
+      const play = s.game?.plays[i] ?? null;
+      const card = play && this.picked?.hand === play.hand ? play.cards.find((k) => k.id === this.picked?.card) : undefined;
+      const button = choices.createEl("button", { text: card ? `${c.text} · ${card.name}` : c.text, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
       const needs = s.game?.needs[i] ?? [];
       for (const need of needs) {
         button.createSpan({ cls: `inkwright-need${need.has ? "" : " inkwright-need-missing"}`, text: `${T().needs} ${need.name}` });
       }
-      if (needs.some((n) => !n.has)) {
+      // A #play choice waits for a card from its hand; with no card to play it is locked like a missing item.
+      if (play && !card) button.createSpan({ cls: "inkwright-choice-pick", text: play.known && play.cards.length > 0 ? T().pickCard : `${play.name} · ${T().nothingCarried}` });
+      if (needs.some((n) => !n.has) || (play && !card)) {
         button.disabled = true;
         button.addClass("inkwright-choice-locked");
       }
       button.onclick = () => {
         this.afterChoice = true;
-        this.controller.choose(c.index);
+        this.controller.choose(c.index, card?.id);
       };
     });
     if (fresh) {
@@ -313,6 +329,34 @@ export class PlayView extends ItemView {
     if (check.red) badge.createSpan({ cls: "inkwright-check-red", text: ` · ${T().redCheck}` });
     const parts = [`${name} ${check.level}`, ...check.modifiers.map((m) => `${m.value > 0 ? "+" : ""}${m.value} ${m.source}`)];
     button.title = parts.join(", ");
+  }
+
+  /** Each hand as a row of cards (tap to pick one, tap again to put it back); the picked card's description shows under the row. */
+  private renderHands(el: HTMLElement, hands: HandView[]): void {
+    const wrap = el.createDiv({ cls: "inkwright-hands" });
+    for (const hand of hands) {
+      const box = wrap.createDiv({ cls: "inkwright-hand" });
+      const head = box.createDiv({ cls: "inkwright-hand-name", text: hand.name });
+      if (hand.cards.length === 0) {
+        head.createSpan({ cls: "inkwright-hand-empty", text: T().nothingCarried });
+        continue;
+      }
+      const row = box.createDiv({ cls: "inkwright-cards" });
+      const on = this.picked?.hand === hand.id ? hand.cards.find((c) => c.id === this.picked?.card) : undefined;
+      for (const card of hand.cards) {
+        const button = row.createEl("button", { cls: `inkwright-card${on?.id === card.id ? " inkwright-card-on" : ""}`, attr: { "aria-pressed": String(on?.id === card.id) } });
+        button.createSpan({ cls: "inkwright-card-deck", text: card.deckName });
+        button.createSpan({ cls: "inkwright-card-name", text: card.name });
+        button.onclick = () => {
+          this.picked = on?.id === card.id ? null : { hand: hand.id, card: card.id };
+          // Re-render in place: the rows keep their scroll position, so a card at the far end stays in view.
+          const scrolls = Array.from(this.contentEl.querySelectorAll<HTMLElement>(".inkwright-cards")).map((r) => r.scrollLeft);
+          this.render();
+          this.contentEl.querySelectorAll<HTMLElement>(".inkwright-cards").forEach((r, i) => { r.scrollLeft = scrolls[i] ?? 0; });
+        };
+      }
+      if (on) box.createEl("p", { cls: "inkwright-card-desc", text: on.desc ? T().cardDesc(on.name, on.desc) : on.name });
+    }
   }
 
   private renderHud(el: HTMLElement, game: GameView): void {

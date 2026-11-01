@@ -58,7 +58,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks,
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard,
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -87,6 +87,7 @@ export function buildWebPage(o: WebPageOptions): string {
 <h1>${escapeHtml(o.title)}</h1>
 <div id="hud" hidden></div>
 <div id="story"></div>
+<div id="hands" hidden></div>
 <div id="choices"></div>
 <details id="dice" hidden><summary></summary><ul></ul></details>
 <p id="end" hidden></p>
@@ -135,6 +136,18 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #choices button .need.missing { color: #c33; }
 #choices button:disabled { opacity: 0.55; cursor: default; }
 #choices button:disabled:hover { border-color: var(--line); }
+#hands { margin-top: 1.2em; }
+#hands .hand { margin-bottom: 0.5em; }
+#hands .name { font-size: 0.8em; color: var(--muted); }
+#hands .cards { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+#hands .card { flex: 0 0 auto; width: 92px; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+  text-align: left; font: inherit; font-size: 0.85em; line-height: 1.3; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  scroll-snap-align: start; transition: transform 120ms ease, border-color 120ms ease; }
+#hands .card .deck { font-size: 0.75em; color: var(--muted); }
+#hands .card .cardname { font-weight: 600; }
+#hands .card.on { border-color: var(--accent); transform: translateY(-6px); }
+#hands .desc { margin: 0.3em 0 0; font-size: 0.85em; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { #hands .card { transition: none; } #hands .card.on { transform: none; } }
 #dice { font-size: 0.8em; color: var(--muted); margin-top: 1.2em; }
 #dice summary { cursor: pointer; }
 #dice ul { margin: 0.4em 0 0; padding-left: 1.2em; }
@@ -188,7 +201,8 @@ const PLAYER = `(function () {
   var afterChoice = false; // a choice was clicked: the next text that arrives is scrolled to
   var history = [];  // [{ state, n }]: state before each choice, log length then
   var start = null;  // state at the beginning, to replay picks in another language
-  var picks = [];    // choice indexes since start
+  var picks = [];    // choices since start: an index, or { index, payload } for one taken with a card
+  var picked = null; // { hand, card }: the card tapped in a hand, for the next #play choice
   var replaying = false;
   var halted = false;  // the last step was stopped (loop or error); its state is not saved
   story.onError = function (msg) { log.push({ text: msg, kind: "error" }); };
@@ -196,7 +210,7 @@ const PLAYER = `(function () {
   var G = cfg.game && window.InkwrightGame ? window.InkwrightGame : null;
   var engine = G ? new G.GameEngine(cfg.game) : null;
   var playable = cfg.game ? cfg.game.characters.filter(function (c) { return c.playable !== false; }) : [];
-  var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice");
+  var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice"), handsEl = document.getElementById("hands");
   var charEl = document.getElementById("character"), CHAR_KEY = "inkwright-character:" + cfg.id;
   if (engine) engine.setup(story, storage(true, CHAR_KEY) || undefined);
 
@@ -215,6 +229,54 @@ const PLAYER = `(function () {
     var lang = language() || cfg.ui, found = null;
     cfg.game.skills.forEach(function (k) { if (k.id === id) found = k; });
     return { name: found ? G.localize(found.name, lang, id) : id, color: found && found.voice ? found.voice.color : null };
+  }
+
+  // Each hand as a row of cards: tap one to pick it (its description shows under the row), tap again to put it back.
+  function renderHands() {
+    var hands = engine ? engine.hud().hands : null;
+    handsEl.textContent = "";
+    handsEl.hidden = !hands;
+    if (!hands) return;
+    hands.forEach(function (hand) {
+      var box = document.createElement("div"), name = document.createElement("div");
+      box.className = "hand";
+      name.className = "name";
+      name.textContent = hand.name + (hand.cards.length ? "" : " · " + str().nothingCarried);
+      box.appendChild(name);
+      var on = picked && picked.hand === hand.id ? hand.cards.filter(function (c) { return c.id === picked.card; })[0] : null;
+      if (hand.cards.length) {
+        var row = document.createElement("div");
+        row.className = "cards";
+        hand.cards.forEach(function (card) {
+          var b = document.createElement("button"), d = document.createElement("span"), n = document.createElement("span");
+          b.type = "button";
+          b.className = "card" + (on && on.id === card.id ? " on" : "");
+          b.setAttribute("aria-pressed", on && on.id === card.id ? "true" : "false");
+          d.className = "deck";
+          d.textContent = card.deckName;
+          n.className = "cardname";
+          n.textContent = card.name;
+          b.appendChild(d);
+          b.appendChild(n);
+          b.onclick = function () {
+            picked = on && on.id === card.id ? null : { hand: hand.id, card: card.id };
+            // Re-render in place; the rows keep their scroll position.
+            var scrolls = Array.prototype.map.call(handsEl.querySelectorAll(".cards"), function (r) { return r.scrollLeft; });
+            render();
+            Array.prototype.forEach.call(handsEl.querySelectorAll(".cards"), function (r, i) { r.scrollLeft = scrolls[i] || 0; });
+          };
+          row.appendChild(b);
+        });
+        box.appendChild(row);
+      }
+      if (on) {
+        var p = document.createElement("p");
+        p.className = "desc";
+        p.textContent = on.desc ? on.name + ": " + on.desc : on.name;
+        box.appendChild(p);
+      }
+      handsEl.appendChild(box);
+    });
   }
 
   function renderHud() {
@@ -321,11 +383,16 @@ const PLAYER = `(function () {
       }
       if (fresh && i >= shown && e.fx) fx = fx.concat(e.fx);
     });
+    renderHands();
     choicesEl.textContent = "";
     story.currentChoices.forEach(function (c) {
       var b = document.createElement("button");
       b.type = "button";
-      b.textContent = c.text;
+      // A #play choice is taken with the card picked in its hand; until then it waits, and with no card to play it is locked.
+      var play = engine ? engine.playOf({ tags: c.tags || [] }) : null;
+      var card = play && picked && picked.hand === play.hand ? play.cards.filter(function (k) { return k.id === picked.card; })[0] : null;
+      var label = card ? c.text + " · " + card.name : c.text;
+      b.textContent = label;
       var check = engine ? engine.describeChoice({ tags: c.tags || [] }) : null;
       if (check) {
         var span = document.createElement("span");
@@ -342,8 +409,14 @@ const PLAYER = `(function () {
         need.textContent = str().needs + " " + n.name;
         b.appendChild(need);
       });
-      if (needs.some(function (n) { return !n.has; })) b.disabled = true;
-      b.onclick = function () { choose(c.index, c.text); };
+      if (play && !card) {
+        var wait = document.createElement("span");
+        wait.className = "need";
+        wait.textContent = play.known && play.cards.length ? str().pickCard : play.name + " · " + str().nothingCarried;
+        b.appendChild(wait);
+      }
+      if (needs.some(function (n) { return !n.has; }) || (play && !card)) b.disabled = true;
+      b.onclick = function () { choose(c.index, label, card ? engine.playPayload(play.hand, card.id) : null); };
       choicesEl.appendChild(b);
     });
     endEl.hidden = halted || story.currentChoices.length > 0;
@@ -484,18 +557,22 @@ const PLAYER = `(function () {
     render();
   }
 
-  function choose(index, text) {
+  // A payload writes a variable just before the choice runs: the card played (a list item by name) or text typed.
+  function choose(index, text, payload) {
     if (!replaying) afterChoice = true;
     var before = story.state.ToJson();
     try {
+      if (payload) story.variablesState[payload.var] = payload.item !== undefined ? inkjs.InkList.FromString(payload.item, story) : payload.text;
       story.ChooseChoiceIndex(index);
     } catch (e) {
+      story.state.LoadJson(before);
       fail(e);
       if (!replaying) render();
       return;
     }
     history.push({ state: before, n: log.length });
-    picks.push(index);
+    picks.push(payload ? { index: index, payload: payload } : index);
+    picked = null;
     log.push({ text: text, kind: "chosen", turn: story.state.currentTurnIndex });
     advance();
   }
@@ -522,15 +599,17 @@ const PLAYER = `(function () {
     var old = picks;
     story.state.LoadJson(start);
     applyLanguage();
+    if (engine) engine.language = language() || cfg.ui;  // the replayed choices name their cards in the new language
     start = story.state.ToJson();
     log = [];
     history = [];
     picks = [];
     replaying = true;
     advance();
-    old.forEach(function (i) {
+    old.forEach(function (p) {
+      var i = typeof p === "number" ? p : p.index, payload = typeof p === "number" ? null : p.payload;
       var c = story.currentChoices.filter(function (c) { return c.index === i; })[0];
-      if (c) choose(i, c.text);
+      if (c) choose(i, payload && payload.item !== undefined && engine ? c.text + " · " + engine.cardName(payload.item) : c.text, payload);
     });
     replaying = false;
     if (!halted) persist();
@@ -564,6 +643,7 @@ const PLAYER = `(function () {
     story.state.LoadJson(h.state);
     log.length = h.n;
     picks.pop();
+    picked = null;
     halted = false;
     persist();
     render();
