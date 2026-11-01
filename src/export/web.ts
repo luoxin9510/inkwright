@@ -17,6 +17,8 @@ export interface WebPageOptions {
   engine?: string;
   /** The map's image as a data URI (the page carries it along). */
   mapImage?: string;
+  /** Card art by card id, as data URIs. */
+  cardImages?: Record<string, string>;
 }
 
 /** Title from a `# title: ...` global tag, else the fallback. */
@@ -72,6 +74,7 @@ export function buildWebPage(o: WebPageOptions): string {
     strings: { zh: strings("zh"), en: strings("en") },
     languageVar: o.languageVar ?? null,
     mapImage: o.mapImage ?? null,
+    cardImages: o.cardImages ?? {},
     languages: STORY_LANGUAGES,
     loopMs: LOOP_SECONDS * 1000,
     fx: FX,
@@ -159,9 +162,14 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #hands .hand { margin-bottom: 0.5em; }
 #hands .name { font-size: 0.8em; color: var(--muted); }
 #hands .cards { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
-#hands .card { flex: 0 0 auto; width: 92px; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+#hands .card { flex: 0 0 auto; width: 92px; height: auto; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
   text-align: left; font: inherit; font-size: 0.85em; line-height: 1.3; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
   scroll-snap-align: start; transition: transform 120ms ease, border-color 120ms ease; }
+#hands .card.illustrated { width: 108px; padding: 0 0 8px; overflow: hidden; }
+#hands .card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+#hands .card.illustrated .deck, #hands .card.illustrated .cardname, #hands .card.illustrated .attrs { padding: 0 8px; }
+#hands .card .attrs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+#hands .card .attr { padding: 0 6px; border-radius: 9px; background: var(--line); color: var(--muted); font-size: 0.75em; white-space: nowrap; }
 #hands .card .deck { font-size: 0.75em; color: var(--muted); }
 #hands .card .cardname { font-weight: 600; }
 #hands .card.on { border-color: var(--accent); transform: translateY(-6px); }
@@ -338,15 +346,34 @@ const PLAYER = `(function () {
         row.className = "cards";
         hand.cards.forEach(function (card) {
           var b = document.createElement("button"), d = document.createElement("span"), n = document.createElement("span");
+          var art = card.image !== undefined ? cfg.cardImages[card.id] : null;
           b.type = "button";
-          b.className = "card" + (on && on.id === card.id ? " on" : "");
+          b.className = "card" + (on && on.id === card.id ? " on" : "") + (art ? " illustrated" : "");
           b.setAttribute("aria-pressed", on && on.id === card.id ? "true" : "false");
+          if (art) {
+            var img = document.createElement("img");
+            img.src = art;
+            img.alt = "";
+            b.appendChild(img);
+          }
           d.className = "deck";
           d.textContent = card.deckName;
           n.className = "cardname";
           n.textContent = card.name;
           b.appendChild(d);
           b.appendChild(n);
+          if (card.attrs && card.attrs.length) {
+            var attrs = document.createElement("div");
+            attrs.className = "attrs";
+            card.attrs.forEach(function (a) {
+              var span = document.createElement("span");
+              span.className = "attr";
+              span.textContent = a.name + " " + a.value;
+              span.title = a.name;
+              attrs.appendChild(span);
+            });
+            b.appendChild(attrs);
+          }
           b.onclick = function () {
             picked = on && on.id === card.id ? null : { hand: hand.id, card: card.id };
             // Re-render in place; the rows keep their scroll position.

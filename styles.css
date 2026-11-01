@@ -159,7 +159,12 @@ button.inkwright-place { cursor: pointer; }
 .inkwright-hand-name { font-size: var(--font-smaller); color: var(--text-muted); }
 .inkwright-hand-empty { margin-left: 0.5em; }
 .inkwright-cards { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
-.inkwright-card { flex: 0 0 auto; width: 92px; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; text-align: left; white-space: normal; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-primary); box-shadow: none; scroll-snap-align: start; transition: transform 120ms ease, border-color 120ms ease; }
+.inkwright-card { flex: 0 0 auto; width: 92px; height: auto; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; text-align: left; white-space: normal; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-primary); box-shadow: none; scroll-snap-align: start; transition: transform 120ms ease, border-color 120ms ease; }
+.inkwright-card-illustrated { width: 108px; padding: 0 0 8px; overflow: hidden; }
+.inkwright-card-art { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; margin-bottom: 6px; border-bottom: 1px solid var(--background-modifier-border); }
+.inkwright-card-illustrated .inkwright-card-deck, .inkwright-card-illustrated .inkwright-card-name, .inkwright-card-illustrated .inkwright-card-attrs { padding: 0 8px; }
+.inkwright-card-attrs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.inkwright-card-attr { padding: 0 6px; border-radius: 9px; background: var(--background-secondary); color: var(--text-muted); font-size: var(--font-smallest); white-space: nowrap; }
 .inkwright-card-deck { font-size: var(--font-smallest); color: var(--text-muted); }
 .inkwright-card-name { font-weight: 600; line-height: 1.3; }
 .inkwright-card-on { border-color: var(--interactive-accent); transform: translateY(-6px); box-shadow: 0 4px 12px var(--background-modifier-box-shadow); }

@@ -34,6 +34,10 @@ const configZh: ConfigMessages = {
   mapPlaces: () => "map 里一个地点都没有",
   mapLink: (place, link) => `地点 "${place}" 的 links 里有未定义的地点 "${link}"`,
   mapPlace: (token, place) => `记号 "${token}" 的起始地点 "${place}" 未定义`,
+  mapFile: (path) => `地图:找不到画布 "${path}",或者它不是画布文件`,
+  mapCanvasPlace: (place, path) => `地点 "${place}" 在画布 "${path}" 里没有(文本节点第一行写它的 id)`,
+  deckFolder: (id, folder) => `牌堆 "${id}":文件夹 "${folder}" 不存在,或者里面没有笔记`,
+  cardAttr: (card, key) => `牌 "${card}" 的属性名 "${key}" 不是合法标识符`,
 };
 
 const configEn: ConfigMessages = {
@@ -65,6 +69,10 @@ const configEn: ConfigMessages = {
   mapPlaces: () => "map has no places",
   mapLink: (place, link) => `place "${place}" links to an unknown place "${link}"`,
   mapPlace: (token, place) => `token "${token}" starts at an unknown place "${place}"`,
+  mapFile: (path) => `map: canvas "${path}" not found, or not a canvas file`,
+  mapCanvasPlace: (place, path) => `place "${place}" is not in the canvas "${path}" (a text node whose first line is its id)`,
+  deckFolder: (id, folder) => `deck "${id}": folder "${folder}" not found, or it has no notes`,
+  cardAttr: (card, key) => `card "${card}": attribute name "${key}" is not a valid identifier`,
 };
 
 const zh = {

@@ -164,6 +164,21 @@ export function generateInk(config: GameConfig): string {
     lines.push("", `=== function ${n.deckLeft}(${n.deckParam}) ===`);
     for (const d of decks) lines.push(`{ ${n.deckParam} == "${d.id}":`, `    ~ return LIST_COUNT(${d.id}${n.pileSuffix})`, "}");
     lines.push("~ return 0");
+    // Card attributes: one function per key, giving the number on a card (0 when it has none).
+    const keys = [...new Set(decks.flatMap((d) => d.cards.flatMap((c) => Object.keys(c.attrs ?? {}))))];
+    if (keys.length > 0) {
+      lines.push("", `// Card attributes: ${n.cardPrefix}${keys[0]}(${n.cardParam}) is that number on the card (0 when it has none).`);
+      for (const key of keys) {
+        lines.push(`=== function ${n.cardPrefix}${key}(${n.cardParam}) ===`);
+        for (const d of decks) {
+          for (const c of d.cards) {
+            const v = c.attrs?.[key];
+            if (v !== undefined) lines.push(`{ ${n.cardParam} == ${c.id}:`, `    ~ return ${v}`, "}");
+          }
+        }
+        lines.push("~ return 0");
+      }
+    }
   }
   // Hands: the panel shows each as a row of cards; a choice tagged `#play:<hand>` is taken with one
   // of them, which the engine writes into the played VAR first.

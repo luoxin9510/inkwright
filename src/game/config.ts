@@ -90,6 +90,10 @@ export interface CardDef {
   id: string;
   name?: LocalizedText;
   desc?: LocalizedText;
+  /** Card art: a vault path (or one relative to the game's folder). */
+  image?: string;
+  /** Numbers on the card (`cost: 2`, `icons: { combat: 1 }` flattened to `icons_combat`); the generated ink reads them with `card_<key>(card)`. */
+  attrs?: Record<string, number>;
 }
 
 /**
@@ -101,6 +105,8 @@ export interface DeckDef {
   id: string;
   name?: LocalizedText;
   cards: CardDef[];
+  /** A folder of notes, one card each (file name = id; frontmatter name, desc, image and numbers; body = desc), read in place of `cards`. */
+  from?: string;
 }
 
 /**
@@ -117,6 +123,7 @@ export interface HandDef {
 export interface PlaceDef {
   id: string;
   name?: LocalizedText;
+  /** Position in map units; filled from the canvas when the map comes `from` one. */
   x: number;
   y: number;
   /** Neighbouring places, drawn as lines; the story decides where one can go. */
@@ -143,6 +150,8 @@ export interface TokenDef {
  * `height` units (the image's pixel size, or percentages when both are left out).
  */
 export interface MapDef {
+  /** A canvas file that gives the image, the places (text nodes; `?` first marks hidden) and the links (edges); `places` then only adds names and counters. */
+  from?: string;
   /** Image path relative to the game's folder (or a vault path). */
   image?: string;
   width?: number;
@@ -203,6 +212,8 @@ export interface GameConfig {
   hands?: HandDef[];
   /** The map the panel draws: places, tokens, where the player is (`#go:<place>` on a choice). */
   map?: MapDef;
+  /** Player-facing names of card attributes, by key (`cost: { zh: 费用, en: Cost }`); the key itself otherwise. */
+  attributes?: Record<string, LocalizedText>;
   modifiers?: ModifierRule[];
   /** Where the play log is written as a note. */
   journal?: JournalConfig;
@@ -263,6 +274,9 @@ export interface InkNames {
   here: string;
   revealed: string;
   atSuffix: string;
+  /** Card attributes: `card_cost(which)` is generated per attribute key. */
+  cardPrefix: string;
+  cardParam: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -282,7 +296,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     seed: "dice_seed", rolls: "dice_rolls", items: "items", inventory: "inv", langVar: "lang", textFn: "t",
     dice: "roll_dice", roll: "roll", table: "table", tableRoll: "table_roll", tableText: "table_text", tableId: "table_id",
     draw: "draw", shuffle: "shuffle", deckLeft: "deck_left", nthCard: "nth_card", pileSuffix: "_pile", played: "played",
-    places: "places", here: "here", revealed: "revealed", atSuffix: "_at",
+    places: "places", here: "here", revealed: "revealed", atSuffix: "_at", cardPrefix: "card_", cardParam: "which",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
     deckParam: "deck", stackParam: "stack", kParam: "k",
   },
@@ -291,7 +305,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     seed: "骰子种子", rolls: "掷骰次数", items: "物品", inventory: "背包", langVar: "语言", textFn: "双",
     dice: "掷骰", roll: "掷", table: "查表", tableRoll: "掷表", tableText: "表文", tableId: "表号",
     draw: "抽牌", shuffle: "洗牌", deckLeft: "剩余牌数", nthCard: "第几张", pileSuffix: "_牌堆", played: "出牌",
-    places: "地点", here: "所在", revealed: "已揭示", atSuffix: "_在",
+    places: "地点", here: "所在", revealed: "已揭示", atSuffix: "_在", cardPrefix: "牌_", cardParam: "哪张",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
     deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
@@ -432,12 +446,39 @@ export function collectModifiers(config: GameConfig, skill: string, state: State
 
 /** ink identifiers: letters (any script), digits and underscores, not starting with a digit. */
 const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
+export const isIdent = (id: string): boolean => IDENT.test(id);
+
+/** The numbers among an object's fields, nested objects flattened with `_` (`icons: { combat: 1 }` → `icons_combat`); other values are left out. */
+export function numberFields(obj: Record<string, unknown>, skip: Iterable<string> = []): Record<string, number> {
+  const out: Record<string, number> = {};
+  const skipped = new Set(skip);
+  const walk = (o: Record<string, unknown>, prefix: string) => {
+    for (const [k, v] of Object.entries(o)) {
+      if (prefix === "" && skipped.has(k)) continue;
+      if (typeof v === "number" && Number.isFinite(v)) out[prefix + k] = v;
+      else if (v && typeof v === "object" && !Array.isArray(v)) walk(v as Record<string, unknown>, `${prefix}${k}_`);
+    }
+  };
+  walk(obj, "");
+  return out;
+}
+
+/** A card entry as written (inline in the note or in a card note's frontmatter): id, name, desc, image and its numbers as attrs. */
+export function readCard(c: Record<string, unknown>, id: string): CardDef {
+  const card: CardDef = { id };
+  if (isText(c.name)) card.name = c.name;
+  if (isText(c.desc)) card.desc = c.desc;
+  if (isStr(c.image)) card.image = c.image.replace(/^!?\[\[/, "").replace(/\]\]$/, "").split("|")[0].trim();
+  const attrs = numberFields(c, ["id", "name", "desc", "image"]);
+  if (Object.keys(attrs).length > 0) card.attrs = attrs;
+  return card;
+}
 
 export const CONFIG_PROBLEM_CODES = [
   "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
-  "mapPlaces", "mapLink", "mapPlace",
+  "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -471,21 +512,26 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const d of config.decks ?? []) {
     ident(d.id);
     ident(`${d.id}${inkNames(config).pileSuffix}`);
-    for (const c of d.cards) ident(c.id);
-    if (d.cards.length === 0) bad("deckCards", d.id);
+    for (const c of d.cards) {
+      ident(c.id);
+      for (const key of Object.keys(c.attrs ?? {})) if (!IDENT.test(key)) bad("cardAttr", c.id, key);
+    }
+    if (d.cards.length === 0 && d.from === undefined) bad("deckCards", d.id);
   }
   for (const h of config.hands ?? []) ident(h.id);
   if (config.map) {
+    // Links and token places are checked once the canvas has filled the places in (resolveMap validates again).
+    const deferred = config.map.from !== undefined;
     const places = new Set(config.map.places.map((p) => p.id));
-    if (config.map.places.length === 0) bad("mapPlaces");
+    if (config.map.places.length === 0 && !deferred) bad("mapPlaces");
     for (const p of config.map.places) {
       ident(p.id);
-      for (const l of p.links ?? []) if (!places.has(l)) bad("mapLink", p.id, l);
+      if (!deferred) for (const l of p.links ?? []) if (!places.has(l)) bad("mapLink", p.id, l);
     }
     for (const t of config.map.tokens ?? []) {
       ident(t.id);
       ident(`${t.id}${inkNames(config).atSuffix}`);
-      if (t.at !== undefined && !places.has(t.at)) bad("mapPlace", t.id, t.at);
+      if (!deferred && t.at !== undefined && !places.has(t.at)) bad("mapPlace", t.id, t.at);
     }
   }
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
@@ -501,7 +547,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
-  const unused = new Set(["pileSuffix", "atSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"])]);
+  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"])]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
@@ -603,13 +649,16 @@ export function readConfig(fm: unknown): LoadedConfig {
   // A row is `{ range?, text, id? }`, or the shorthand with the text under the language codes: `{ range: 1-3, zh: 狼, en: Wolf }`.
   const row = (r: unknown) => isObj(r) && opt(r.range, (v) => isStr(v) || isNum(v)) && opt(r.id, (v) => isStr(v) || isNum(v)) && (isText(r.text) || Object.keys(r).some((k) => k !== "range" && k !== "id" && isStr(r[k])));
   entries("tables", false, (e) => opt(e.name, isText) && opt(e.dice, (v) => isStr(v) || isNum(v)) && opt(e.from, isStr) && opt(e.rows, (v) => Array.isArray(v) && v.every(row)));
-  const card = (c: unknown) => isObj(c) && isStr(c.id) && opt(c.name, isText) && opt(c.desc, isText);
-  entries("decks", false, (e) => opt(e.name, isText) && Array.isArray(e.cards) && e.cards.every(card));
+  const card = (c: unknown) => isObj(c) && isStr(c.id) && opt(c.name, isText) && opt(c.desc, isText) && opt(c.image, isStr);
+  entries("decks", false, (e) => opt(e.name, isText) && (isStr(e.from) ? opt(e.cards, (v) => Array.isArray(v) && v.every(card)) : Array.isArray(e.cards) && e.cards.every(card)));
+  if (!opt(fm.attributes, (v) => isObj(v) && Object.values(v).every(isText))) shape("attributes");
   entries("hands", false, (e) => opt(e.name, isText));
-  const place = (p: unknown) => isObj(p) && isStr(p.id) && isNum(p.x) && isNum(p.y) && opt(p.name, isText) && opt(p.links, (v) => Array.isArray(v) && v.every(isStr))
+  // A map drawn from a canvas gets its positions there, so its places need only an id.
+  const fromCanvas = isObj(fm.map) && isStr(fm.map.from);
+  const place = (p: unknown) => isObj(p) && isStr(p.id) && (fromCanvas ? opt(p.x, isNum) && opt(p.y, isNum) : isNum(p.x) && isNum(p.y)) && opt(p.name, isText) && opt(p.links, (v) => Array.isArray(v) && v.every(isStr))
     && opt(p.hidden, isBool) && opt(p.counter, isStr) && opt(p.counterName, isText);
   const token = (t: unknown) => isObj(t) && isStr(t.id) && opt(t.name, isText) && opt(t.color, isStr) && opt(t.at, isStr);
-  if (!opt(fm.map, (v) => isObj(v) && opt(v.image, isStr) && opt(v.width, isNum) && opt(v.height, isNum) && Array.isArray(v.places) && v.places.every(place) && opt(v.tokens, (w) => Array.isArray(w) && w.every(token)))) shape("map");
+  if (!opt(fm.map, (v) => isObj(v) && opt(v.from, isStr) && opt(v.image, isStr) && opt(v.width, isNum) && opt(v.height, isNum) && (fromCanvas ? opt(v.places, (w) => Array.isArray(w) && w.every(place)) : Array.isArray(v.places) && v.places.every(place)) && opt(v.tokens, (w) => Array.isArray(w) && w.every(token)))) shape("map");
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
@@ -633,9 +682,13 @@ export function readConfig(fm: unknown): LoadedConfig {
     characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
     items: (fm.items ?? []) as ItemDef[],
     tables: (Array.isArray(fm.tables) ? fm.tables : []).filter(isObj).map(readTable),
-    decks: (fm.decks ?? []) as DeckDef[],
+    decks: (Array.isArray(fm.decks) ? fm.decks : []).filter(isObj).map((d) => ({
+      id: String(d.id), ...(isText(d.name) ? { name: d.name } : {}), ...(isStr(d.from) ? { from: d.from } : {}),
+      cards: (Array.isArray(d.cards) ? d.cards : []).filter(isObj).map((c) => readCard(c, String(c.id))),
+    })),
     hands: (fm.hands ?? []) as HandDef[],
-    map: isObj(fm.map) ? (fm.map as unknown as MapDef) : undefined,
+    map: isObj(fm.map) ? readMap(fm.map) : undefined,
+    attributes: isObj(fm.attributes) ? (fm.attributes as Record<string, LocalizedText>) : undefined,
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,
@@ -647,6 +700,26 @@ export function readConfig(fm: unknown): LoadedConfig {
 
 /** A string or a number from the frontmatter as text; undefined for anything else. */
 const scalarText = (v: unknown): string | undefined => (isStr(v) ? v : isNum(v) ? String(v) : undefined);
+
+/** The map entry from the frontmatter, field by field (the shape was checked already). */
+function readMap(m: Record<string, unknown>): MapDef {
+  const places = (Array.isArray(m.places) ? m.places : []).filter(isObj).map((p): PlaceDef => ({
+    id: String(p.id), x: Number(p.x), y: Number(p.y),
+    ...(isText(p.name) ? { name: p.name } : {}),
+    ...(Array.isArray(p.links) ? { links: p.links.filter(isStr) } : {}),
+    ...(p.hidden === true ? { hidden: true } : {}),
+    ...(isStr(p.counter) ? { counter: p.counter } : {}),
+    ...(isText(p.counterName) ? { counterName: p.counterName } : {}),
+  }));
+  const tokens = (Array.isArray(m.tokens) ? m.tokens : []).filter(isObj).map((t): TokenDef => ({
+    id: String(t.id), ...(isText(t.name) ? { name: t.name } : {}), ...(isStr(t.color) ? { color: t.color } : {}), ...(isStr(t.at) ? { at: t.at } : {}),
+  }));
+  return {
+    ...(isStr(m.from) ? { from: m.from } : {}), ...(isStr(m.image) ? { image: m.image } : {}),
+    ...(isNum(m.width) ? { width: m.width } : {}), ...(isNum(m.height) ? { height: m.height } : {}),
+    places, ...(tokens.length > 0 ? { tokens } : {}),
+  };
+}
 
 /** A table entry from the frontmatter, its rows normalized to `{ range?, text, id? }` (the shorthand's language keys become `text`). */
 function readTable(e: Record<string, unknown>): TableDef {

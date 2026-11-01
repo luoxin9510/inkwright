@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, arrayBufferToBase64, moment, normalizePath, type WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -14,7 +14,8 @@ import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
 import { engineFile, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
 import { generateInk } from "./game/inkgen";
-import { resolveTables } from "./game/tables";
+import { resolveConfig, type ConfigSource } from "./game/resolve";
+import type { CardNote } from "./game/cards";
 import { renderJournal } from "./play/journal";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
@@ -93,7 +94,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (this.targetRoot() !== this.root) this.schedule();
     }));
     const touch = (path: string) => {
-      if (isDependency(path, this.files)) this.schedule();
+      // A note added to or removed from a deck's folder changes the deck: the folder itself is a dependency.
+      if (isDependency(path, this.files) || this.files.includes(path.slice(0, path.lastIndexOf("/")))) this.schedule();
     };
     this.registerEvent(this.app.vault.on("modify", (f) => touch(f.path)));
     // The game note is read from the metadata cache, which updates after `modify`: compile again then.
@@ -148,27 +150,6 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       payload = p;
     }
     this.apply(this.session.choose(index, payload));
-  }
-
-  /** The map's image file, looked up next to the story first, then as a vault path; null when there is none. */
-  private mapFile(config: GameConfig, storyPath: string): TFile | null {
-    const image = config.map?.image;
-    if (!image) return null;
-    const dir = storyPath.slice(0, storyPath.lastIndexOf("/") + 1);
-    for (const p of [normalizePath(dir + image), normalizePath(image)]) {
-      const file = this.app.vault.getAbstractFileByPath(p);
-      if (file instanceof TFile) return file;
-    }
-    return null;
-  }
-
-  /** The map's image as a data URI for the exported page; undefined when there is none. */
-  private async mapDataUri(config: GameConfig, storyPath: string): Promise<string | undefined> {
-    const file = this.mapFile(config, storyPath);
-    if (!file) return undefined;
-    const mime: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
-    const data = await this.app.vault.readBinary(file);
-    return `data:${mime[file.extension.toLowerCase()] ?? "application/octet-stream"};base64,${arrayBufferToBase64(data)}`;
   }
 
   /** A choice made, its text carrying the name of the card it was played with. */
@@ -316,7 +297,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       languageVar: findLanguageVar(result.story),
       game: game ?? undefined,
       engine: GAME_ENGINE,
-      mapImage: game ? await this.mapDataUri(game, path) : undefined,
+      mapImage: game ? await this.dataUri(this.vaultFile(game.map?.image, path)) : undefined,
+      cardImages: game ? await this.cardImages(game, path, (f) => this.dataUri(f)) : undefined,
     });
     const existing = this.app.vault.getAbstractFileByPath(out);
     if (existing instanceof TFile) await this.app.vault.modify(existing, html);
@@ -333,7 +315,73 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   /** The config with its note-kept tables read in; paths in `from` are relative to the story's folder. */
   private resolveConfig(root: string, config: GameConfig): Promise<{ config: GameConfig; problems: ConfigProblem[]; files: string[] }> {
-    return resolveTables(config, (p) => this.readFile(p).catch(() => null), root.slice(0, root.lastIndexOf("/") + 1));
+    return resolveConfig(config, this.configSource, root.slice(0, root.lastIndexOf("/") + 1));
+  }
+
+  /**
+   * What a game note may point at: notes by path, and folders of card notes. A card note is read
+   * from the file, frontmatter included (the metadata cache can lag behind a modify event).
+   */
+  private readonly configSource: ConfigSource = {
+    read: (p) => this.readFile(p).catch(() => null),
+    notes: async (folder) => {
+      const f = this.app.vault.getAbstractFileByPath(normalizePath(folder));
+      if (!(f instanceof TFolder)) return null;
+      const out: CardNote[] = [];
+      for (const child of f.children) {
+        if (!(child instanceof TFile) || child.extension !== "md") continue;
+        const text = await this.app.vault.read(child);
+        const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+        let frontmatter: Record<string, unknown> | undefined;
+        try {
+          const parsed: unknown = m ? parseYaml(m[1]) : undefined;
+          frontmatter = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+        } catch {
+          frontmatter = undefined;
+        }
+        out.push({ path: child.path, name: child.basename, frontmatter, body: m ? text.slice(m[0].length) : text });
+      }
+      return out;
+    },
+  };
+
+  /** Card art for the panel, by card id, as resource URLs; set with the engine. */
+  private cardArt: Record<string, string> = {};
+
+  private resourceUrl(file: TFile | null): string | null {
+    return file ? this.app.vault.getResourcePath(file) : null;
+  }
+
+  /** A file the game note names, looked up next to the story first, then as a vault path; null when there is none. */
+  private vaultFile(path: string | undefined, storyPath: string): TFile | null {
+    if (!path) return null;
+    const dir = storyPath.slice(0, storyPath.lastIndexOf("/") + 1);
+    for (const p of [normalizePath(dir + path), normalizePath(path)]) {
+      const file = this.app.vault.getAbstractFileByPath(p);
+      if (file instanceof TFile) return file;
+    }
+    return null;
+  }
+
+  /** A file as a data URI for the exported page; undefined when there is none. */
+  private async dataUri(file: TFile | null): Promise<string | undefined> {
+    if (!file) return undefined;
+    const mime: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
+    const data = await this.app.vault.readBinary(file);
+    return `data:${mime[file.extension.toLowerCase()] ?? "application/octet-stream"};base64,${arrayBufferToBase64(data)}`;
+  }
+
+  /** Every card's art, by card id, as the given conversion makes it (a resource URL for the panel, a data URI for the export). */
+  private async cardImages(config: GameConfig, storyPath: string, convert: (file: TFile) => Promise<string | undefined>): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const d of config.decks ?? []) {
+      for (const c of d.cards) {
+        const file = this.vaultFile(c.image, storyPath);
+        const url = file ? await convert(file) : undefined;
+        if (url) out[c.id] = url;
+      }
+    }
+    return out;
   }
 
   /**
@@ -551,11 +599,14 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (!included.includes(enginePath)) warnings.push(T().engineNotIncluded(file));
       else if ((await this.readFile(enginePath).catch(() => null)) !== generateInk(config)) warnings.push(T().engineStale(file));
     }
-    return { note, config, warnings, files: resolved?.files ?? [] };
+    // Images drawn by the panel are dependencies too, so a replaced or renamed picture shows up.
+    const images = config ? [config.map?.image, ...(config.decks ?? []).flatMap((d) => d.cards.map((c) => c.image))].map((p) => this.vaultFile(p, root)?.path).filter((p): p is string => p !== undefined) : [];
+    return { note, config, warnings, files: [...(resolved?.files ?? []), ...images] };
   }
 
   private applyGameNote(read: GameNoteRead | null): void {
     this.game = null;
+    this.cardArt = {};
     if (!read) return;
     // Edits to the game note, or to a note a table is read from, recompile like edits to any INCLUDEd file.
     for (const path of [read.note.path, ...read.files]) if (!this.files.includes(path)) this.files.push(path);
@@ -563,6 +614,14 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (!read.config) return;
     if (this.character !== null && !playableCharacters(read.config).some((c) => c.id === this.character)) this.character = null;
     this.game = new GameEngine(read.config);
+    if (this.root !== null) {
+      for (const d of read.config.decks ?? []) {
+        for (const c of d.cards) {
+          const url = this.resourceUrl(this.vaultFile(c.image, this.root));
+          if (url) this.cardArt[c.id] = url;
+        }
+      }
+    }
   }
 
   private gameView(): GameView | null {
@@ -581,7 +640,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       needs: (step?.choices ?? []).map((c) => game.needsOf(c)),
       plays: (step?.choices ?? []).map((c) => game.playOf(c)),
       map: game.map(step?.choices ?? []),
-      mapImage: this.root === null ? null : (() => { const f = this.mapFile(game.config, this.root); return f ? this.app.vault.getResourcePath(f) : null; })(),
+      mapImage: this.root === null ? null : this.resourceUrl(this.vaultFile(game.config.map?.image, this.root)),
+      cardImages: this.cardArt,
       voices: this.session.log.map((p) => game.voiceOf(p)),
       turns: [...this.session.turns],
       rolls: game.rolls,
