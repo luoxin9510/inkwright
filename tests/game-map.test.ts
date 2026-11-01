@@ -50,6 +50,29 @@ describe("map", () => {
     // Places and tokens share the id namespace; a token's place VAR counts too.
     expect(validateConfig({ ...MAP, map: { places: [{ id: "力量", x: 0, y: 0 }] } })).toContainEqual({ code: "duplicate", args: ["力量"] });
     expect(validateConfig({ ...MAP, map: { places: [{ id: "a", x: 0, y: 0 }], tokens: [{ id: "a" }] } })).toContainEqual({ code: "duplicate", args: ["a"] });
+    // The map's generated names are reserved only for games with a map.
+    const withHere = { ...CONFIG, resources: [...CONFIG.resources, { id: "所在", min: 0, max: 1, initial: 0 }] };
+    expect(validateConfig(withHere)).toEqual([]);
+    expect(validateConfig({ ...withHere, map: MAP.map })).toContainEqual({ code: "duplicate", args: ["所在"] });
+  });
+
+  test("a place is tappable only for a choice that can be taken now, and never for one that also plays a card", () => {
+    const config: GameConfig = { ...MAP, hands: [{ id: "手牌" }], decks: [{ id: "牌", cards: [{ id: "x" }] }] };
+    const story = `-> main
+${generateInk(config)}
+=== main ===
+门厅。
++ [捅 #go:书房 #needs:刀]
+    -> main
++ [出牌 #go:书房 #play:手牌]
+    -> main
++ [去 #go:书房]
+    -> main
+`;
+    const engine = new GameEngine(config);
+    const session = new PlaySession(new Compiler(story).Compile(), { setup: (s) => engine.setup(s, "昕") });
+    const step = session.start();
+    expect(engine.map(step.choices)?.places[1].go).toBe(2);
   });
 
   test("the generated ink declares the places, where the player is, what is revealed and each token's place", () => {

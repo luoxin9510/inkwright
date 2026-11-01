@@ -500,7 +500,9 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const r of config.companionResources ?? []) {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
-  for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (key !== "pileSuffix" && key !== "atSuffix") ident(n);
+  // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
+  const unused = new Set(["pileSuffix", "atSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"])]);
+  for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
   }

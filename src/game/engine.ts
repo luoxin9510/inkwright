@@ -406,10 +406,11 @@ export class GameEngine {
     const names = inkNames(this.config);
     const here = this.read(names.here);
     const revealed = this.read(names.revealed);
+    // A place is tappable for the first open choice going there; a locked choice (item missing, empty hand) or one that also needs a card picked stays a button only.
     const goes = new Map<string, number>();
     for (const c of choices) {
       const place = this.goOf(c);
-      if (place !== null && !goes.has(place)) goes.set(place, c.index);
+      if (place !== null && !goes.has(place) && this.canChoose(c) && this.playOf(c) === null) goes.set(place, c.index);
     }
     const placeOf = (v: unknown): string | null => def.places.find((p) => carries(v, p.id))?.id ?? null;
     return {
