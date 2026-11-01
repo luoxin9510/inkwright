@@ -323,7 +323,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     });
     const pad = (n: number) => String(n).padStart(2, "0");
     // A name goes into a file name: no separators, nothing a file system rejects, no "..".
-    const clean = (v: string) => v.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/\.{2,}/g, "-").trim();
+    const clean = (v: string) => Array.from(v).filter((c) => c.charCodeAt(0) >= 32).join("").replace(/[\\/:*?"<>|]/g, "-").replace(/\.{2,}/g, "-").trim();
     const values: Record<string, string> = {
       dir, story: clean(story), character: clean(character ?? ""),
       date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}-${pad(now.getMinutes())}`,
