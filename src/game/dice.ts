@@ -1,5 +1,7 @@
+import type { LocalizedText } from "./config";
+
 /**
- * Dice rules: how a skill check is rolled and graded. Two families cover the
+ * Dice rules: how a skill check is rolled and graded. Three families cover the
  * common tabletop systems; adding another is one more `kind` here.
  *
  * Every system grades into the same five bands, so stories read one number:
@@ -27,7 +29,36 @@ export interface RollUnderRules {
   fumbleFrom?: number;
 }
 
-export type RulesConfig = SumDiceRules | RollUnderRules;
+/** A token in a chaos bag: a modifier, or an automatic failure or success; `count` copies in the bag. */
+export interface BagToken {
+  /** Defaults to the value as text, or to `auto`. */
+  id?: string;
+  name?: LocalizedText;
+  value?: number;
+  auto?: "fail" | "success";
+  count?: number;
+}
+
+/**
+ * A chaos bag (Arkham style): one token is drawn and put back; skill + modifiers + its value vs
+ * the difficulty, an auto-fail token fails whatever the numbers, an auto-success token is a critical.
+ */
+export interface BagRules {
+  kind: "bag";
+  tokens: BagToken[];
+  /** Totals this far below the difficulty count as a partial success (default 0: none). */
+  partialBelow?: number;
+}
+
+export type RulesConfig = SumDiceRules | RollUnderRules | BagRules;
+
+/** The token a check drew, as recorded: its id, value or auto, and (once the engine named it) its name. */
+export interface DrawnToken {
+  id: string;
+  name?: string;
+  value?: number;
+  auto?: "fail" | "success";
+}
 
 export interface Modifier {
   source: string;
@@ -45,9 +76,11 @@ export interface CheckResult extends CheckInput {
   band: Band;
   /** Faces rolled; empty when the band was forced. */
   rolls: number[];
-  /** Dice total plus skill and modifiers (sum systems); the roll itself for roll-under. */
+  /** Dice total plus skill and modifiers (sum systems); the roll itself for roll-under; skill, modifiers and the token's value for a bag. */
   total: number;
   modifiers: Modifier[];
+  /** The token drawn from a chaos bag. */
+  token?: DrawnToken;
 }
 
 export interface Chance {
@@ -73,6 +106,33 @@ function gradeSum(rules: SumDiceRules, rolls: number[], bonus: number, difficult
   return 1;
 }
 
+/** A token's id as written, else its value as text or its auto kind. */
+export function tokenId(t: BagToken): string {
+  return t.id ?? t.auto ?? String(t.value ?? 0);
+}
+
+/** The bag's tokens, each repeated `count` times, in order. */
+export function bagPool(rules: BagRules): BagToken[] {
+  return rules.tokens.flatMap((t) => Array.from({ length: Math.max(1, Math.floor(t.count ?? 1)) }, () => t));
+}
+
+/** A drawn token as text: its name, else "auto" wording, else its value with a sign. */
+export function tokenText(t: DrawnToken, auto: { fail: string; success: string }): string {
+  if (t.name) return t.name;
+  if (t.auto) return auto[t.auto];
+  const v = t.value ?? 0;
+  return v > 0 ? `+${v}` : String(v);
+}
+
+function gradeBag(rules: BagRules, token: BagToken, bonus: number, difficulty: number): Band {
+  if (token.auto === "fail") return 0;
+  if (token.auto === "success") return 4;
+  const total = bonus + (token.value ?? 0);
+  if (total >= difficulty) return 3;
+  const partial = rules.partialBelow ?? 0;
+  return partial > 0 && total >= difficulty - partial ? 2 : 1;
+}
+
 function gradeRollUnder(rules: RollUnderRules, roll: number, skill: number): Band {
   if (roll >= (rules.fumbleFrom ?? rules.sides)) return 0;
   if (roll <= Math.floor(skill / (rules.criticalDivisor ?? 5))) return 4;
@@ -84,6 +144,12 @@ export function resolve(rules: RulesConfig, input: CheckInput, rng: Rng, force?:
   const modifiers = input.modifiers ?? [];
   const bonus = input.level + sum(modifiers.map((m) => m.value));
   if (force !== undefined) return { ...input, modifiers, band: force, rolls: [], total: 0 };
+  if (rules.kind === "bag") {
+    const pool = bagPool(rules);
+    const t = pool[Math.floor(rng() * pool.length)];
+    const token: DrawnToken = { id: tokenId(t), ...(t.value !== undefined ? { value: t.value } : {}), ...(t.auto ? { auto: t.auto } : {}) };
+    return { ...input, modifiers, band: gradeBag(rules, t, bonus, input.difficulty), rolls: [], total: bonus + (t.value ?? 0), token };
+  }
   if (rules.kind === "sum") {
     const rolls = rules.dice.map((sides) => 1 + Math.floor(rng() * sides));
     return { ...input, modifiers, band: gradeSum(rules, rolls, bonus, input.difficulty), rolls, total: sum(rolls) + bonus };
@@ -96,7 +162,10 @@ export function resolve(rules: RulesConfig, input: CheckInput, rng: Rng, force?:
 export function chance(rules: RulesConfig, input: CheckInput): Chance {
   const bonus = input.level + sum((input.modifiers ?? []).map((m) => m.value));
   const bands: Chance["bands"] = [0, 0, 0, 0, 0];
-  if (rules.kind === "sum") {
+  if (rules.kind === "bag") {
+    const pool = bagPool(rules);
+    for (const t of pool) bands[gradeBag(rules, t, bonus, input.difficulty)] += 1 / pool.length;
+  } else if (rules.kind === "sum") {
     const count = rules.dice.reduce((a, b) => a * b, 1);
     const walk = (i: number, rolls: number[]) => {
       if (i === rules.dice.length) {
@@ -130,6 +199,10 @@ export function seededDice(seed: number, index: number): Rng {
 
 /** The expected roll, used by the generated ink fallback when there is no engine to roll. */
 export function averageRoll(rules: RulesConfig): number {
+  if (rules.kind === "bag") {
+    const pool = bagPool(rules);
+    return Math.round(sum(pool.map((t) => t.value ?? 0)) / Math.max(1, pool.length)) || 0;
+  }
   return rules.kind === "sum" ? sum(rules.dice.map((s) => (s + 1) / 2)) : (rules.sides + 1) / 2;
 }
 

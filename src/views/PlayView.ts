@@ -6,6 +6,7 @@ import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
 import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, MapView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
+import { tokenText } from "../game/dice";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
 export interface GameView {
@@ -279,6 +280,8 @@ export class PlayView extends ItemView {
     const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
     card.createSpan({ cls: "inkwright-roll-skill", text: `${name} ${r.difficulty}` });
     const dice = card.createSpan({ cls: "inkwright-roll-dice" });
+    // A chaos bag draws a token instead of rolling: shown as one chip, named or by its value.
+    if (r.token) dice.createSpan({ cls: `inkwright-die inkwright-chip${r.token.auto ? ` inkwright-chip-${r.token.auto}` : ""}`, text: tokenText(r.token, { fail: T().autoFail, success: T().autoSuccess }) });
     for (const face of r.rolls) dice.createSpan({ cls: "inkwright-die", text: String(face) });
     const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
     card.createSpan({ cls: "inkwright-roll-sum", text: `+${r.level}${mods} = ${r.total}` });
@@ -305,7 +308,8 @@ export class PlayView extends ItemView {
           card.removeClass("inkwright-rolling");
           return;
         }
-        for (const d of dice) d.setText(String(1 + Math.floor(Math.random() * 6)));
+        // A bag's chip does not show dice faces while it "tumbles": a question mark instead.
+        for (const d of dice) d.setText(d.hasClass("inkwright-chip") ? "?" : String(1 + Math.floor(Math.random() * 6)));
       }, 70);
       this.registerInterval(timer);
     }
@@ -455,7 +459,7 @@ export class PlayView extends ItemView {
     }
     const t = box.createEl("table");
     for (const r of [...game.rolls].reverse()) {
-      const dice = r.rolls.length > 0 ? r.rolls.join("+") : "—";
+      const dice = r.kind === "check" && r.token ? tokenText(r.token, { fail: T().autoFail, success: T().autoSuccess }) : r.rolls.length > 0 ? r.rolls.join("+") : "—";
       const tr = t.createEl("tr");
       if (r.kind === "dice") {
         const result = r.deck ? r.deck.card : r.table?.text;

@@ -317,6 +317,20 @@ test("a game page shows each hand as cards; a #play choice waits for a tapped ca
   expect(document.querySelector("#hands .hand .name")?.textContent).toBe("Hand");
 });
 
+test("a chaos bag game draws a token instead of dice: a chip on the roll card and the token's name in the log", () => {
+  setLanguage("zh");
+  const config = { ...CONFIG, rules: { kind: "bag" as const, tokens: [{ id: "skull", name: { zh: "骷髅", en: "Skull" }, value: -2 }] } };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n门。\n* [撬 #check:力量:3]\n    { 检定("力量", 3) >= 3: 开了。|断了。 }\n    -> END\n`;
+  mount(buildWebPage({ title: "B", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "b", languageVar: "语言", game: config, engine: GAME_ENGINE }));
+  expect(texts("#choices button .check")).toEqual(["力量 3 · 0%"]); // 力量 2 and only the skull to draw
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(texts("#story p").at(-1)).toBe("断了。");
+  const card = document.querySelector("#story .roll");
+  expect(Array.from(card?.querySelectorAll(".die") ?? []).map((d) => [d.className, d.textContent])).toEqual([["die token", "骷髅"]]);
+  expect(card?.querySelector(".band")?.textContent).toBe("失败");
+  expect(texts("#dice li")).toEqual(["力量 3: 骷髅 +2 = 0 · 失败 (0%)"]);
+});
+
 test("a game page draws the map: places, a question mark until revealed, counters, tokens, and a place that a choice goes to is a button", () => {
   setLanguage("zh");
   const config = {

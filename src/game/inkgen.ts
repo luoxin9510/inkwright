@@ -77,12 +77,13 @@ export function generateInk(config: GameConfig): string {
     `// Without the engine there are no dice or modifiers: the average roll (${avg}) decides.`,
     `=== function ${n.check}(${n.skillParam}, ${n.difficultyParam}) ===`,
   );
-  // Same grading as dice.ts with the average roll: sum systems compare the total with the
-  // difficulty; roll-under succeeds when the roll is at or under the skill (difficulty unused).
+  // Same grading as dice.ts with the average roll: sum systems (and a chaos bag, with its average
+  // token) compare the total with the difficulty; roll-under succeeds when the roll is at or under
+  // the skill (difficulty unused).
   // Modifier rules live in the engine, so this fallback ignores them: a story played without the
   // engine is a little more forgiving, never different in structure.
   const level = `${n.skillValue}(${n.skillParam})`;
-  const wins = config.rules.kind === "sum" ? `${level} + ${avg} >= ${n.difficultyParam}` : `${avg} <= ${level}`;
+  const wins = config.rules.kind === "rollUnder" ? `${avg} <= ${level}` : `${level} + ${avg} >= ${n.difficultyParam}`;
   lines.push(`{ ${wins}:`, "    ~ return 3", "}", "~ return 1");
 
   // Free dice and tables: the engine rolls through one EXTERNAL (and shows the faces); the table

@@ -1,4 +1,5 @@
 import type { RollRecord } from "../game/engine";
+import { tokenText } from "../game/dice";
 import { stringsFor, type Language } from "../i18n";
 import type { Paragraph } from "./session";
 
@@ -43,7 +44,8 @@ export function rollLine(r: RollRecord, language: Language, skills: readonly { i
   }
   const name = r.unknown ? `${r.skill} ${s.unknownSkill}` : skills.find((k) => k.id === r.skill)?.name ?? r.skill;
   const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
-  return `🎲 ${name} ${r.difficulty}: ${faces} +${r.level}${mods} = ${r.total} · ${s.bands[r.band]}`;
+  const drawn = r.token ? tokenText(r.token, { fail: s.autoFail, success: s.autoSuccess }) : faces;
+  return `🎲 ${name} ${r.difficulty}: ${drawn} +${r.level}${mods} = ${r.total} · ${s.bands[r.band]}`;
 }
 
 export function renderJournal(j: JournalInput): string {

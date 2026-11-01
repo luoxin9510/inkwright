@@ -53,7 +53,7 @@ describe("game config problems", () => {
       const en = T().configProblem({ code, args });
       expect(zh, code).not.toBe("");
       expect(en, code).not.toBe(zh);
-      if (!["noFrontmatter", "rulesKind", "dice", "sides", "noCharacters", "languages", "mapPlaces"].includes(code)) {
+      if (!["noFrontmatter", "rulesKind", "dice", "sides", "noCharacters", "languages", "mapPlaces", "tokens"].includes(code)) {
         expect(zh, code).toContain("甲");
         expect(en, code).toContain("甲");
       }
