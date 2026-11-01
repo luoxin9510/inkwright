@@ -58,7 +58,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs,
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks,
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -232,6 +232,7 @@ const PLAYER = `(function () {
     if (h.character) line(h.character.name, h.character.skills.map(function (k) { return k.name + " " + k.level; }).join(" · "));
     if (h.resources.length) line(s.status, h.resources.map(function (r) { return r.name + " " + r.value + "/" + r.max; }).join(" · "));
     if (h.items) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
+    if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
     h.companions.forEach(function (c) {
       if (c.resources.length) line(c.name, c.resources.map(function (r) { return r.name + " " + r.value; }).join(" · "));
     });
@@ -245,7 +246,8 @@ const PLAYER = `(function () {
     rolls.slice().reverse().forEach(function (r) {
       var li = document.createElement("li"), faces = r.rolls.length ? r.rolls.join("+") : "—";
       if (r.kind === "dice") {
-        li.textContent = (r.table ? r.table.name + " " + r.formula : r.formula) + ": " + (r.unknown ? "?" : faces + " = " + r.total + (r.table ? " · " + r.table.text : ""));
+        var got = r.deck ? r.deck.card : r.table ? r.table.text : null;
+        li.textContent = (r.deck ? r.deck.name : r.table ? r.table.name + " " + r.formula : r.formula) + ": " + (r.unknown ? "?" : faces + " = " + r.total + (got !== null ? " · " + got : ""));
       } else {
         var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
         li.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty + ": " +
@@ -377,18 +379,20 @@ const PLAYER = `(function () {
     var skill = document.createElement("span");
     skill.className = "skill";
     if (r.kind === "dice") {
-      // Free dice or a table: the formula (or the table and its dice), the faces, the total, the row.
+      // Free dice, a table or a deck: the formula (or the table and its dice, or the deck), the faces, the total, the row or card.
       card.className = "roll free";
-      skill.textContent = r.table ? r.table.name + " " + r.formula : r.formula;
+      skill.textContent = r.deck ? r.deck.name : r.table ? r.table.name + " " + r.formula : r.formula;
       card.appendChild(skill);
       card.appendChild(faces(r.rolls));
       var total = document.createElement("span");
       total.textContent = r.unknown ? "?" : "= " + r.total;
       card.appendChild(total);
-      if (r.table) {
+      var result = r.deck ? r.deck.card : r.table ? r.table.text : null;
+      if (result !== null) {
         var row = document.createElement("span");
         row.className = "band";
-        row.textContent = r.table.text;
+        row.textContent = result;
+        if (r.deck && r.deck.desc) row.title = r.deck.desc;
         card.appendChild(row);
       }
       return card;

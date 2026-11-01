@@ -84,6 +84,25 @@ export interface TableDef {
   from?: string;
 }
 
+/** A card: an item of its deck's LIST, so a hand is a list the story keeps (`~ hand += draw("clues")`). */
+export interface CardDef {
+  /** Also the ink list item name: a valid ink identifier, unique across the game. */
+  id: string;
+  name?: LocalizedText;
+  desc?: LocalizedText;
+}
+
+/**
+ * A deck the story draws from without replacement: `draw("clues")` takes a random card out of the
+ * pile (an empty list once it is empty), `shuffle("clues")` puts every card back, `deck_left("clues")`
+ * counts the pile. The generated ink declares `LIST <id>` with the cards and `VAR <id>_pile`.
+ */
+export interface DeckDef {
+  id: string;
+  name?: LocalizedText;
+  cards: CardDef[];
+}
+
 /** Where "write this session to a note" puts its note: a path with `{dir}`, `{story}`, `{date}`, `{time}`, `{character}`. */
 export interface JournalConfig {
   path?: string;
@@ -130,6 +149,8 @@ export interface GameConfig {
   items?: ItemDef[];
   /** Random tables the story rolls on (`{table("id")}`). */
   tables?: TableDef[];
+  /** Decks the story draws from (`draw("id")`). */
+  decks?: DeckDef[];
   modifiers?: ModifierRule[];
   /** Where the play log is written as a note. */
   journal?: JournalConfig;
@@ -177,6 +198,12 @@ export interface InkNames {
   tableRoll: string;
   tableText: string;
   tableId: string;
+  /** Decks: `draw(deck)`, `shuffle(deck)`, `deck_left(deck)`, the k-th-card helper, and the suffix of each deck's pile VAR. */
+  draw: string;
+  shuffle: string;
+  deckLeft: string;
+  nthCard: string;
+  pileSuffix: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -185,6 +212,9 @@ export interface InkNames {
   labelParam: string;
   tableParam: string;
   totalParam: string;
+  deckParam: string;
+  stackParam: string;
+  kParam: string;
 }
 
 export const INK_PRESETS: Record<InkPreset, InkNames> = {
@@ -192,13 +222,17 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     check: "check", skillValue: "skill_level", characters: "characters", current: "character", select: "pick_character",
     seed: "dice_seed", rolls: "dice_rolls", items: "items", inventory: "inv", langVar: "lang", textFn: "t",
     dice: "roll_dice", roll: "roll", table: "table", tableRoll: "table_roll", tableText: "table_text", tableId: "table_id",
+    draw: "draw", shuffle: "shuffle", deckLeft: "deck_left", nthCard: "nth_card", pileSuffix: "_pile",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
+    deckParam: "deck", stackParam: "stack", kParam: "k",
   },
   zh: {
     check: "检定", skillValue: "技能值", characters: "主角", current: "当前主角", select: "选主角",
     seed: "骰子种子", rolls: "掷骰次数", items: "物品", inventory: "背包", langVar: "语言", textFn: "双",
     dice: "掷骰", roll: "掷", table: "查表", tableRoll: "掷表", tableText: "表文", tableId: "表号",
+    draw: "抽牌", shuffle: "洗牌", deckLeft: "剩余牌数", nthCard: "第几张", pileSuffix: "_牌堆",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
+    deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
 };
 export const DEFAULT_INK_NAMES: InkNames = INK_PRESETS.en;
@@ -327,7 +361,7 @@ const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u;
 export const CONFIG_PROBLEM_CODES = [
   "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
-  "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile",
+  "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -358,6 +392,12 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const c of config.characters) ident(c.id);
   for (const i of config.items ?? []) ident(i.id);
   for (const t of config.tables ?? []) ident(t.id);
+  for (const d of config.decks ?? []) {
+    ident(d.id);
+    ident(`${d.id}${inkNames(config).pileSuffix}`);
+    for (const c of d.cards) ident(c.id);
+    if (d.cards.length === 0) bad("deckCards", d.id);
+  }
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
@@ -370,7 +410,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const r of config.companionResources ?? []) {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
-  for (const n of Object.values(inkNames(config)) as string[]) ident(n);
+  for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (key !== "pileSuffix") ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
   }
@@ -471,6 +511,8 @@ export function readConfig(fm: unknown): LoadedConfig {
   // A row is `{ range?, text, id? }`, or the shorthand with the text under the language codes: `{ range: 1-3, zh: 狼, en: Wolf }`.
   const row = (r: unknown) => isObj(r) && opt(r.range, (v) => isStr(v) || isNum(v)) && opt(r.id, (v) => isStr(v) || isNum(v)) && (isText(r.text) || Object.keys(r).some((k) => k !== "range" && k !== "id" && isStr(r[k])));
   entries("tables", false, (e) => opt(e.name, isText) && opt(e.dice, (v) => isStr(v) || isNum(v)) && opt(e.from, isStr) && opt(e.rows, (v) => Array.isArray(v) && v.every(row)));
+  const card = (c: unknown) => isObj(c) && isStr(c.id) && opt(c.name, isText) && opt(c.desc, isText);
+  entries("decks", false, (e) => opt(e.name, isText) && Array.isArray(e.cards) && e.cards.every(card));
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
@@ -494,6 +536,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
     items: (fm.items ?? []) as ItemDef[],
     tables: (Array.isArray(fm.tables) ? fm.tables : []).filter(isObj).map(readTable),
+    decks: (fm.decks ?? []) as DeckDef[],
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,

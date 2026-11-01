@@ -140,7 +140,7 @@ describe("readConfig (frontmatter of unknown shape)", () => {
   test("reads the sample config back, filling in the optional lists", () => {
     const { config, problems } = readConfig(JSON.parse(JSON.stringify(CONFIG)));
     expect(problems).toEqual([]);
-    expect(config).toEqual({ ...CONFIG, difficulties: CONFIG.difficulties, resources: CONFIG.resources, companionResources: CONFIG.companionResources ?? [], modifiers: CONFIG.modifiers ?? [], tables: CONFIG.tables ?? [], ink: CONFIG.ink });
+    expect(config).toEqual({ ...CONFIG, difficulties: CONFIG.difficulties, resources: CONFIG.resources, companionResources: CONFIG.companionResources ?? [], modifiers: CONFIG.modifiers ?? [], tables: CONFIG.tables ?? [], decks: CONFIG.decks ?? [], ink: CONFIG.ink });
   });
   test("empty YAML values count as absent", () => {
     const { config, problems } = readConfig({

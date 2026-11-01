@@ -245,11 +245,12 @@ export class PlayView extends ItemView {
   private renderRoll(parent: HTMLElement, r: RollRecord, game: GameView): HTMLElement {
     if (r.kind === "dice") {
       const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free" });
-      card.createSpan({ cls: "inkwright-roll-skill", text: r.table ? `${r.table.name} ${r.formula}` : r.formula });
+      card.createSpan({ cls: "inkwright-roll-skill", text: r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
       const dice = card.createSpan({ cls: "inkwright-roll-dice" });
       for (const face of r.rolls) dice.createSpan({ cls: "inkwright-die", text: String(face) });
       card.createSpan({ cls: "inkwright-roll-sum", text: r.unknown ? T().badFormula : `= ${r.total}` });
-      if (r.table) card.createSpan({ cls: "inkwright-roll-band", text: r.table.text });
+      const result = r.deck ? r.deck.card : r.table?.text;
+      if (result !== undefined) card.createSpan({ cls: "inkwright-roll-band", text: result, ...(r.deck?.desc ? { title: r.deck.desc } : {}) });
       return card;
     }
     const card = parent.createDiv({ cls: `inkwright-roll inkwright-roll-${r.band}` });
@@ -330,6 +331,11 @@ export class PlayView extends ItemView {
       if (game.hud.items.length === 0) row.createSpan({ cls: "inkwright-hud-value", text: T().nothingCarried });
       for (const item of game.hud.items) row.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
     }
+    if (game.hud.decks) {
+      const row = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items" });
+      row.createSpan({ cls: "inkwright-hud-name", text: T().decks });
+      for (const d of game.hud.decks) row.createSpan({ cls: "inkwright-item", text: `${d.name} ${d.left}/${d.total}` });
+    }
     for (const c of game.hud.companions) {
       const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");
       hud.createDiv({ cls: "inkwright-hud-companion", text });
@@ -352,8 +358,9 @@ export class PlayView extends ItemView {
       const dice = r.rolls.length > 0 ? r.rolls.join("+") : "—";
       const tr = t.createEl("tr");
       if (r.kind === "dice") {
-        tr.createEl("td", { text: r.table ? `${r.table.name} ${r.formula}` : r.formula });
-        tr.createEl("td", { text: r.unknown ? T().badFormula : `${dice} = ${r.total}${r.table ? ` · ${r.table.text}` : ""}` });
+        const result = r.deck ? r.deck.card : r.table?.text;
+        tr.createEl("td", { text: r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
+        tr.createEl("td", { text: r.unknown ? T().badFormula : `${dice} = ${r.total}${result !== undefined ? ` · ${result}` : ""}` });
         continue;
       }
       const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;

@@ -37,8 +37,9 @@ export function rollLine(r: RollRecord, language: Language, skills: readonly { i
   const faces = r.rolls.length > 0 ? r.rolls.join("+") : "—";
   if (r.kind === "dice") {
     if (r.unknown) return `🎲 ${r.formula} ${s.badFormula}`;
-    const head = r.table ? `${r.table.name} ${r.formula}` : r.formula;
-    return `🎲 ${head}: ${faces} = ${r.total}${r.table ? ` · ${r.table.text}` : ""}`;
+    const head = r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula;
+    const result = r.deck ? r.deck.card : r.table?.text;
+    return `🎲 ${head}: ${faces} = ${r.total}${result !== undefined ? ` · ${result}` : ""}`;
   }
   const name = r.unknown ? `${r.skill} ${s.unknownSkill}` : skills.find((k) => k.id === r.skill)?.name ?? r.skill;
   const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
