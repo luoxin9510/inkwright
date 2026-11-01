@@ -1,4 +1,4 @@
-import type { Modifier, RulesConfig } from "./dice";
+import { tokenId, type Modifier, type RulesConfig } from "./dice";
 import { tableProblems } from "./tables";
 
 /**
@@ -497,8 +497,16 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) bad("dice");
   } else if (config.rules.kind === "rollUnder") {
     if (!Number.isInteger(config.rules.sides) || config.rules.sides < 2) bad("sides");
-  } else if (config.rules.tokens.length === 0) {
-    bad("tokens");
+  } else {
+    if (config.rules.tokens.length === 0) bad("tokens");
+    // Token ids are not ink identifiers (a value's text is one), so they live in their own namespace;
+    // two tokens with the same id would be told apart by neither the card nor the log.
+    const ids = new Set<string>();
+    for (const t of config.rules.tokens) {
+      const id = tokenId(t);
+      if (ids.has(id)) bad("duplicate", id);
+      ids.add(id);
+    }
   }
   const seen = new Set<string>();
   const ident = (id: string) => {

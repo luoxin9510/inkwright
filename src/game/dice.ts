@@ -201,7 +201,8 @@ export function seededDice(seed: number, index: number): Rng {
 export function averageRoll(rules: RulesConfig): number {
   if (rules.kind === "bag") {
     const pool = bagPool(rules);
-    return Math.round(sum(pool.map((t) => t.value ?? 0)) / Math.max(1, pool.length)) || 0;
+    const mean = sum(pool.map((t) => t.value ?? 0)) / Math.max(1, pool.length);
+    return mean === 0 ? 0 : mean; // never -0
   }
   return rules.kind === "sum" ? sum(rules.dice.map((s) => (s + 1) / 2)) : (rules.sides + 1) / 2;
 }

@@ -53,7 +53,8 @@ describe("chaos bag rules", () => {
     expect(c.success).toBeCloseTo(2 / 8, 6);
     // partialBelow 1: the 0 token lands one short, a partial.
     expect(chance({ ...BAG, partialBelow: 1 }, { level: 3, difficulty: 4 }).bands.map((b) => Math.round(b * 8))).toEqual([1, 4, 1, 1, 1]);
-    expect(averageRoll(BAG)).toBe(0); // the eight tokens sum to -4: -0.5 rounds to -0, given back as 0
+    expect(averageRoll(BAG)).toBeCloseTo(-4 / 8, 9); // the eight tokens sum to -4
+    expect(Object.is(averageRoll({ kind: "bag", tokens: [{ value: -1 }, { value: 1 }] }), 0)).toBe(true);
     expect(averageRoll({ kind: "bag", tokens: [{ value: 2 }, { value: 4 }] })).toBe(3);
   });
 
@@ -85,9 +86,14 @@ describe("a bag in the game note", () => {
     expect(readConfig({ ...base, rules: { kind: "bag" } }).problems).toEqual([{ code: "shape", args: ["rules.tokens"] }]);
   });
 
-  test("an empty bag is reported", () => {
+  test("an empty bag, or two tokens that share an id, is reported", () => {
     expect(validateConfig({ ...CONFIG, rules: { kind: "bag", tokens: [] } })).toEqual([{ code: "tokens", args: [] }]);
     expect(validateConfig({ ...CONFIG, rules: BAG })).toEqual([]);
+    // Two -1 tokens, one named: both would be "-1", so the card could not tell them apart; the named one needs an id.
+    expect(validateConfig({ ...CONFIG, rules: { kind: "bag", tokens: [{ value: -1 }, { value: -1, name: { zh: "教徒" } }] } })).toEqual([{ code: "duplicate", args: ["-1"] }]);
+    expect(validateConfig({ ...CONFIG, rules: { kind: "bag", tokens: [{ value: -1 }, { id: "cultist", value: -1, name: { zh: "教徒" } }, { auto: "fail" }, { auto: "fail" }] } })).toEqual([{ code: "duplicate", args: ["fail"] }]);
+    // `count` is the way to put the same token in twice.
+    expect(validateConfig({ ...CONFIG, rules: { kind: "bag", tokens: [{ value: -1, count: 2 }] } })).toEqual([]);
   });
 });
 
@@ -147,7 +153,7 @@ ${generateInk(config)}
 
   test("without the engine the fallback compares skill plus the average token with the difficulty", () => {
     const ink = generateInk(config);
-    expect(ink).toMatch(/\{ \S+\(\S+\) \+ 0 >= \S+:/);
+    expect(ink).toMatch(/\{ \S+\(\S+\) \+ -0\.5 >= \S+:/); // the bag's mean token, -4/8
     const session = new PlaySession(story());
     session.start();
     expect(session.choose(0).paragraphs[0].text).toBe("断了。"); // skill 0 without a preset
