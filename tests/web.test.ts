@@ -269,3 +269,50 @@ test("a game page with one playable character has no picker", () => {
   expect((document.querySelector("#character") as HTMLElement).hidden).toBe(true);
   expect(document.querySelector("#hud")?.textContent).toContain("理智 3");
 });
+
+test("a game page shows each hand as cards; a #play choice waits for a tapped card and plays it", () => {
+  setLanguage("zh");
+  const config = {
+    ...CONFIG,
+    decks: [{ id: "线索", name: { zh: "线索", en: "Clues" }, cards: [{ id: "血手印", name: { zh: "血手印", en: "Bloody handprint" }, desc: { zh: "门把手上。", en: "On the handle." } }, { id: "半张票", name: { zh: "半张票", en: "Half a ticket" } }] }],
+    hands: [{ id: "手牌", name: { zh: "手牌", en: "Hand" } }],
+  };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n~ 手牌 += 抽牌("线索")\n~ 手牌 += 抽牌("线索")\n桌上。\n-> turn\n=== turn ===\n{ LIST_COUNT(手牌) == 0: -> END }\n+ [打出一张 #play:手牌]\n    ~ 手牌 -= 出牌\n    { 出牌 == 血手印: 血。 }\n    { 出牌 == 半张票: 票。 }\n    -> turn\n+ [走]\n    走了。\n    -> END\n`;
+  const html = buildWebPage({ title: "H", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "h", languageVar: "语言", game: config, engine: GAME_ENGINE });
+  mount(html);
+  const cards = () => Array.from(document.querySelectorAll<HTMLButtonElement>("#hands .card"));
+  const play = () => document.querySelector<HTMLButtonElement>("#choices button")!;
+  expect(document.querySelector<HTMLElement>("#hands")?.hidden).toBe(false);
+  expect(cards().map((c) => c.textContent)).toEqual(["线索血手印", "线索半张票"]);
+  expect(play().disabled).toBe(true);
+  expect(play().querySelector(".need")?.textContent).toBe("先选一张牌");
+  // Tap a card: it is raised, its description shows, the choice carries it.
+  cards()[0].click();
+  expect(cards()[0].className).toBe("card on");
+  expect(document.querySelector("#hands .desc")?.textContent).toBe("血手印: 门把手上。");
+  expect(play().disabled).toBe(false);
+  expect(play().textContent).toBe("打出一张 · 血手印");
+  // Tap it again: put back.
+  cards()[0].click();
+  expect(cards()[0].className).toBe("card");
+  expect(play().disabled).toBe(true);
+  cards()[1].click();
+  play().click();
+  expect(texts("#story p").slice(-2)).toEqual(["打出一张 · 半张票", "票。"]);
+  expect(cards().map((c) => c.textContent)).toEqual(["线索血手印"]);
+  expect(document.querySelector("#hands .desc")).toBeNull();
+  // Back brings the card back; the language replay plays it again.
+  (document.querySelector("#back") as HTMLElement).click();
+  expect(cards()).toHaveLength(2);
+  cards()[1].click();
+  play().click();
+  const lang = document.querySelector("#language") as HTMLSelectElement;
+  lang.value = "en";
+  lang.dispatchEvent(new Event("change"));
+  expect(cards().map((c) => c.textContent)).toEqual(["CluesBloody handprint"]);
+  expect(texts("#story p").slice(-2)).toEqual(["打出一张 · Half a ticket", "票。"]);
+  // Reload: the run is kept, with the hand as it was.
+  mount(html);
+  expect(cards().map((c) => c.textContent)).toEqual(["CluesBloody handprint"]);
+  expect(document.querySelector("#hands .hand .name")?.textContent).toBe("Hand");
+});

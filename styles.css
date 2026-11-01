@@ -134,3 +134,19 @@
 .inkwright-need { display: inline-block; margin-left: 8px; font-size: var(--font-smaller); color: var(--text-muted); white-space: nowrap; }
 .inkwright-need-missing { color: var(--text-error); }
 .inkwright-choice-locked { opacity: 0.6; cursor: default; }
+.inkwright-choice-pick { display: block; font-size: var(--font-smaller); color: var(--text-muted); }
+/* Hands: a row of cards between the text and the choices; tap one to pick it (and read it), tap again to put it back. */
+.inkwright-hands { margin-top: 12px; }
+.inkwright-hand { margin-bottom: 8px; }
+.inkwright-hand-name { font-size: var(--font-smaller); color: var(--text-muted); }
+.inkwright-hand-empty { margin-left: 0.5em; }
+.inkwright-cards { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px 4px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.inkwright-card { flex: 0 0 auto; width: 92px; min-height: 120px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; text-align: left; white-space: normal; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-primary); box-shadow: none; scroll-snap-align: start; transition: transform 120ms ease, border-color 120ms ease; }
+.inkwright-card-deck { font-size: var(--font-smallest); color: var(--text-muted); }
+.inkwright-card-name { font-weight: 600; line-height: 1.3; }
+.inkwright-card-on { border-color: var(--interactive-accent); transform: translateY(-6px); box-shadow: 0 4px 12px var(--background-modifier-box-shadow); }
+.inkwright-card-desc { margin: 4px 0 0; font-size: var(--font-smaller); color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) {
+  .inkwright-card { transition: none; }
+  .inkwright-card-on { transform: none; }
+}

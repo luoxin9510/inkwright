@@ -1,4 +1,4 @@
-import { Story } from "inkjs/full";
+import { InkList, Story } from "inkjs/full";
 import { translateRuntime } from "../compile/diagnostics";
 import { T } from "../i18n";
 import { inspect, type Inspection } from "./inspect";
@@ -13,6 +13,22 @@ export interface Choice {
   text: string;
   /** Tags written inside the choice's brackets, e.g. `check:力量:12`. */
   tags: string[];
+}
+
+/**
+ * What a choice carries besides its index: a variable written just before the choice is taken.
+ * A card played from a hand (`item`: an ink list item by name) or text the player typed.
+ */
+export type Payload = { var: string; item: string } | { var: string; text: string };
+
+/** A choice made, as replayed in another language: the index alone, or with its payload. */
+export type Pick = number | { index: number; payload: Payload };
+
+/** One choice made in a run: its text, where the text it produced begins in the log, and what it carried. */
+export interface Chosen {
+  text: string;
+  at: number;
+  payload?: Payload;
 }
 
 export interface Step {
@@ -31,7 +47,7 @@ export interface SaveData {
   startPoint: string | null;
   /** State at the start point plus every choice since, so the run can be replayed in another language. */
   start?: string;
-  picks?: number[];
+  picks?: Pick[];
 }
 
 /** Global variables a story can declare to be played in several languages ("zh" / "en"). */
@@ -80,9 +96,9 @@ export class PlaySession {
   /** State at the start point; null after loading a save made without one. */
   private startState: string | null = null;
   /** Choices made since startState. */
-  private picks: number[] = [];
+  private picks: Pick[] = [];
   /** The choices made in this run: their text and where the text they produced begins in `log`. */
-  private chosen: { text: string; at: number }[] = [];
+  private chosen: Chosen[] = [];
 
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
@@ -121,7 +137,7 @@ export class PlaySession {
     this.errors = [];
     this.halted = false;
     let step = this.advance();
-    for (const pick of picks) step = this.choose(pick);
+    for (const pick of picks) step = typeof pick === "number" ? this.choose(pick) : this.choose(pick.index, pick.payload);
     return { ...step, paragraphs: [] };
   }
 
@@ -136,30 +152,34 @@ export class PlaySession {
     return this.advance();
   }
 
-  choose(index: number): Step {
+  /** Takes a choice; a payload writes its variable (a card as a list item, or text) just before. */
+  choose(index: number, payload?: Payload): Step {
     this.errors = [];
     if (this.halted) return this.snapshot([]);
     this.history.push({ state: this.story.state.ToJson(), logLength: this.log.length });
     const text = this.story.currentChoices[index]?.text ?? "";
     try {
+      if (payload) this.story.variablesState[payload.var] = "item" in payload ? InkList.FromString(payload.item, this.story) : payload.text;
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
-      this.history.pop();
+      // A payload that does not fit the story (no such list item) must not leave half a move behind.
+      const prev = this.history.pop();
+      if (prev) this.story.state.LoadJson(prev.state);
       this.errors.push(translateRuntime(e instanceof Error ? e.message : String(e)));
       return this.snapshot([]);
     }
-    this.picks.push(index);
-    this.chosen.push({ text, at: this.log.length });
+    this.picks.push(payload ? { index, payload } : index);
+    this.chosen.push({ text, at: this.log.length, ...(payload ? { payload } : {}) });
     return this.advance();
   }
 
   /** The latest choice of this run (text, and the index in `log` of the first paragraph after it); null after start, load or when undone. */
-  get lastChoice(): { text: string; at: number } | null {
+  get lastChoice(): Chosen | null {
     return this.chosen.at(-1) ?? null;
   }
 
   /** Every choice made in this run, oldest first; empty after a load (a save keeps the text, not the choices). */
-  get choicesMade(): readonly { text: string; at: number }[] {
+  get choicesMade(): readonly Chosen[] {
     return this.chosen;
   }
 

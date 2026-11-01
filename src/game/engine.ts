@@ -1,5 +1,6 @@
 import type { Story } from "inkjs/full";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import type { Payload } from "../play/session";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -75,6 +76,30 @@ export interface ChoiceNeed {
   known: boolean;
 }
 
+/** A card as the panel shows it: its deck, its name and description in the current language. */
+export interface CardView {
+  id: string;
+  name: string;
+  desc?: string;
+  deck: string;
+  deckName: string;
+}
+
+/** A hand (`hands` in the config) with the cards it holds now, in deck order. */
+export interface HandView {
+  id: string;
+  name: string;
+  cards: CardView[];
+}
+
+/** The hand a choice plays from (`#play:<hand>`), with its cards now; `known` is false when the config has no such hand. */
+export interface ChoicePlay {
+  hand: string;
+  name: string;
+  cards: CardView[];
+  known: boolean;
+}
+
 /** A resource pushed outside its min..max by the story and clamped back. */
 export interface Overflow {
   /** The resource id, or `<resource>_<character>` for a companion's. */
@@ -93,6 +118,8 @@ export interface HudView {
   items?: ItemView[];
   /** Each deck's pile, absent when the game has no decks. */
   decks?: { id: string; name: string; left: number; total: number }[];
+  /** Each hand's cards, absent when the game has no hands. */
+  hands?: HandView[];
 }
 
 /**
@@ -315,9 +342,51 @@ export class GameEngine {
     return out;
   }
 
-  /** False when the choice needs an item that is not carried (or does not exist). */
+  /** The hand a choice plays a card from (`#play:<hand>`), with the cards in it now; null for other choices. */
+  playOf(choice: { tags: string[] }): ChoicePlay | null {
+    for (const tag of choice.tags) {
+      const id = parsePlayTag(tag);
+      if (id === null) continue;
+      const hand = this.config.hands?.find((h) => h.id === id);
+      return { hand: id, name: localize(hand?.name, this.language, id), cards: hand ? this.cardsIn(id) : [], known: hand !== undefined };
+    }
+    return null;
+  }
+
+  /** What a `#play` choice is taken with: the card written into the played VAR. Null when the hand does not hold that card. */
+  playPayload(hand: string, card: string): Payload | null {
+    if (!this.cardsIn(hand).some((c) => c.id === card)) return null;
+    return { var: inkNames(this.config).played, item: card };
+  }
+
+  /** A card's name in the current language (its id when the config does not know it). */
+  cardName(id: string): string {
+    for (const d of this.config.decks ?? []) {
+      const card = d.cards.find((c) => c.id === id);
+      if (card) return localize(card.name, this.language, id);
+    }
+    return id;
+  }
+
+  /** False when the choice needs an item that is not carried (or does not exist), or plays from a hand with no card in it. */
   canChoose(choice: { tags: string[] }): boolean {
-    return this.needsOf(choice).every((n) => n.has);
+    const play = this.playOf(choice);
+    return this.needsOf(choice).every((n) => n.has) && (play === null || (play.known && play.cards.length > 0));
+  }
+
+  /** The cards a hand variable holds, in deck order. */
+  private cardsIn(hand: string): CardView[] {
+    const list = this.read(hand);
+    const out: CardView[] = [];
+    for (const d of this.config.decks ?? []) {
+      const deckName = localize(d.name, this.language, d.id);
+      for (const c of d.cards) {
+        if (!carries(list, c.id)) continue;
+        const desc = localize(c.desc, this.language, "");
+        out.push({ id: c.id, name: localize(c.name, this.language, c.id), ...(desc ? { desc } : {}), deck: d.id, deckName });
+      }
+    }
+    return out;
   }
 
   /** The skill speaking in a paragraph (from its `voice:` tag), or null. */
@@ -346,6 +415,7 @@ export class GameEngine {
         .map((c) => ({ id: c.id, name: name(c), resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),
       ...(this.config.items?.length ? { items: this.carried() } : {}),
       ...(this.config.decks?.length ? { decks: this.config.decks.map((d) => ({ id: d.id, name: name(d), left: this.pile(d.id, d.cards).length, total: d.cards.length })) } : {}),
+      ...(this.config.hands?.length ? { hands: this.config.hands.map((h) => ({ id: h.id, name: name(h), cards: this.cardsIn(h.id) })) } : {}),
     };
   }
 

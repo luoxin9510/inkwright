@@ -4,7 +4,7 @@ import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
 import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphView";
 import type { Diagnostic } from "./compile/diagnostics";
-import { PlaySession, findLanguageVar, type SaveData, type Step } from "./play/session";
+import { PlaySession, findLanguageVar, type Chosen, type Payload, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
@@ -134,12 +134,26 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.apply(this.session.restart());
   }
 
-  choose(index: number): void {
+  choose(index: number, card?: string): void {
     if (!this.session) return;
     // A choice that needs an item not carried is shown locked; it cannot be taken.
     const choice = this.last?.choices.find((c) => c.index === index);
     if (choice && this.game && !this.game.canChoose(choice)) return;
-    this.apply(this.session.choose(index));
+    // A #play choice is taken with a card from its hand: the engine writes it into the played VAR first.
+    let payload: Payload | undefined;
+    const play = choice && this.game ? this.game.playOf(choice) : null;
+    if (play && this.game) {
+      const p = card === undefined ? null : this.game.playPayload(play.hand, card);
+      if (!p) return;
+      payload = p;
+    }
+    this.apply(this.session.choose(index, payload));
+  }
+
+  /** A choice made, its text carrying the name of the card it was played with. */
+  private withCard(c: Chosen): { text: string; at: number } {
+    const card = c.payload && "item" in c.payload && this.game ? this.game.cardName(c.payload.item) : null;
+    return { text: card ? `${c.text} · ${card}` : c.text, at: c.at };
   }
 
   back(): void {
@@ -318,7 +332,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const character = game?.characters.find((c) => c.id === game.current)?.name ?? null;
     const language = (session.language ?? getLanguage()) === "en" ? "en" : "zh";
     const text = renderJournal({
-      title: story, date: now, language, character, log: session.log, turns: session.turns, choices: session.choicesMade,
+      title: story, date: now, language, character, log: session.log, turns: session.turns, choices: session.choicesMade.map((c) => this.withCard(c)),
       rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills,
     });
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -542,6 +556,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       hud: game.hud(),
       checks: (step?.choices ?? []).map((c) => game.describeChoice(c)),
       needs: (step?.choices ?? []).map((c) => game.needsOf(c)),
+      plays: (step?.choices ?? []).map((c) => game.playOf(c)),
       voices: this.session.log.map((p) => game.voiceOf(p)),
       turns: [...this.session.turns],
       rolls: game.rolls,
@@ -569,7 +584,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       flows: this.flows,
       startPoint: this.startPoint,
       canGoBack: this.session?.canGoBack ?? false,
-      chosen: this.session?.lastChoice ?? null,
+      chosen: this.session?.lastChoice ? this.withCard(this.session.lastChoice) : null,
       pinned: this.config.pinBar ?? false,
       storyLanguage: this.session?.language ?? null,
       game: this.gameView(),

@@ -8,7 +8,7 @@ import type { Inspection } from "./play/inspect";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
 import { simulateStory, type SimulateOptions, type SimulateResult } from "./play/simulate";
-import type { ChoiceCheck, HudView, RollRecord, ChoiceNeed } from "./game/engine";
+import type { ChoiceCheck, ChoicePlay, HudView, RollRecord, ChoiceNeed } from "./game/engine";
 import type { ConfigProblem, GameConfig } from "./game/config";
 import type { Choice } from "./play/session";
 import type { PlayState } from "./views/PlayView";
@@ -19,7 +19,7 @@ export interface ApiHost {
   snapshot(): PlayState;
   refresh(): Promise<void>;
   openPlay(): Promise<void>;
-  choose(index: number): void;
+  choose(index: number, card?: string): void;
   restart(): void;
   startAt(path: string | null): void;
   back(): void;
@@ -81,7 +81,7 @@ export interface PanelReport extends Inspection {
   /** Whether the panel's top bar is pinned. */
   pinned: boolean;
   /** Game mode: the current character, check info per choice, resources and companions, dice log. */
-  game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; hud: HudView; rolls: RollRecord[] } | null;
+  game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; plays: (ChoicePlay | null)[]; hud: HudView; rolls: RollRecord[] } | null;
 }
 
 const HELP = `Inkwright agent API — app.plugins.plugins.inkwright.api
@@ -122,8 +122,10 @@ Visible play panel (the user sees what you do):
   panel()              current panel: { root, locked, startPoint, text[], choices, ended, errors, diagnostics, flows, language, game, variables, visits, turns,
                          chosen (the latest choice: { text, at = index of the first paragraph it produced } or null), pinned }
                        game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance],
-                         needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice], hud (resources, companions, items carried), rolls }
-  choose(indexOrText)  make a choice in the panel
+                         needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice],
+                         plays[per choice: the hand a #play choice takes a card from, { hand, name, cards[{ id, name, desc, deck }], known }],
+                         hud (resources, companions, items carried, decks, hands), rolls }
+  choose(indexOrText, card?)  make a choice in the panel; a #play choice needs the id of a card in its hand
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
   back()               undo the last choice in the panel
@@ -244,18 +246,18 @@ export class InkwrightApi {
       diagnostics: plainDiagnostics(s.diagnostics),
       flows: s.flows,
       language: s.storyLanguage,
-      game: s.game ? { character: s.game.current, checks: s.game.checks, needs: s.game.needs, hud: s.game.hud, rolls: s.game.rolls } : null,
+      game: s.game ? { character: s.game.current, checks: s.game.checks, needs: s.game.needs, plays: s.game.plays, hud: s.game.hud, rolls: s.game.rolls } : null,
       ...insp,
     };
   }
 
-  choose(choice: number | string): PanelReport {
+  choose(choice: number | string, card?: string): PanelReport {
     const target = pick(this.host.snapshot().choices, choice);
     if (!target) {
       const report = this.panel();
       return { ...report, errors: [...report.errors, T().choiceNotFound(String(choice), report.choices.map((c) => c.text))] };
     }
-    this.host.choose(target.index);
+    this.host.choose(target.index, card);
     return this.panel();
   }
 
