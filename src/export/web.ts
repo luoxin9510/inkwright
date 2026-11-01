@@ -62,7 +62,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard,
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess,
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -187,6 +187,9 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #story .roll .die { display: inline-block; min-width: 1.6em; margin-right: 0.2em; padding: 0 0.3em; border: 1px solid var(--line);
   border-radius: 5px; text-align: center; color: var(--fg); font-variant-numeric: tabular-nums; }
 #story .roll .band { font-weight: 600; color: var(--band, var(--fg)); }
+#story .roll .die.token { border-radius: 999px; padding: 0 0.6em; }
+#story .roll .die.fail { border-color: #c33; color: #c33; }
+#story .roll .die.success { border-color: #2a9; color: #2a9; }
 #story .roll.rolling .die { animation: tumble 0.14s linear infinite alternate; }
 #story .roll.rolling .band { visibility: hidden; }
 @keyframes tumble { from { transform: rotate(-8deg) scale(1.05); } to { transform: rotate(8deg) scale(0.95); } }
@@ -423,6 +426,7 @@ const PLAYER = `(function () {
     ul.textContent = "";
     rolls.slice().reverse().forEach(function (r) {
       var li = document.createElement("li"), faces = r.rolls.length ? r.rolls.join("+") : "—";
+      if (r.kind === "check" && r.token) faces = tokenText(r.token);
       if (r.kind === "dice") {
         var got = r.deck ? r.deck.card : r.table ? r.table.text : null;
         li.textContent = (r.deck ? r.deck.name : r.table ? r.table.name + " " + r.formula : r.formula) + ": " + (r.unknown ? "?" : faces + " = " + r.total + (got !== null ? " · " + got : ""));
@@ -590,6 +594,13 @@ const PLAYER = `(function () {
     card.className = "roll b" + r.band;
     skill.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty;
     card.appendChild(skill);
+    // A chaos bag draws a token instead of rolling: one chip, named or by its value.
+    if (r.token) {
+      var tok = document.createElement("span");
+      tok.className = "die token" + (r.token.auto ? " " + r.token.auto : "");
+      tok.textContent = tokenText(r.token);
+      card.appendChild(tok);
+    }
     card.appendChild(faces(r.rolls));
     var sum = document.createElement("span");
     var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
@@ -600,6 +611,12 @@ const PLAYER = `(function () {
     band.textContent = s.bands[r.band];
     card.appendChild(band);
     return card;
+  }
+
+  // A drawn token as text: its name, else the auto wording, else its value with a sign.
+  function tokenText(t) {
+    var v = t.value || 0;
+    return t.name || (t.auto ? (t.auto === "fail" ? s.autoFail : s.autoSuccess) : (v > 0 ? "+" + v : String(v)));
   }
 
   // The faces of new cards tumble for a moment before settling; the outcome shows once they have.
@@ -617,7 +634,7 @@ const PLAYER = `(function () {
           card.classList.remove("rolling");
           return;
         }
-        dice.forEach(function (d) { d.textContent = String(1 + Math.floor(Math.random() * 6)); });
+        dice.forEach(function (d) { d.textContent = d.classList.contains("token") ? "?" : String(1 + Math.floor(Math.random() * 6)); });
       }, 70);
     });
   }

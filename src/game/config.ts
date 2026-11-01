@@ -1,4 +1,4 @@
-import type { Modifier, RulesConfig } from "./dice";
+import { tokenId, type Modifier, type RulesConfig } from "./dice";
 import { tableProblems } from "./tables";
 
 /**
@@ -478,7 +478,7 @@ export const CONFIG_PROBLEM_CODES = [
   "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
-  "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr",
+  "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -495,8 +495,18 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   const bad = (code: ConfigProblemCode, ...args: (string | number)[]) => problems.push({ code, args: args.map(String) });
   if (config.rules.kind === "sum") {
     if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) bad("dice");
-  } else if (!Number.isInteger(config.rules.sides) || config.rules.sides < 2) {
-    bad("sides");
+  } else if (config.rules.kind === "rollUnder") {
+    if (!Number.isInteger(config.rules.sides) || config.rules.sides < 2) bad("sides");
+  } else {
+    if (config.rules.tokens.length === 0) bad("tokens");
+    // Token ids are not ink identifiers (a value's text is one), so they live in their own namespace;
+    // two tokens with the same id would be told apart by neither the card nor the log.
+    const ids = new Set<string>();
+    for (const t of config.rules.tokens) {
+      const id = tokenId(t);
+      if (ids.has(id)) bad("duplicate", id);
+      ids.add(id);
+    }
   }
   const seen = new Set<string>();
   const ident = (id: string) => {
@@ -610,8 +620,13 @@ export function readConfig(fm: unknown): LoadedConfig {
   const problems: ConfigProblem[] = [];
   const shape = (path: string) => problems.push({ code: "shape", args: [path] });
   const rules = fm.rules;
-  if (!isObj(rules) || (rules.kind !== "sum" && rules.kind !== "rollUnder")) {
+  if (!isObj(rules) || (rules.kind !== "sum" && rules.kind !== "rollUnder" && rules.kind !== "bag")) {
     problems.push({ code: "rulesKind", args: [] });
+  } else if (rules.kind === "bag") {
+    const token = (t: unknown) => isObj(t) && opt(t.id, isStr) && opt(t.name, isText) && opt(t.value, isNum) && opt(t.count, isNum)
+      && (t.auto === undefined || t.auto === "fail" || t.auto === "success") && (isNum(t.value) || t.auto !== undefined);
+    if (!Array.isArray(rules.tokens) || !rules.tokens.every(token)) shape("rules.tokens");
+    if (!opt(rules.partialBelow, isNum)) shape("rules.partialBelow");
   } else if (rules.kind === "sum") {
     if (!Array.isArray(rules.dice) || !rules.dice.every(isNum)) shape("rules.dice");
     if (!opt(rules.partialBelow, isNum)) shape("rules.partialBelow");

@@ -7,7 +7,8 @@ type ConfigMessages = Record<ConfigProblemCode, (...args: string[]) => string>;
 
 const configZh: ConfigMessages = {
   noFrontmatter: () => "笔记没有 frontmatter",
-  rulesKind: () => 'rules.kind 必须是 "sum" 或 "rollUnder"',
+  rulesKind: () => 'rules.kind 必须是 "sum"、"rollUnder" 或 "bag"',
+  tokens: () => "rules.tokens 要列出袋子里的标记,至少一个",
   list: (key) => `${key} 必须是非空列表`,
   shape: (path) => `${path} 的格式不对`,
   dice: () => "rules.dice 要列出每个骰子的面数,至少 2 面",
@@ -42,7 +43,8 @@ const configZh: ConfigMessages = {
 
 const configEn: ConfigMessages = {
   noFrontmatter: () => "the note has no frontmatter",
-  rulesKind: () => 'rules.kind must be "sum" or "rollUnder"',
+  rulesKind: () => 'rules.kind must be "sum", "rollUnder" or "bag"',
+  tokens: () => "rules.tokens must list the tokens in the bag, at least one",
   list: (key) => `${key} must be a non-empty list`,
   shape: (path) => `${path} has the wrong shape`,
   dice: () => "rules.dice must list each die's sides, at least 2",
@@ -158,6 +160,8 @@ const zh = {
   inventory: "背包",
   decks: "牌堆",
   pickCard: "先选一张牌",
+  autoFail: "自动失败",
+  autoSuccess: "自动成功",
   cardDesc: (name: string, desc: string) => `${name}:${desc}`,
   nothingCarried: "空",
   needs: "需要",
@@ -256,6 +260,8 @@ const en: Strings = {
   inventory: "Inventory",
   decks: "Decks",
   pickCard: "Pick a card first",
+  autoFail: "Auto-fail",
+  autoSuccess: "Auto-success",
   cardDesc: (name, desc) => `${name}: ${desc}`,
   nothingCarried: "nothing",
   needs: "Needs",

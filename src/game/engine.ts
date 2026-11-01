@@ -1,7 +1,7 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
 import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
-import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, type Band, type Chance, type CheckResult, type Rng } from "./dice";
+import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
 export interface EngineOptions {
@@ -259,6 +259,12 @@ export class GameEngine {
     if (run) this.write(inkNames(this.config).rolls, index + 1);
     const record: CheckRecord = { ...result, kind: "check", skill, index, turn: this.story?.state.currentTurnIndex ?? -1, chance: chance(this.config.rules, input) };
     if (!known) record.unknown = true;
+    // A drawn token carries its player-facing name, in the current language.
+    if (result.token && this.config.rules.kind === "bag") {
+      const def = this.config.rules.tokens.find((t) => tokenId(t) === result.token?.id);
+      const name = localize(def?.name, this.language, "");
+      record.token = { ...result.token, ...(name ? { name } : {}) };
+    }
     this.remember(seed, index, record);
     return result.band;
   }
