@@ -114,6 +114,11 @@ kind: room
 no block here
 `;
 
+  test("kind accepts the word alone, in either language, and nothing longer", () => {
+    const one = (kind: string) => shapesFromMarkdown(`### a\n\`\`\`\n##\nkind: ${kind}\n\`\`\`\n`)[0].kind;
+    expect([one("corridor"), one("走廊"), one("room"), one("房间"), one("corridors"), one("my room"), one("走廊口")]).toEqual(["corridor", "corridor", "room", "room", undefined, undefined, undefined]);
+  });
+
   test("a heading and a fenced block make a shape", () => {
     expect(shapesFromMarkdown(NOTE)).toEqual([
       { id: "r11", cells: ["##.", "###"], doors: ["top:1", "right:2"], entry: "bottom:2", kind: "room" },

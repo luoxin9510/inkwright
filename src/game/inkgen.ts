@@ -204,7 +204,8 @@ export function generateInk(config: GameConfig): string {
   }
   const dungeon = config.dungeon;
   if (dungeon) {
-    const first = dungeon.shapes[0]?.id ?? "shape";
+    // The generator is handed the resolved config (shapes read from `from` are in), but the comment must not name a shape that is not there.
+    const first = dungeon.shapes[0]?.id ?? "<shape id>";
     lines.push(
       "",
       `// Growing dungeon: ${n.dungeonVar} holds the layout (rooms and used doors) as text, ${n.dungeonRoom} the room the party is in.`,

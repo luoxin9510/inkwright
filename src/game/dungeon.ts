@@ -328,8 +328,8 @@ export function shapesFromMarkdown(md: string): ShapeDef[] {
       const key = m[1].toLowerCase();
       if (key === "doors" || key === "门") shape.doors = m[2].split(/[\s,，]+/).filter((d) => d !== "");
       else if (key === "entry" || key === "入口") shape.entry = m[2].trim();
-      else if (/^corridor|走廊$/i.test(m[2].trim())) shape.kind = "corridor";
-      else if (/^room|房间$/i.test(m[2].trim())) shape.kind = "room";
+      else if (/^(corridor|走廊)$/i.test(m[2].trim())) shape.kind = "corridor";
+      else if (/^(room|房间)$/i.test(m[2].trim())) shape.kind = "room";
     }
     out.push(shape);
   }
