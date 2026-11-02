@@ -505,11 +505,12 @@ export function wayBetween(board: Board, from: number, to: number): number[] {
  * back as a number, anything else as text; a missing one as "".
  */
 export function noteGet(notes: string, room: number, field: string): string | number {
-  const key = `${room}.${field}=`;
+  // The field is cleaned as noteSet cleans it, so what was set reads back.
+  const key = `${room}.${field.replace(/[;=]/g, "")}=`;
   const entry = String(notes ?? "").split(";").find((e) => e.startsWith(key));
   if (entry === undefined) return "";
   const value = entry.slice(key.length);
-  return /^-?\d+$/.test(value) ? Number(value) : value;
+  return /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value;
 }
 
 /** Sets (or, with an empty value, removes) a room's note; `;` and `=` in the value are dropped. */
