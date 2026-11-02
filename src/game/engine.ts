@@ -1,7 +1,7 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
 import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText, type PartyDef } from "./config";
-import { boardOf, freeDoors, markRoom, parseLayout, placeRoom, startLayout, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
+import { boardOf, freeDoors, markRoom, nearestFreeRoom, parseLayout, placeRoom, placeSecret, startLayout, stepsBetween, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -325,6 +325,9 @@ export class GameEngine {
     story.BindExternalFunction(n.dungeonDoors, (layout: unknown, room: unknown) => freeDoors(boardOf(def, parseLayout(text(layout))), num(room) > 0 ? num(room) : undefined).length, true);
     story.BindExternalFunction(n.dungeonMark, (layout: unknown, room: unknown, mark: unknown) => markRoom(text(layout), num(room), text(mark)), true);
     story.BindExternalFunction(n.dungeonShape, (layout: unknown, room: unknown) => parseLayout(text(layout))[num(room) - 1]?.shape ?? "", true);
+    story.BindExternalFunction(n.dungeonSecret, (layout: unknown, shape: unknown, room: unknown) => placeSecret(def, text(layout), text(shape), num(room)).layout, true);
+    story.BindExternalFunction(n.dungeonSteps, (layout: unknown, room: unknown, to: unknown) => stepsBetween(boardOf(def, parseLayout(text(layout))), num(room), num(to)), true);
+    story.BindExternalFunction(n.dungeonNearest, (layout: unknown, room: unknown) => nearestFreeRoom(boardOf(def, parseLayout(text(layout))), num(room)), true);
     story.BindExternalFunction(n.dungeonCorridor, (layout: unknown, room: unknown) => (boardOf(def, parseLayout(text(layout))).rooms.find((r) => r.n === num(room))?.corridor ? 1 : 0), true);
   }
 

@@ -137,3 +137,21 @@ no block here
     expect(clash.problems).toEqual([{ code: "duplicate", args: ["r12"] }]);
   });
 });
+
+describe("secret doors and the way back, from ink", () => {
+  test("开暗门 hangs a room behind a wall; 地城_步数 and 地城_最近有门 walk the links", () => {
+    const story = `-> main
+${generateInk(GAME)}
+=== main ===
+~ 开地城("gate")
+~ temp a = 接房间("corridor", 1, 1)
+~ temp s = 开暗门("hall", a)
+暗门后是 {s},回门厅 {地城_步数(地城, s, 1)} 步,最近有门的是 {地城_最近有门(地城, s)}。
+-> END
+`;
+    const engine = new GameEngine(GAME);
+    const session = new PlaySession(new Compiler(story).Compile(), { setup: (st) => engine.setup(st, "昕") });
+    expect(session.start().paragraphs[0].text).toBe("暗门后是 3,回门厅 2 步,最近有门的是 3。");
+    expect(engine.dungeon()?.rooms).toHaveLength(3);
+  });
+});

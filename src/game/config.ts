@@ -327,9 +327,16 @@ export interface InkNames {
   dungeonMark: string;
   dungeonShape: string;
   dungeonCorridor: string;
+  /** Secret door (`dungeon_secret(layout, shape, room)`), the way through the rooms (`dungeon_steps(layout, from, to)`), the nearest room with a free door (`dungeon_nearest(layout, from)`). */
+  dungeonSecret: string;
+  dungeonSteps: string;
+  dungeonNearest: string;
   beginDungeon: string;
   addRoom: string;
   markRoom: string;
+  /** Wrapper: `secret_room(shape, room)` hangs a room behind a new door on a wall of `room` and returns its number (0 when no wall has room behind it). */
+  secretRoom: string;
+  toParam: string;
   layoutParam: string;
   shapeParam: string;
   roomParam: string;
@@ -360,6 +367,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     places: "places", here: "here", revealed: "revealed", atSuffix: "_at", cardPrefix: "card_", cardParam: "which",
     dungeonVar: "dungeon", dungeonRoom: "room", dungeonStart: "dungeon_start", dungeonAdd: "dungeon_add", dungeonRooms: "dungeon_rooms", dungeonDoors: "dungeon_doors",
     dungeonMark: "dungeon_mark", dungeonShape: "dungeon_shape", dungeonCorridor: "dungeon_corridor", beginDungeon: "begin_dungeon", addRoom: "add_room", markRoom: "mark_room",
+    dungeonSecret: "dungeon_secret", dungeonSteps: "dungeon_steps", dungeonNearest: "dungeon_nearest", secretRoom: "secret_room", toParam: "to_room",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
     partyTitle: "title", partyGear: "gear",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
@@ -373,6 +381,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     places: "地点", here: "所在", revealed: "已揭示", atSuffix: "_在", cardPrefix: "牌_", cardParam: "哪张",
     dungeonVar: "地城", dungeonRoom: "所在房间", dungeonStart: "地城_起", dungeonAdd: "地城_接", dungeonRooms: "地城_房数", dungeonDoors: "地城_余门",
     dungeonMark: "地城_标记", dungeonShape: "地城_形状", dungeonCorridor: "地城_走廊", beginDungeon: "开地城", addRoom: "接房间", markRoom: "标记房间",
+    dungeonSecret: "地城_暗门", dungeonSteps: "地城_步数", dungeonNearest: "地城_最近有门", secretRoom: "开暗门", toParam: "目标房间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
     partyTitle: "称号", partyGear: "装备",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
@@ -665,7 +674,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
-  const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "beginDungeon", "addRoom", "markRoom", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
+  const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
   const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames)]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {

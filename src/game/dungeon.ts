@@ -131,23 +131,36 @@ export interface Room {
   rot: number;
   /** Indices (in reading order of the turned shape's doors) of the doors already used. */
   used: number[];
+  /** Doors found later (a secret door), already used: on the `side` edge of the sheet square (r, c). Kept in the used field as `+r.c.side`. */
+  extra?: { r: number; c: number; side: Side }[];
   mark: string;
 }
 
-/** The layout as the ink variable holds it: `shape:x:y:rot:used,used:mark` per room, rooms joined by `;`. */
+/** The layout as the ink variable holds it: `shape:x:y:rot:used,used,+r.c.side:mark` per room, rooms joined by `;`. */
 export function parseLayout(text: string): Room[] {
   const rooms: Room[] = [];
   for (const part of String(text ?? "").split(";")) {
     if (part.trim() === "") continue;
     const [shape, x, y, rot, used = "", ...mark] = part.split(":");
     if (shape === "" || [x, y, rot].some((n) => !Number.isInteger(Number(n)))) continue;
-    rooms.push({ shape, x: Number(x), y: Number(y), rot: ((Number(rot) % 4) + 4) % 4, used: used === "" ? [] : used.split(",").map(Number).filter(Number.isInteger), mark: mark.join(":") });
+    const items = used === "" ? [] : used.split(",");
+    const extra = items.map((u) => /^\+(-?\d+)\.(-?\d+)\.(top|right|bottom|left)$/.exec(u)).filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => ({ r: Number(m[1]), c: Number(m[2]), side: m[3] as Side }));
+    rooms.push({
+      shape, x: Number(x), y: Number(y), rot: ((Number(rot) % 4) + 4) % 4,
+      used: items.filter((u) => /^-?\d+$/.test(u)).map(Number),
+      ...(extra.length > 0 ? { extra } : {}),
+      mark: mark.join(":"),
+    });
   }
   return rooms;
 }
 
 export function formatLayout(rooms: Room[]): string {
-  return rooms.map((r) => `${r.shape}:${r.x}:${r.y}:${r.rot}:${[...new Set(r.used)].sort((a, b) => a - b).join(",")}:${r.mark.replace(/[;:]/g, " ")}`).join(";");
+  return rooms.map((r) => {
+    const used = [...[...new Set(r.used)].sort((a, b) => a - b).map(String), ...(r.extra ?? []).map((d) => `+${d.r}.${d.c}.${d.side}`)];
+    return `${r.shape}:${r.x}:${r.y}:${r.rot}:${used.join(",")}:${r.mark.replace(/[;:]/g, " ")}`;
+  }).join(";");
 }
 
 export type DoorState = "free" | "used" | "blocked";
@@ -210,6 +223,10 @@ export function boardOf(def: DungeonDef, rooms: Room[]): Board {
       const state: DoorState = used ? "used" : outside && !owner.has(key(er, ec)) ? "free" : "blocked";
       p.doors.push({ index, r: ar, c: ac, side: d.side, state, entry: d.entry === true });
     });
+    // Secret doors: always used, numbered after the shape's own (negative, so they never take a shape door's index).
+    (room.extra ?? []).forEach((d, i) => {
+      if (owner.get(key(d.r, d.c)) === n) p.doors.push({ index: -1 - i, r: d.r, c: d.c, side: d.side, state: "used", entry: false });
+    });
   }
   return { width: def.width, height: def.height, rooms: placed, owner };
 }
@@ -247,14 +264,55 @@ export interface Placement {
  */
 export function placeRoom(def: DungeonDef, layout: string, shapeId: string, from: number, k: number): Placement {
   const rooms = parseLayout(layout);
-  const shape = def.shapes.find((s) => s.id === shapeId);
   const board = boardOf(def, rooms);
-  const doors = freeDoors(board, from > 0 ? from : undefined);
-  const parent = doors[Math.max(1, k) - 1];
-  if (!shape || !parent) return { layout, room: 0, truncated: false };
+  const parent = freeDoors(board, from > 0 ? from : undefined)[Math.max(1, k) - 1];
+  if (!parent) return { layout, room: 0, truncated: false };
+  const use = (rs: Room[]) => rs.map((r, i) => (i + 1 === parent.room ? { ...r, used: [...r.used, parent.index] } : r));
+  const way = hang(def, rooms, board, parent, shapeId, use);
+  return way ? { layout: way.layout, room: way.room, truncated: way.truncated } : { layout: formatLayout(use(rooms)), room: 0, truncated: false };
+}
+
+/**
+ * A secret door: a new door on a wall of room `from` (any edge of its squares with an empty square of the
+ * sheet behind it, tried in reading order) with a room of `shapeId` hung on it, turned and cut as for
+ * `placeRoom`. The first wall where the room fits whole wins, else the one that keeps the most squares.
+ * Room 0 (and the layout unchanged) when no wall of the room has empty sheet behind it.
+ */
+export function placeSecret(def: DungeonDef, layout: string, shapeId: string, from: number): Placement {
+  const rooms = parseLayout(layout);
+  const board = boardOf(def, rooms);
+  const room = board.rooms.find((p) => p.n === from);
+  if (!room || !def.shapes.some((s) => s.id === shapeId)) return { layout, room: 0, truncated: false };
+  let best: Placement | null = null;
+  let bestFit = -1;
+  const doorEdges = new Set(room.doors.map((d) => `${d.r},${d.c},${d.side}`));
+  for (const [r, c] of room.cells) {
+    for (const side of SIDES) {
+      // A secret door is in a wall, not where a door is drawn already.
+      if (doorEdges.has(`${r},${c},${side}`)) continue;
+      const [dr, dc] = STEP[side];
+      const er = r + dr, ec = c + dc;
+      if (er < 0 || ec < 0 || er >= def.height || ec >= def.width || board.owner.has(key(er, ec))) continue;
+      const use = (rs: Room[]) => rs.map((x, i) => (i + 1 === from ? { ...x, extra: [...(x.extra ?? []), { r, c, side }] } : x));
+      const way = hang(def, rooms, board, { room: from, r, c, side }, shapeId, use);
+      if (!way) continue;
+      const fit = way.fit;
+      if (!way.truncated) return { layout: way.layout, room: way.room, truncated: false };
+      if (fit > bestFit) {
+        best = { layout: way.layout, room: way.room, truncated: true };
+        bestFit = fit;
+      }
+    }
+  }
+  return best ?? { layout, room: 0, truncated: false };
+}
+
+/** Hangs a shape on a door of the board (`use` marks the door used in the layout); null when not one square of it fits behind the door. */
+function hang(def: DungeonDef, rooms: Room[], board: Board, parent: { room: number; r: number; c: number; side: Side }, shapeId: string, use: (rs: Room[]) => Room[]): (Placement & { fit: number }) | null {
+  const shape = def.shapes.find((s) => s.id === shapeId);
+  if (!shape) return null;
   const [dr, dc] = STEP[parent.side];
   const er = parent.r + dr, ec = parent.c + dc;
-  const use = (rs: Room[]) => rs.map((r, i) => (i + 1 === parent.room ? { ...r, used: [...r.used, parent.index] } : r));
   const need = OPPOSITE[parent.side];
   type Way = { rot: number; x: number; y: number; door: number; fit: number; total: number };
   let best: Way | null = null;
@@ -283,9 +341,55 @@ export function placeRoom(def: DungeonDef, layout: string, shapeId: string, from
       if (best === null || fit > best.fit) best = way;
     }
   }
-  if (!best) return { layout: formatLayout(use(rooms)), room: 0, truncated: false };
+  if (!best) return null;
   const next: Room[] = [...use(rooms), { shape: shape.id, x: best.x, y: best.y, rot: best.rot, used: best.door >= 0 ? [best.door] : [], mark: "" }];
-  return { layout: formatLayout(next), room: next.length, truncated: best.fit < best.total };
+  return { layout: formatLayout(next), room: next.length, truncated: best.fit < best.total, fit: best.fit };
+}
+
+/** Which rooms are joined: through a used door, the room on the other side of it. */
+export function linksOf(board: Board): Map<number, Set<number>> {
+  const links = new Map<number, Set<number>>(board.rooms.map((p) => [p.n, new Set<number>()]));
+  for (const p of board.rooms) {
+    for (const d of p.doors) {
+      if (d.state !== "used") continue;
+      const [dr, dc] = STEP[d.side];
+      const other = board.owner.get(key(d.r + dr, d.c + dc));
+      if (other === undefined || other === p.n) continue;
+      links.get(p.n)?.add(other);
+      links.get(other)?.add(p.n);
+    }
+  }
+  return links;
+}
+
+/** Rooms from `from` by the fewest doors (breadth first), each with its distance; `from` itself at 0. */
+function distances(board: Board, from: number): Map<number, number> {
+  const links = linksOf(board);
+  const dist = new Map<number, number>();
+  if (!links.has(from)) return dist;
+  dist.set(from, 0);
+  const queue = [from];
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    for (const next of [...(links.get(at) ?? [])].sort((a, b) => a - b)) {
+      if (dist.has(next)) continue;
+      dist.set(next, dist.get(at)! + 1);
+      queue.push(next);
+    }
+  }
+  return dist;
+}
+
+/** How many rooms the party walks into going from `from` to `to` by the shortest way (0 when it is the same room; -1 when there is no way). */
+export function stepsBetween(board: Board, from: number, to: number): number {
+  return distances(board, from).get(to) ?? -1;
+}
+
+/** The nearest room (fewest doors from `from`, then lowest number) that still has a free door; 0 when none has. */
+export function nearestFreeRoom(board: Board, from: number): number {
+  const withDoors = new Set(freeDoors(board).map((d) => d.room));
+  const found = [...distances(board, from)].filter(([n]) => withDoors.has(n)).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  return found[0]?.[0] ?? 0;
 }
 
 /** Writes a note on a room (a symbol or a word, `;` and `:` dropped); the layout comes back unchanged when the room does not exist. */

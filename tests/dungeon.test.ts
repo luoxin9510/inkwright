@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { boardOf, freeDoors, formatLayout, isCorridor, markRoom, orientations, parseLayout, placeRoom, shapeProblem, startLayout, viewBox, type DungeonDef, type ShapeDef } from "../src/game/dungeon";
+import { boardOf, freeDoors, formatLayout, isCorridor, markRoom, nearestFreeRoom, orientations, parseLayout, placeRoom, placeSecret, shapeProblem, startLayout, stepsBetween, viewBox, type DungeonDef, type ShapeDef } from "../src/game/dungeon";
 
 const GATE: ShapeDef = { id: "gate", cells: ["###", "###"], doors: ["top:1", "top:3"], entry: "bottom:2" };
 const CORRIDOR: ShapeDef = { id: "corridor", cells: ["#", "#", "#"], doors: ["top:1", "bottom:1"] };
@@ -127,5 +127,37 @@ describe("placing rooms", () => {
     const board = boardOf(DEF, parseLayout(a));
     expect(viewBox(board)).toEqual({ x: 2, y: 2, w: 5, h: 6 });
     expect(boardOf(DEF, parseLayout(markRoom(a, 2, "☠"))).rooms[1].mark).toBe("☠");
+  });
+});
+
+describe("secret doors and the way through", () => {
+  const DEF2: DungeonDef = { width: 9, height: 10, shapes: [
+    { id: "gate", cells: ["###", "###"], doors: ["top:1", "top:3"], entry: "bottom:2" },
+    { id: "corridor", cells: ["#", "#", "#"], doors: ["top:1", "bottom:1"] },
+    { id: "box", cells: ["##", "##"] },
+  ] };
+  test("a secret door is a new used door on a wall; the room behind it is linked and counted in steps", () => {
+    const a = placeRoom(DEF2, startLayout(DEF2, "gate")!, "corridor", 1, 1);
+    const s = placeSecret(DEF2, a.layout, "box", 2);
+    expect(s.room).toBe(3);
+    const rooms = parseLayout(s.layout);
+    expect(rooms[1].extra).toHaveLength(1);
+    expect(parseLayout(formatLayout(rooms))).toEqual(rooms);
+    const board = boardOf(DEF2, rooms);
+    const secret = board.rooms[1].doors.find((d) => d.index < 0);
+    expect(secret?.state).toBe("used");
+    expect(stepsBetween(board, 3, 1)).toBe(2);
+    expect(stepsBetween(board, 1, 1)).toBe(0);
+    expect(stepsBetween(board, 3, 9)).toBe(-1);
+    // Room 1 still has its other top door; the corridor's far end is free too, and nearer to room 3.
+    expect(nearestFreeRoom(board, 3)).toBe(2);
+    expect(nearestFreeRoom(board, 1)).toBe(1);
+    // A room with no wall facing empty sheet gets nothing.
+    expect(placeSecret(DEF2, s.layout, "box", 9).room).toBe(0);
+    expect(placeSecret(DEF2, s.layout, "nope", 1)).toEqual({ layout: s.layout, room: 0, truncated: false });
+  });
+
+  test("old layouts without secret doors read the same", () => {
+    expect(parseLayout("gate:3:8:0:0,2:x")).toEqual([{ shape: "gate", x: 3, y: 8, rot: 0, used: [0, 2], mark: "x" }]);
   });
 });
