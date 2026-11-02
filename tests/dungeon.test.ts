@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { boardOf, freeDoors, formatLayout, isCorridor, markRoom, orientations, parseLayout, placeRoom, shapeProblem, startLayout, viewBox, type DungeonDef, type ShapeDef } from "../src/game/dungeon";
+import { boardOf, freeDoors, formatLayout, isCorridor, linksOf, markRoom, nearestFreeRoom, noteGet, noteSet, orientations, parseLayout, placeRoom, placeSecret, shapeProblem, startLayout, stepsBetween, stretchedShape, viewBox, wayBetween, type DungeonDef, type ShapeDef } from "../src/game/dungeon";
 
 const GATE: ShapeDef = { id: "gate", cells: ["###", "###"], doors: ["top:1", "top:3"], entry: "bottom:2" };
 const CORRIDOR: ShapeDef = { id: "corridor", cells: ["#", "#", "#"], doors: ["top:1", "bottom:1"] };
@@ -127,5 +127,109 @@ describe("placing rooms", () => {
     const board = boardOf(DEF, parseLayout(a));
     expect(viewBox(board)).toEqual({ x: 2, y: 2, w: 5, h: 6 });
     expect(boardOf(DEF, parseLayout(markRoom(a, 2, "☠"))).rooms[1].mark).toBe("☠");
+  });
+});
+
+describe("secret doors and the way through", () => {
+  const DEF2: DungeonDef = { width: 9, height: 10, shapes: [
+    { id: "gate", cells: ["###", "###"], doors: ["top:1", "top:3"], entry: "bottom:2" },
+    { id: "corridor", cells: ["#", "#", "#"], doors: ["top:1", "bottom:1"] },
+    { id: "box", cells: ["##", "##"] },
+  ] };
+  test("a secret door is a new used door on a wall; the room behind it is linked and counted in steps", () => {
+    const a = placeRoom(DEF2, startLayout(DEF2, "gate")!, "corridor", 1, 1);
+    const s = placeSecret(DEF2, a.layout, "box", 2);
+    expect(s.room).toBe(3);
+    const rooms = parseLayout(s.layout);
+    expect(rooms[1].extra).toHaveLength(1);
+    expect(parseLayout(formatLayout(rooms))).toEqual(rooms);
+    const board = boardOf(DEF2, rooms);
+    const secret = board.rooms[1].doors.find((d) => d.index < 0);
+    expect(secret?.state).toBe("used");
+    expect(stepsBetween(board, 3, 1)).toBe(2);
+    expect(stepsBetween(board, 1, 1)).toBe(0);
+    expect(stepsBetween(board, 3, 9)).toBe(-1);
+    // Room 1 still has its other top door; the corridor's far end is free too, and nearer to room 3.
+    expect(nearestFreeRoom(board, 3)).toBe(2);
+    expect(nearestFreeRoom(board, 1)).toBe(1);
+    // A room with no wall facing empty sheet gets nothing.
+    expect(placeSecret(DEF2, s.layout, "box", 9).room).toBe(0);
+    expect(placeSecret(DEF2, s.layout, "nope", 1)).toEqual({ layout: s.layout, room: 0, truncated: false });
+  });
+
+  test("the way between rooms lists the rooms walked into, in order", () => {
+    const a = placeRoom(DEF2, startLayout(DEF2, "gate")!, "corridor", 1, 1);
+    const s = placeSecret(DEF2, a.layout, "box", 2);
+    const board = boardOf(DEF2, parseLayout(s.layout));
+    expect(wayBetween(board, 3, 1)).toEqual([2, 1]);
+    expect(wayBetween(board, 1, 3)).toEqual([2, 3]);
+    expect(wayBetween(board, 2, 2)).toEqual([]);
+    expect(wayBetween(board, 1, 9)).toEqual([]);
+  });
+
+  test("room notes: set, read back as numbers or text, overwrite, remove", () => {
+    let notes = noteSet("", 3, "foe", "goblins");
+    notes = noteSet(notes, 3, "n", 5);
+    notes = noteSet(notes, 7, "foe", "ogre;=x");
+    expect(noteGet(notes, 3, "foe")).toBe("goblins");
+    expect(noteGet(notes, 3, "n")).toBe(5);
+    expect(noteGet(notes, 7, "foe")).toBe("ogrex");
+    expect(noteGet(notes, 4, "foe")).toBe("");
+    notes = noteSet(notes, 3, "n", 2);
+    expect(noteGet(notes, 3, "n")).toBe(2);
+    notes = noteSet(notes, 3, "foe", "");
+    expect(noteGet(notes, 3, "foe")).toBe("");
+    expect(notes).toBe("7.foe=ogrex;3.n=2");
+    // A field with ; or = reads back what was set; decimals read back as numbers.
+    expect(noteGet(noteSet("", 2, "a=b", "x"), 2, "a=b")).toBe("x");
+    expect(noteGet(noteSet("", 2, "w", 1.5), 2, "w")).toBe(1.5);
+    // "13.n" is not "3.n".
+    expect(noteGet(noteSet("", 13, "n", 1), 3, "n")).toBe("");
+  });
+
+  test("old layouts without secret doors read the same", () => {
+    expect(parseLayout("gate:3:8:0:0,2:x")).toEqual([{ shape: "gate", x: 3, y: 8, rot: 0, used: [0, 2], mark: "x" }]);
+  });
+});
+
+describe("stretched corridors and passages", () => {
+  const BASE: ShapeDef = { id: "base", cells: ["#"], doors: ["top:1"], entry: "bottom:1" };
+  const TEE: ShapeDef = { id: "tee", cells: ["#", "#"], doors: ["right:1", "bottom:1"] };
+  const BLOCK: ShapeDef = { id: "blk", cells: ["#"] };
+  const SQUARE: ShapeDef = { id: "sq", cells: ["##", "##"], doors: ["right:1", "bottom:2"] };
+  const def = (more: Partial<DungeonDef>): DungeonDef => ({ width: 5, height: 6, shapes: [BASE, TEE, BLOCK, SQUARE, CORRIDOR], ...more });
+
+  test("a shape is lengthened along its first straight run, its doors moving with it", () => {
+    expect(stretchedShape(CORRIDOR, 2).cells).toEqual(["#", "#", "#", "#", "#"]);
+    const wide = stretchedShape({ id: "w", cells: ["###"], doors: ["left:1", "right:1"] }, 1);
+    expect(wide.cells).toEqual(["####"]);
+    expect(stretchedShape(TEE, 1)).toMatchObject({ cells: ["#", "#", "#"], doors: ["right:1", "bottom:1"] });
+    expect(stretchedShape({ id: "s", cells: ["#", "#"], doors: ["left:2"] }, 2).doors).toEqual(["left:4"]);
+    expect(stretchedShape(TEE, 0)).toBe(TEE);
+  });
+
+  test("a corridor whose doors lead into a wall is lengthened until one opens, when the game allows it", () => {
+    const layout = "base:2:5:0:1:;blk:3:3:0::";
+    // Without stretch the tee's side door faces the block.
+    const plain = placeRoom(def({}), layout, "tee", 1, 1);
+    expect(plain.layout.split(";")[2]).toBe("tee:2:3:0:1:");
+    const longer = placeRoom(def({ stretch: 2 }), layout, "tee", 1, 1);
+    expect(longer.layout.split(";")[2]).toBe("tee*1:2:2:0:1:");
+    const board = boardOf(def({ stretch: 2 }), parseLayout(longer.layout));
+    expect(board.rooms[2].cells).toHaveLength(3);
+    expect(freeDoors(board, 3).map((d) => [d.r, d.c, d.side])).toEqual([[2, 2, "right"]]);
+    expect(parseLayout(longer.layout)[2]).toMatchObject({ shape: "tee", stretch: 1 });
+  });
+
+  test("a room's door against an earlier room's wall is an open passage, when the game allows it", () => {
+    const layout = "base:2:5:0:1:;sq:1:3:0::";
+    const off = boardOf(def({}), parseLayout(layout));
+    expect(off.rooms[1].doors.map((d) => d.state)).toEqual(["free", "blocked"]);
+    const on = boardOf(def({ passages: true }), parseLayout(layout));
+    expect(on.rooms[1].doors.map((d) => d.state)).toEqual(["free", "used"]);
+    expect([...linksOf(on).get(1)!]).toEqual([2]);
+    // A corridor's open end against a wall stays a dead end.
+    const corridor = boardOf(def({ passages: true }), parseLayout("base:2:5:0:1:;corridor:2:2:0::"));
+    expect(corridor.rooms[1].doors.map((d) => d.state)).toEqual(["free", "blocked"]);
   });
 });

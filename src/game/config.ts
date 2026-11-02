@@ -327,9 +327,28 @@ export interface InkNames {
   dungeonMark: string;
   dungeonShape: string;
   dungeonCorridor: string;
+  /** Secret door (`dungeon_secret(layout, shape, room)`), the way through the rooms (`dungeon_steps(layout, from, to)`), the nearest room with a free door (`dungeon_nearest(layout, from)`). */
+  dungeonSecret: string;
+  dungeonSteps: string;
+  dungeonNearest: string;
+  /** The k-th room walked into on the shortest way (`dungeon_via(layout, from, to, k)`, 0 past the end). */
+  dungeonVia: string;
+  /** Room notes: the VAR holding them, the pure EXTERNALs on it, and the wrappers `room_note(room, field)` / `set_room_note(room, field, value)`. */
+  notesVar: string;
+  noteGet: string;
+  noteSet: string;
+  roomNote: string;
+  setRoomNote: string;
+  notesParam: string;
+  fieldParam: string;
+  valueParam: string;
+  kParam2: string;
   beginDungeon: string;
   addRoom: string;
   markRoom: string;
+  /** Wrapper: `secret_room(shape, room)` hangs a room behind a new door on a wall of `room` and returns its number (0 when no wall has room behind it). */
+  secretRoom: string;
+  toParam: string;
   layoutParam: string;
   shapeParam: string;
   roomParam: string;
@@ -360,6 +379,9 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     places: "places", here: "here", revealed: "revealed", atSuffix: "_at", cardPrefix: "card_", cardParam: "which",
     dungeonVar: "dungeon", dungeonRoom: "room", dungeonStart: "dungeon_start", dungeonAdd: "dungeon_add", dungeonRooms: "dungeon_rooms", dungeonDoors: "dungeon_doors",
     dungeonMark: "dungeon_mark", dungeonShape: "dungeon_shape", dungeonCorridor: "dungeon_corridor", beginDungeon: "begin_dungeon", addRoom: "add_room", markRoom: "mark_room",
+    dungeonSecret: "dungeon_secret", dungeonSteps: "dungeon_steps", dungeonNearest: "dungeon_nearest", secretRoom: "secret_room", toParam: "to_room",
+    dungeonVia: "dungeon_via", notesVar: "room_notes", noteGet: "dungeon_note_get", noteSet: "dungeon_note_set", roomNote: "room_note", setRoomNote: "set_room_note",
+    notesParam: "notes_text", fieldParam: "field", valueParam: "value", kParam2: "nth",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
     partyTitle: "title", partyGear: "gear",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
@@ -373,6 +395,9 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     places: "地点", here: "所在", revealed: "已揭示", atSuffix: "_在", cardPrefix: "牌_", cardParam: "哪张",
     dungeonVar: "地城", dungeonRoom: "所在房间", dungeonStart: "地城_起", dungeonAdd: "地城_接", dungeonRooms: "地城_房数", dungeonDoors: "地城_余门",
     dungeonMark: "地城_标记", dungeonShape: "地城_形状", dungeonCorridor: "地城_走廊", beginDungeon: "开地城", addRoom: "接房间", markRoom: "标记房间",
+    dungeonSecret: "地城_暗门", dungeonSteps: "地城_步数", dungeonNearest: "地城_最近有门", secretRoom: "开暗门", toParam: "目标房间",
+    dungeonVia: "地城_途经", notesVar: "房间记事", noteGet: "地城_取记事", noteSet: "地城_存记事", roomNote: "读房间记事", setRoomNote: "写房间记事",
+    notesParam: "记事", fieldParam: "项", valueParam: "值", kParam2: "第几间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
     partyTitle: "称号", partyGear: "装备",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
@@ -626,6 +651,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
       if (why) bad("dungeonShape", s.id, why);
     }
     if (d.shapes.length === 0 && d.from === undefined) bad("dungeonShape", "-", "no shapes");
+    if (d.stretch !== undefined && (!Number.isInteger(d.stretch) || d.stretch < 0 || d.stretch > 9)) bad("dungeonShape", "stretch", String(d.stretch));
+    if (d.passages !== undefined && typeof d.passages !== "boolean") bad("dungeonShape", "passages", String(d.passages));
   }
   if (config.party) {
     const p = config.party;
@@ -665,7 +692,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
-  const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "beginDungeon", "addRoom", "markRoom", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
+  const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "dungeonVia", "notesVar", "noteGet", "noteSet", "roomNote", "setRoomNote", "notesParam", "fieldParam", "valueParam", "kParam2", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
   const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames)]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
@@ -785,7 +812,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   if (!opt(fm.map, (v) => isObj(v) && opt(v.from, isStr) && opt(v.image, isStr) && opt(v.width, isNum) && opt(v.height, isNum) && (fromCanvas ? opt(v.places, (w) => Array.isArray(w) && w.every(place)) : Array.isArray(v.places) && v.places.every(place)) && opt(v.tokens, (w) => Array.isArray(w) && w.every(token)))) shape("map");
   const shapeEntry = (e: unknown) => isObj(e) && isStr(e.id) && Array.isArray(e.cells) && e.cells.every(isStr) && opt(e.name, isText) && opt(e.doors, (v) => Array.isArray(v) && v.every(isStr))
     && opt(e.entry, isStr) && (e.kind === undefined || e.kind === "room" || e.kind === "corridor");
-  if (!opt(fm.dungeon, (v) => isObj(v) && isNum(v.width) && isNum(v.height) && opt(v.from, isStr) && opt(v.shapes, (w) => Array.isArray(w) && w.every(shapeEntry)))) shape("dungeon");
+  if (!opt(fm.dungeon, (v) => isObj(v) && isNum(v.width) && isNum(v.height) && opt(v.from, isStr) && opt(v.stretch, isNum) && opt(v.passages, (w) => typeof w === "boolean") && opt(v.shapes, (w) => Array.isArray(w) && w.every(shapeEntry)))) shape("dungeon");
   const partyStat = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.max, (v) => isNum(v) || isStr(v)) && opt(e.hidden, isBool);
   const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
   if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr))) shape("party");
@@ -871,7 +898,10 @@ function readDungeon(d: Record<string, unknown>): DungeonDef {
     ...(isText(s.name) ? { name: s.name } : {}), ...(Array.isArray(s.doors) ? { doors: s.doors.filter(isStr) } : {}),
     ...(isStr(s.entry) ? { entry: s.entry } : {}), ...(s.kind === "room" || s.kind === "corridor" ? { kind: s.kind } : {}),
   }));
-  return { width: Number(d.width), height: Number(d.height), shapes, ...(isStr(d.from) ? { from: d.from } : {}) };
+  return {
+    width: Number(d.width), height: Number(d.height), shapes, ...(isStr(d.from) ? { from: d.from } : {}),
+    ...(isNum(d.stretch) ? { stretch: Number(d.stretch) } : {}), ...(typeof d.passages === "boolean" ? { passages: d.passages } : {}),
+  };
 }
 
 /** A table entry from the frontmatter, its rows normalized to `{ range?, text, id? }` (the shorthand's language keys become `text`). */
