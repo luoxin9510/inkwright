@@ -28,6 +28,10 @@ export interface DungeonDef {
   shapes: ShapeDef[];
   /** A note that holds the shapes (see `shapesFromMarkdown`); they are added to the ones written here. */
   from?: string;
+  /** Corridors may be lengthened by up to this many squares when that gives them a door onto empty sheet (Four Against Darkness: "stretch corridors 1 or 2 squares"). Off (0) by default. */
+  stretch?: number;
+  /** A room's door that touches the wall of an earlier room is an open passage into it instead of a dead end (corridor ends stay dead ends). Off by default. */
+  passages?: boolean;
 }
 
 export type Side = "top" | "right" | "bottom" | "left";
@@ -122,9 +126,57 @@ export function isCorridor(shape: ShapeDef): boolean {
   return !shape.cells.some((row, r) => [...row].some((_, c) => floor(shape, r, c) && floor(shape, r, c + 1) && floor(shape, r + 1, c) && floor(shape, r + 1, c + 1)));
 }
 
+/**
+ * A shape lengthened by `k` squares: the first pair of equal rows (a straight vertical run) gets `k` more copies,
+ * else the first pair of equal columns. Door specs that count along the stretched direction move with it.
+ * The shape itself when nothing can be stretched or `k` is 0.
+ */
+export function stretchedShape(shape: ShapeDef, k: number): ShapeDef {
+  if (k <= 0) return shape;
+  const cached = stretchCache.get(shape)?.get(k);
+  if (cached) return cached;
+  const w = Math.max(...shape.cells.map((row) => row.length));
+  const rows = shape.cells.map((row) => row.padEnd(w, "."));
+  const moveDoors = (sides: string[], at: number) => (spec: string) => {
+    const m = /^\s*(top|bottom|left|right)\s*:\s*(\d+)\s*$/i.exec(spec);
+    if (!m || !sides.includes(m[1].toLowerCase())) return spec;
+    const n = Number(m[2]);
+    return n > at ? `${m[1]}:${n + k}` : spec;
+  };
+  let out: ShapeDef = shape;
+  const r = rows.findIndex((row, i) => i + 1 < rows.length && row.includes("#") && row === rows[i + 1]);
+  if (r >= 0) {
+    const cells = [...rows.slice(0, r + 1), ...Array<string>(k).fill(rows[r]), ...rows.slice(r + 1)];
+    const move = moveDoors(["left", "right"], r + 1);
+    out = { ...shape, id: shape.id, cells, doors: shape.doors?.map(move), entry: shape.entry === undefined ? undefined : move(shape.entry) };
+  } else {
+    const col = (c: number) => rows.map((row) => row[c]).join("");
+    let c = -1;
+    for (let i = 0; i + 1 < w; i++) if (col(i).includes("#") && col(i) === col(i + 1)) { c = i; break; }
+    if (c >= 0) {
+      const cells = rows.map((row) => row.slice(0, c + 1) + row[c].repeat(k) + row.slice(c + 1));
+      const move = moveDoors(["top", "bottom"], c + 1);
+      out = { ...shape, cells, doors: shape.doors?.map(move), entry: shape.entry === undefined ? undefined : move(shape.entry) };
+    }
+  }
+  if (!stretchCache.has(shape)) stretchCache.set(shape, new Map());
+  stretchCache.get(shape)!.set(k, out);
+  return out;
+}
+
+const stretchCache = new WeakMap<ShapeDef, Map<number, ShapeDef>>();
+
+/** The shape a room of the layout is drawn with: its shape, lengthened when the room says so. */
+function shapeFor(def: DungeonDef, room: Pick<Room, "shape" | "stretch">): ShapeDef | undefined {
+  const shape = def.shapes.find((s) => s.id === room.shape);
+  return shape && room.stretch ? stretchedShape(shape, room.stretch) : shape;
+}
+
 /** One room as the layout string keeps it. */
 export interface Room {
   shape: string;
+  /** Squares a corridor was lengthened by (kept in the shape field as `shape*k`). */
+  stretch?: number;
   /** Top-left square of the turned shape on the sheet. */
   x: number;
   y: number;
@@ -136,18 +188,19 @@ export interface Room {
   mark: string;
 }
 
-/** The layout as the ink variable holds it: `shape:x:y:rot:used,used,+r.c.side:mark` per room, rooms joined by `;`. */
+/** The layout as the ink variable holds it: `shape:x:y:rot:used,used,+r.c.side:mark` per room (`shape*k` for a corridor lengthened by k), rooms joined by `;`. */
 export function parseLayout(text: string): Room[] {
   const rooms: Room[] = [];
   for (const part of String(text ?? "").split(";")) {
     if (part.trim() === "") continue;
-    const [shape, x, y, rot, used = "", ...mark] = part.split(":");
+    const [field, x, y, rot, used = "", ...mark] = part.split(":");
+    const [shape, k] = field.split("*");
     if (shape === "" || [x, y, rot].some((n) => !Number.isInteger(Number(n)))) continue;
     const items = used === "" ? [] : used.split(",");
     const extra = items.map((u) => /^\+(-?\d+)\.(-?\d+)\.(top|right|bottom|left)$/.exec(u)).filter((m): m is RegExpExecArray => m !== null)
       .map((m) => ({ r: Number(m[1]), c: Number(m[2]), side: m[3] as Side }));
     rooms.push({
-      shape, x: Number(x), y: Number(y), rot: ((Number(rot) % 4) + 4) % 4,
+      shape, ...(Number(k) > 0 ? { stretch: Number(k) } : {}), x: Number(x), y: Number(y), rot: ((Number(rot) % 4) + 4) % 4,
       used: items.filter((u) => /^-?\d+$/.test(u)).map(Number),
       ...(extra.length > 0 ? { extra } : {}),
       mark: mark.join(":"),
@@ -159,7 +212,7 @@ export function parseLayout(text: string): Room[] {
 export function formatLayout(rooms: Room[]): string {
   return rooms.map((r) => {
     const used = [...[...new Set(r.used)].sort((a, b) => a - b).map(String), ...(r.extra ?? []).map((d) => `+${d.r}.${d.c}.${d.side}`)];
-    return `${r.shape}:${r.x}:${r.y}:${r.rot}:${used.join(",")}:${r.mark.replace(/[;:]/g, " ")}`;
+    return `${r.shape}${r.stretch ? `*${r.stretch}` : ""}:${r.x}:${r.y}:${r.rot}:${used.join(",")}:${r.mark.replace(/[;:]/g, " ")}`;
   }).join(";");
 }
 
@@ -191,12 +244,11 @@ const key = (r: number, c: number) => `${r},${c}`;
 
 /** Lays the rooms on the sheet in order: a room keeps the squares that are on the sheet and no earlier room holds. */
 export function boardOf(def: DungeonDef, rooms: Room[]): Board {
-  const shapes = new Map(def.shapes.map((s) => [s.id, s]));
   const owner = new Map<string, number>();
   const placed: PlacedRoom[] = [];
   const pending: { room: Room; shape: ShapeDef; o: Oriented; n: number }[] = [];
   rooms.forEach((room, i) => {
-    const shape = shapes.get(room.shape);
+    const shape = shapeFor(def, room);
     if (!shape) return;
     const o = orientations(shape)[room.rot];
     const n = i + 1;
@@ -220,7 +272,10 @@ export function boardOf(def: DungeonDef, rooms: Room[]): Board {
       const er = ar + dr, ec = ac + dc;
       const used = room.used.includes(index);
       const outside = er >= 0 && ec >= 0 && er < def.height && ec < def.width;
-      const state: DoorState = used ? "used" : outside && !owner.has(key(er, ec)) ? "free" : "blocked";
+      // With passages on, a room's door against the wall of an earlier room opens into it.
+      const into = owner.get(key(er, ec));
+      const passage = def.passages === true && !p.corridor && into !== undefined && into < n;
+      const state: DoorState = used || passage ? "used" : outside && into === undefined ? "free" : "blocked";
       p.doors.push({ index, r: ar, c: ac, side: d.side, state, entry: d.entry === true });
     });
     // Secret doors: always used, numbered after the shape's own (negative, so they never take a shape door's index).
@@ -342,8 +397,51 @@ function hang(def: DungeonDef, rooms: Room[], board: Board, parent: { room: numb
     }
   }
   if (!best) return null;
-  const next: Room[] = [...use(rooms), { shape: shape.id, x: best.x, y: best.y, rot: best.rot, used: best.door >= 0 ? [best.door] : [], mark: "" }];
+  let stretch = 0;
+  // A corridor that fits but leads nowhere (all its other doors against a wall or the edge) may be lengthened.
+  if (def.stretch && isCorridor(shape) && best.fit === best.total && opensOnto(def, board, orients[best.rot], best) === 0 && orients[best.rot].doors.length > 1) {
+    for (let k = 1; k <= def.stretch && stretch === 0; k++) {
+      const longer = stretchedShape(shape, k);
+      if (longer === shape) break;
+      const way = bestWay(def, board, orientations(longer), er, ec, need, true);
+      if (way && opensOnto(def, board, orientations(longer)[way.rot], way) > 0) {
+        best = way;
+        stretch = k;
+      }
+    }
+  }
+  const next: Room[] = [...use(rooms), { shape: shape.id, ...(stretch > 0 ? { stretch } : {}), x: best.x, y: best.y, rot: best.rot, used: best.door >= 0 ? [best.door] : [], mark: "" }];
   return { layout: formatLayout(next), room: next.length, truncated: best.fit < best.total, fit: best.fit };
+}
+
+/** The first way a turned shape fits whole behind the square (er, ec) with a door onto empty sheet (when `doors`), else null. */
+function bestWay(def: DungeonDef, board: Board, orients: Oriented[], er: number, ec: number, need: Side, doors: boolean): { rot: number; x: number; y: number; door: number; fit: number; total: number } | null {
+  for (let rot = 0; rot < 4; rot++) {
+    const o = orients[rot];
+    for (const [door, d] of o.doors.entries()) {
+      if (d.side !== need) continue;
+      const x = ec - d.c, y = er - d.r;
+      const whole = o.cells.every(([r, c]) => {
+        const ar = y + r, ac = x + c;
+        return ar >= 0 && ac >= 0 && ar < def.height && ac < def.width && !board.owner.has(key(ar, ac));
+      });
+      if (!whole) continue;
+      const way = { rot, x, y, door, fit: o.cells.length, total: o.cells.length };
+      if (!doors || opensOnto(def, board, o, way) > 0) return way;
+    }
+  }
+  return null;
+}
+
+/** How many of a placed shape's doors, other than the one entered by, open onto empty sheet. */
+function opensOnto(def: DungeonDef, board: Board, o: Oriented, way: { x: number; y: number; door: number }): number {
+  const own = new Set(o.cells.map(([r, c]) => key(way.y + r, way.x + c)));
+  return o.doors.filter((d, i) => {
+    if (i === way.door) return false;
+    const [dr, dc] = STEP[d.side];
+    const er = way.y + d.r + dr, ec = way.x + d.c + dc;
+    return er >= 0 && ec >= 0 && er < def.height && ec < def.width && !board.owner.has(key(er, ec)) && !own.has(key(er, ec));
+  }).length;
 }
 
 /** Which rooms are joined: through a used door, the room on the other side of it. */

@@ -651,6 +651,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
       if (why) bad("dungeonShape", s.id, why);
     }
     if (d.shapes.length === 0 && d.from === undefined) bad("dungeonShape", "-", "no shapes");
+    if (d.stretch !== undefined && (!Number.isInteger(d.stretch) || d.stretch < 0 || d.stretch > 9)) bad("dungeonShape", "stretch", String(d.stretch));
+    if (d.passages !== undefined && typeof d.passages !== "boolean") bad("dungeonShape", "passages", String(d.passages));
   }
   if (config.party) {
     const p = config.party;
@@ -810,7 +812,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   if (!opt(fm.map, (v) => isObj(v) && opt(v.from, isStr) && opt(v.image, isStr) && opt(v.width, isNum) && opt(v.height, isNum) && (fromCanvas ? opt(v.places, (w) => Array.isArray(w) && w.every(place)) : Array.isArray(v.places) && v.places.every(place)) && opt(v.tokens, (w) => Array.isArray(w) && w.every(token)))) shape("map");
   const shapeEntry = (e: unknown) => isObj(e) && isStr(e.id) && Array.isArray(e.cells) && e.cells.every(isStr) && opt(e.name, isText) && opt(e.doors, (v) => Array.isArray(v) && v.every(isStr))
     && opt(e.entry, isStr) && (e.kind === undefined || e.kind === "room" || e.kind === "corridor");
-  if (!opt(fm.dungeon, (v) => isObj(v) && isNum(v.width) && isNum(v.height) && opt(v.from, isStr) && opt(v.shapes, (w) => Array.isArray(w) && w.every(shapeEntry)))) shape("dungeon");
+  if (!opt(fm.dungeon, (v) => isObj(v) && isNum(v.width) && isNum(v.height) && opt(v.from, isStr) && opt(v.stretch, isNum) && opt(v.passages, (w) => typeof w === "boolean") && opt(v.shapes, (w) => Array.isArray(w) && w.every(shapeEntry)))) shape("dungeon");
   const partyStat = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.max, (v) => isNum(v) || isStr(v)) && opt(e.hidden, isBool);
   const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
   if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr))) shape("party");
@@ -896,7 +898,10 @@ function readDungeon(d: Record<string, unknown>): DungeonDef {
     ...(isText(s.name) ? { name: s.name } : {}), ...(Array.isArray(s.doors) ? { doors: s.doors.filter(isStr) } : {}),
     ...(isStr(s.entry) ? { entry: s.entry } : {}), ...(s.kind === "room" || s.kind === "corridor" ? { kind: s.kind } : {}),
   }));
-  return { width: Number(d.width), height: Number(d.height), shapes, ...(isStr(d.from) ? { from: d.from } : {}) };
+  return {
+    width: Number(d.width), height: Number(d.height), shapes, ...(isStr(d.from) ? { from: d.from } : {}),
+    ...(isNum(d.stretch) ? { stretch: Number(d.stretch) } : {}), ...(typeof d.passages === "boolean" ? { passages: d.passages } : {}),
+  };
 }
 
 /** A table entry from the frontmatter, its rows normalized to `{ range?, text, id? }` (the shorthand's language keys become `text`). */
