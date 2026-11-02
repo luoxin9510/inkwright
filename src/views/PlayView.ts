@@ -36,6 +36,9 @@ export interface GameView {
 
 export const PLAY_VIEW_TYPE = "inkwright-play";
 
+/** The status column (party, resources, map, dice) folded away to give the text room; kept when the player moves between the sidebar and the main area. */
+let sideHidden = false;
+
 export interface PlayState {
   root: string | null;
   locked: string | null;
@@ -72,6 +75,9 @@ export interface PlayController {
   selectCharacter(id: string): void;
   toggleLock(): void;
   togglePin(): void;
+  /** Moves the player between the right sidebar and the main area. */
+  movePlay(view: PlayView): void;
+  inMainArea(view: PlayView): boolean;
   openDiagnostic(d: Diagnostic): Promise<void>;
 }
 
@@ -88,6 +94,7 @@ export class PlayView extends ItemView {
   /** The card tapped in a hand, for the next `#play` choice; forgotten when the choices change. */
   private picked: { hand: string; card: string } | null = null;
   private pickedAt = "";
+  private bar: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -107,7 +114,18 @@ export class PlayView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.contentEl.addClass("inkwright-play");
+    const watch = new ResizeObserver(() => this.fitSide());
+    watch.observe(this.contentEl);
+    this.register(() => watch.disconnect());
     this.render();
+  }
+
+  /** The sticky status column starts under a pinned bar and is as tall as the panel leaves it (its own scroll beyond that). */
+  private fitSide(): void {
+    const el = this.contentEl;
+    const pinned = this.bar?.hasClass("inkwright-bar-pinned") ?? false;
+    const top = pinned && this.bar ? this.bar.offsetHeight : 0;
+    el.setCssProps({ "--inkwright-side-top": `${top}px`, "--inkwright-side-max": `${Math.max(200, el.clientHeight - top - 24)}px` });
   }
 
   showState(state: PlayState): void {
@@ -125,6 +143,7 @@ export class PlayView extends ItemView {
     }
 
     const bar = el.createDiv({ cls: `inkwright-bar${s.pinned ? " inkwright-bar-pinned" : ""}` });
+    this.bar = bar;
     const locked = s.locked !== null;
     bar.createSpan({
       cls: "inkwright-root",
@@ -156,17 +175,37 @@ export class PlayView extends ItemView {
     const pin = bar.createEl("button", { cls: `inkwright-pin${s.pinned ? " inkwright-pin-on" : ""}`, attr: { "aria-label": s.pinned ? T().unpin : T().pin, title: s.pinned ? T().unpin : T().pin } });
     setIcon(pin, "pin");
     pin.onclick = () => this.controller.togglePin();
+    const inMain = this.controller.inMainArea(this);
+    const move = bar.createEl("button", { cls: "inkwright-move", attr: { "aria-label": inMain ? T().toSide : T().toMain, title: inMain ? T().toSide : T().toMain } });
+    setIcon(move, inMain ? "minimize-2" : "maximize-2");
+    move.onclick = () => this.controller.movePlay(this);
 
-    if (s.flows.length > 0) this.renderStartFrom(el, s);
-    if (s.hasStory && s.game) this.renderHud(el, s.game);
-    if (s.hasStory && s.game?.map) this.renderMap(el, s.game.map, s.game.mapImage);
-    if (s.hasStory && s.game?.dungeon) this.renderDungeon(el, s.game.dungeon);
-    if (s.inspection) this.renderInspector(el, s.inspection);
-    if (s.hasStory && s.game) this.renderDice(el, s.game);
-    if (s.hasStory && s.saves.length > 0) this.renderSaves(el, s);
+    // The status (party, resources, map, dice) goes in its own column when the panel is wide enough
+    // (styles.css, a container query); narrow, it sits above the text and can be folded away.
+    const hasSide = s.hasStory && s.game !== null && s.game !== undefined;
+    if (hasSide) {
+      const fold = bar.createEl("button", { cls: `inkwright-fold${sideHidden ? "" : " inkwright-fold-on"}`, attr: { "aria-label": sideHidden ? T().showSide : T().hideSide, title: sideHidden ? T().showSide : T().hideSide } });
+      setIcon(fold, "layout-dashboard");
+      fold.onclick = () => {
+        sideHidden = !sideHidden;
+        this.render();
+      };
+    }
+    const stage = el.createDiv({ cls: `inkwright-stage${hasSide && !sideHidden ? " inkwright-stage-split" : ""}` });
+    const side = stage.createDiv({ cls: `inkwright-side${hasSide && !sideHidden ? "" : " inkwright-side-hidden"}` });
+    const main = stage.createDiv({ cls: "inkwright-main" });
+    this.fitSide();
+
+    if (s.flows.length > 0) this.renderStartFrom(main, s);
+    if (s.hasStory && s.game) this.renderHud(side, s.game);
+    if (s.hasStory && s.game?.map) this.renderMap(side, s.game.map, s.game.mapImage);
+    if (s.hasStory && s.game?.dungeon) this.renderDungeon(side, s.game.dungeon);
+    if (s.inspection) this.renderInspector(main, s.inspection);
+    if (s.hasStory && s.game) this.renderDice(side, s.game);
+    if (s.hasStory && s.saves.length > 0) this.renderSaves(main, s);
 
     if (s.diagnostics.length > 0) {
-      const box = el.createDiv({ cls: "inkwright-diagnostics" });
+      const box = main.createDiv({ cls: "inkwright-diagnostics" });
       box.createEl("h4", { text: T().errors });
       for (const d of s.diagnostics) {
         const row = box.createDiv({ cls: `inkwright-diag inkwright-diag-${d.severity}` });
@@ -179,7 +218,7 @@ export class PlayView extends ItemView {
 
     if (!s.hasStory) return;
 
-    const story = el.createDiv({ cls: "inkwright-story" });
+    const story = main.createDiv({ cls: "inkwright-story" });
     // Text shown for the first time after a choice clicked here is scrolled to, its dice tumble
     // and its effects play. When the text changed for another reason (back, restart, a save
     // loaded, the panel opened on a run, another story), the choices are shown instead; a
@@ -234,9 +273,9 @@ export class PlayView extends ItemView {
     const spot = `${s.root ?? ""}\n${s.log.length}\n${s.choices.map((c) => c.text).join("\n")}`;
     if (spot !== this.pickedAt) this.picked = null;
     this.pickedAt = spot;
-    if (s.game?.hud.hands) this.renderHands(el, s.game.hud.hands, s.game.cardImages);
+    if (s.game?.hud.hands) this.renderHands(main, s.game.hud.hands, s.game.cardImages);
 
-    const choices = el.createDiv({ cls: "inkwright-choices" });
+    const choices = main.createDiv({ cls: "inkwright-choices" });
     s.choices.forEach((c, i) => {
       const play = s.game?.plays[i] ?? null;
       const card = play && this.picked?.hand === play.hand ? play.cards.find((k) => k.id === this.picked?.card) : undefined;
