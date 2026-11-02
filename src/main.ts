@@ -640,6 +640,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       needs: (step?.choices ?? []).map((c) => game.needsOf(c)),
       plays: (step?.choices ?? []).map((c) => game.playOf(c)),
       map: game.map(step?.choices ?? []),
+      dungeon: game.dungeon(),
       mapImage: this.root === null ? null : this.resourceUrl(this.vaultFile(game.config.map?.image, this.root)),
       cardImages: this.cardArt,
       voices: this.session.log.map((p) => game.voiceOf(p)),

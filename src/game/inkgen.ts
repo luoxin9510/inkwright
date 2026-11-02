@@ -202,5 +202,48 @@ export function generateInk(config: GameConfig): string {
     lines.push(`VAR ${n.revealed} = (${shown.join(", ")})`);
     for (const t of map.tokens ?? []) lines.push(`VAR ${t.id}${n.atSuffix} = (${t.at ?? ""})`);
   }
+  const dungeon = config.dungeon;
+  if (dungeon) {
+    const first = dungeon.shapes[0]?.id ?? "shape";
+    lines.push(
+      "",
+      `// Growing dungeon: ${n.dungeonVar} holds the layout (rooms and used doors) as text, ${n.dungeonRoom} the room the party is in.`,
+      `// ${n.beginDungeon}("${first}") draws the first room; ${n.addRoom}("${first}", room, door) hangs a room of that shape on the door-th free door of a room`,
+      `// (room 0 = any room) and returns its number, or 0 when the door led into a wall; ${n.markRoom}(room, "text") writes a note on a room.`,
+      `// ${n.dungeonDoors}(${n.dungeonVar}, room) counts the free doors left (room 0 = the whole dungeon), ${n.dungeonRooms}(${n.dungeonVar}) the rooms, ${n.dungeonShape}/${n.dungeonCorridor}(${n.dungeonVar}, room) read a room.`,
+      `VAR ${n.dungeonVar} = ""`,
+      `VAR ${n.dungeonRoom} = 0`,
+      `EXTERNAL ${n.dungeonStart}(${n.shapeParam})`,
+      `EXTERNAL ${n.dungeonAdd}(${n.layoutParam}, ${n.shapeParam}, ${n.roomParam}, ${n.doorParam})`,
+      `EXTERNAL ${n.dungeonRooms}(${n.layoutParam})`,
+      `EXTERNAL ${n.dungeonDoors}(${n.layoutParam}, ${n.roomParam})`,
+      `EXTERNAL ${n.dungeonMark}(${n.layoutParam}, ${n.roomParam}, ${n.markParam})`,
+      `EXTERNAL ${n.dungeonShape}(${n.layoutParam}, ${n.roomParam})`,
+      `EXTERNAL ${n.dungeonCorridor}(${n.layoutParam}, ${n.roomParam})`,
+      "",
+      "// Without the engine nothing grows: no rooms, no doors left.",
+      `=== function ${n.dungeonStart}(${n.shapeParam}) ===`, `~ return ""`,
+      `=== function ${n.dungeonAdd}(${n.layoutParam}, ${n.shapeParam}, ${n.roomParam}, ${n.doorParam}) ===`, `~ return ${n.layoutParam}`,
+      `=== function ${n.dungeonRooms}(${n.layoutParam}) ===`, "~ return 0",
+      `=== function ${n.dungeonDoors}(${n.layoutParam}, ${n.roomParam}) ===`, "~ return 0",
+      `=== function ${n.dungeonMark}(${n.layoutParam}, ${n.roomParam}, ${n.markParam}) ===`, `~ return ${n.layoutParam}`,
+      `=== function ${n.dungeonShape}(${n.layoutParam}, ${n.roomParam}) ===`, `~ return ""`,
+      `=== function ${n.dungeonCorridor}(${n.layoutParam}, ${n.roomParam}) ===`, "~ return 0",
+      "",
+      `=== function ${n.beginDungeon}(${n.shapeParam}) ===`,
+      `~ ${n.dungeonVar} = ${n.dungeonStart}(${n.shapeParam})`,
+      `~ ${n.dungeonRoom} = ${n.dungeonRooms}(${n.dungeonVar})`,
+      `~ return ${n.dungeonRoom}`,
+      "",
+      `=== function ${n.addRoom}(${n.shapeParam}, ${n.roomParam}, ${n.doorParam}) ===`,
+      `~ temp before = ${n.dungeonRooms}(${n.dungeonVar})`,
+      `~ ${n.dungeonVar} = ${n.dungeonAdd}(${n.dungeonVar}, ${n.shapeParam}, ${n.roomParam}, ${n.doorParam})`,
+      `{ ${n.dungeonRooms}(${n.dungeonVar}) > before:`, `    ~ return ${n.dungeonRooms}(${n.dungeonVar})`, "}",
+      "~ return 0",
+      "",
+      `=== function ${n.markRoom}(${n.roomParam}, ${n.markParam}) ===`,
+      `~ ${n.dungeonVar} = ${n.dungeonMark}(${n.dungeonVar}, ${n.roomParam}, ${n.markParam})`,
+    );
+  }
   return lines.join("\n") + "\n";
 }

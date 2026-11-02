@@ -331,6 +331,31 @@ test("a chaos bag game draws a token instead of dice: a chip on the roll card an
   expect(texts("#dice li")).toEqual(["力量 3: 骷髅 +2 = 0 · 失败 (0%)"]);
 });
 
+test("a game page draws the growing dungeon: floor squares, walls, doors, the lit room and a room's note", () => {
+  setLanguage("zh");
+  const config = {
+    ...CONFIG,
+    dungeon: { width: 9, height: 10, shapes: [
+      { id: "gate", cells: ["###", "###"], doors: ["top:1", "top:3"], entry: "bottom:2" },
+      { id: "corridor", cells: ["#", "#", "#"], doors: ["top:1", "bottom:1"] },
+    ] },
+  };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n~ 开地城("gate")\n门厅。\n+ [往里走]\n    ~ temp r = 接房间("corridor", 1, 1)\n    ~ 所在房间 = r\n    ~ 标记房间(r, "⚔")\n    走廊。\n    -> END\n`;
+  mount(buildWebPage({ title: "D", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "d", languageVar: "语言", game: config, engine: GAME_ENGINE }));
+  const dungeon = document.querySelector<HTMLElement>("#dungeon");
+  expect(dungeon?.hidden).toBe(false);
+  expect(dungeon?.querySelectorAll("rect.floor")).toHaveLength(6);
+  expect(dungeon?.querySelectorAll("rect.here")).toHaveLength(6);
+  expect(dungeon?.querySelectorAll("line.door.free")).toHaveLength(2);
+  expect(dungeon?.querySelectorAll("line.door.used")).toHaveLength(1);
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(dungeon?.querySelectorAll("rect.floor")).toHaveLength(9);
+  expect(dungeon?.querySelectorAll("rect.corridor")).toHaveLength(3);
+  expect(dungeon?.querySelectorAll("rect.here")).toHaveLength(3);
+  expect(dungeon?.querySelector("text")?.textContent).toBe("⚔");
+  expect(dungeon?.querySelectorAll("line.wall").length).toBeGreaterThan(10);
+});
+
 test("a game page draws the map: places, a question mark until revealed, counters, tokens, and a place that a choice goes to is a button", () => {
   setLanguage("zh");
   const config = {

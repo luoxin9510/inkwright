@@ -1,6 +1,7 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
 import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import { boardOf, freeDoors, markRoom, parseLayout, placeRoom, startLayout, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -126,6 +127,32 @@ export interface TokenView {
   at: string | null;
 }
 
+/** One room of the growing dungeon as the panel draws it. */
+export interface GridRoomView {
+  n: number;
+  shape: string;
+  name: string;
+  corridor: boolean;
+  /** Squares as [row, column] on the sheet. */
+  cells: [number, number][];
+  doors: { r: number; c: number; side: Side; state: DoorState }[];
+  mark: string;
+  here: boolean;
+  /** Cut off to fit the sheet. */
+  truncated: boolean;
+}
+
+/** The growing dungeon: the part of the sheet worth drawing (`box`, in squares), the rooms, the walls between squares, the free doors left. */
+export interface GridView {
+  width: number;
+  height: number;
+  box: { x: number; y: number; w: number; h: number };
+  rooms: GridRoomView[];
+  walls: Wall[];
+  here: number;
+  free: number;
+}
+
 /** The map as the panel draws it; coordinates are in `width` x `height` units. */
 export interface MapView {
   image?: string;
@@ -196,6 +223,7 @@ export class GameEngine {
     // Lookahead-safe: a roll is read inline, often inside a bilingual string (`{t("…{table("x")}…", …)}`), where
     // ink forbids unsafe externals. Faces are a hash of (seed, index), so a call repeated by lookahead rolls the same.
     story.BindExternalFunction(inkNames(this.config).dice, (formula: unknown, label: unknown) => this.rollDice(formula, label), true);
+    this.bindDungeon(story);
     // A resource lives in min..max: whatever the story adds, it is clamped once the step is done
     // (inkjs tells observers after a Continue), and the overshoot is kept for the checkers.
     for (const r of this.resourceVariables()) {
@@ -267,6 +295,39 @@ export class GameEngine {
     }
     this.remember(seed, index, record);
     return result.band;
+  }
+
+  /** The growing dungeon's functions: pure on the layout text, so lookahead may call them as often as it likes and back/load/replay keep the map. */
+  private bindDungeon(story: Story): void {
+    const def = this.config.dungeon;
+    if (!def) return;
+    const n = inkNames(this.config);
+    const text = (v: unknown) => GameEngine.text(v) ?? "";
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Math.floor(Number(v)) : 0);
+    story.BindExternalFunction(n.dungeonStart, (shape: unknown) => startLayout(def, text(shape)) ?? "", true);
+    story.BindExternalFunction(n.dungeonAdd, (layout: unknown, shape: unknown, room: unknown, door: unknown) => placeRoom(def, text(layout), text(shape), num(room), num(door)).layout, true);
+    story.BindExternalFunction(n.dungeonRooms, (layout: unknown) => parseLayout(text(layout)).filter((r) => def.shapes.some((s) => s.id === r.shape)).length, true);
+    story.BindExternalFunction(n.dungeonDoors, (layout: unknown, room: unknown) => freeDoors(boardOf(def, parseLayout(text(layout))), num(room) > 0 ? num(room) : undefined).length, true);
+    story.BindExternalFunction(n.dungeonMark, (layout: unknown, room: unknown, mark: unknown) => markRoom(text(layout), num(room), text(mark)), true);
+    story.BindExternalFunction(n.dungeonShape, (layout: unknown, room: unknown) => parseLayout(text(layout))[num(room) - 1]?.shape ?? "", true);
+    story.BindExternalFunction(n.dungeonCorridor, (layout: unknown, room: unknown) => (boardOf(def, parseLayout(text(layout))).rooms.find((r) => r.n === num(room))?.corridor ? 1 : 0), true);
+  }
+
+  /** The growing dungeon as drawn now (the layout string and the room the party is in, read from the story); null when the game has none or nothing is drawn yet. */
+  dungeon(): GridView | null {
+    const def = this.config.dungeon;
+    if (!def) return null;
+    const n = inkNames(this.config);
+    const board = boardOf(def, parseLayout(GameEngine.text(this.read(n.dungeonVar)) ?? ""));
+    if (board.rooms.length === 0) return null;
+    const here = Number(this.read(n.dungeonRoom) ?? 0);
+    return {
+      width: board.width, height: board.height, box: viewBox(board), walls: wallsOf(board), here, free: freeDoors(board).length,
+      rooms: board.rooms.map((p) => ({
+        n: p.n, shape: p.shape, name: localize(def.shapes.find((s) => s.id === p.shape)?.name, this.language, p.shape), corridor: p.corridor,
+        cells: p.cells, doors: p.doors.map((d) => ({ r: d.r, c: d.c, side: d.side, state: d.state })), mark: p.mark, here: p.n === here, truncated: p.truncated,
+      })),
+    };
   }
 
   /** A free roll from the story (`roll_dice(formula, label)`): the label names a table when the roll is for one. */
