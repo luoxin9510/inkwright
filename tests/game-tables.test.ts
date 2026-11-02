@@ -175,3 +175,42 @@ test("the generated ink declares the dice EXTERNAL, the roll wrapper and one loo
   expect(ink).toContain('{ 表名 == "encounter" and 点数 <= 3:\n    ~ return "wolf"\n}');
   expect(ink).toContain("=== function 查表(表名) ===\n~ return 表文(表名, 掷表(表名))");
 });
+
+describe("exploding dice and open ranges", () => {
+  test("d6! rolls a die again on a 6 and adds it; the extra faces follow the die", () => {
+    expect(parseFormula("d6!")).toEqual({ count: 1, sides: 6, bonus: 0, d66: false, explode: true });
+    expect(parseFormula("2d6!+1")).toEqual({ count: 2, sides: 6, bonus: 1, d66: false, explode: true });
+    expect(parseFormula("d66!")).toBeNull();
+    const f = parseFormula("1d6!+2")!;
+    expect(formatFormula(f)).toBe("1d6!+2");
+    const faces = (...fs: number[]) => { let i = 0; return () => (fs[i++] - 1) / 6 + 1e-9; };
+    expect(rollFormula(f, faces(6, 6, 3))).toEqual({ rolls: [6, 6, 3], total: 17 });
+    expect(rollFormula(f, faces(4))).toEqual({ rolls: [4], total: 6 });
+    expect(rollFormula(parseFormula("2d6!")!, faces(6, 2, 5))).toEqual({ rolls: [6, 2, 5], total: 13 });
+    // An rng stuck on 6 stops after a bounded number of extra dice.
+    expect(rollFormula(parseFormula("d6!")!, () => 0.99).rolls.length).toBe(21);
+    expect(averageFormula(parseFormula("d6!")!)).toBe(4); // 3.5 · 6/5 = 4.2
+  });
+
+  test("a range can be open: 6+ and ≤0 catch totals a modifier pushes past the dice", () => {
+    expect(parseRange("6+")).toEqual({ lo: 6, hi: Infinity });
+    expect(parseRange("≤0")).toEqual({ lo: -Infinity, hi: 0 });
+    expect(parseRange("<= -1")).toEqual({ lo: -Infinity, hi: -1 });
+    const treasure: TableDef = {
+      id: "treasure", dice: "1d6",
+      rows: [{ range: "≤0", text: "nothing" }, { range: "1", text: "d6 gp" }, { range: "2-5", text: "more" }, { range: "6+", text: "magic" }],
+    };
+    expect(tableProblems(treasure)).toEqual([]);
+    expect(rowAt(treasure, -2)?.row.text).toBe("nothing");
+    expect(rowAt(treasure, 0)?.row.text).toBe("nothing");
+    expect(rowAt(treasure, 9)?.row.text).toBe("magic");
+    expect(tableFormula({ id: "t", rows: [{ range: "1-5", text: "a" }, { range: "6+", text: "b" }] })).toEqual({ count: 1, sides: 6, bonus: 0, d66: false });
+    // The generated lookup reads the open rows like any other.
+    const ink = generateInk({ ...CONFIG, tables: [treasure] });
+    expect(ink).toContain('{ 表名 == "treasure" and 点数 <= 0:');
+    expect(ink).toContain('{ 表名 == "treasure" and 点数 <= 5:');
+    expect(ink.match(/\{ 表名 == "treasure":\n    ~ return 双/g)).toHaveLength(1); // the 6+ row is the last, taking the rest
+    expect(ink).not.toContain("Infinity");
+    expect(rowsFromMarkdown("| 1d6 | 内容 |\n|---|---|\n| ≤0 | 无 |\n| 1-5 | 有 |\n| 6+ | 魔法 |\n", [])).toEqual({ dice: "1d6", rows: [{ range: "≤0", text: "无" }, { range: "1-5", text: "有" }, { range: "6+", text: "魔法" }] });
+  });
+});

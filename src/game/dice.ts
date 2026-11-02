@@ -217,32 +217,43 @@ export interface DiceFormula {
   bonus: number;
   /** Two d6 read as tens and units: 11..66. */
   d66: boolean;
+  /** `d6!`: a die showing its top face is rolled again and added, as often as it comes up. */
+  explode?: boolean;
 }
 
-const FORMULA = /^\s*(\d*)[dD](\d+|%)\s*(?:([+-])\s*(\d+))?\s*$/;
+const FORMULA = /^\s*(\d*)[dD](\d+|%)(!?)\s*(?:([+-])\s*(\d+))?\s*$/;
 
-/** Parses `NdM[+K|-K]`, `dM`, `d%` and `d66`; null when the text is not a formula. */
+/** Parses `NdM[+K|-K]`, `dM`, `d%`, `d66` and exploding `dM!`; null when the text is not a formula. */
 export function parseFormula(text: string): DiceFormula | null {
   const m = FORMULA.exec(text);
   if (!m) return null;
-  const [, countText, sidesText, sign, bonusText] = m;
+  const [, countText, sidesText, bang, sign, bonusText] = m;
   const bonus = bonusText === undefined ? 0 : (sign === "-" ? -1 : 1) * Number(bonusText);
-  if (countText === "" && sidesText === "66") return { count: 2, sides: 6, bonus, d66: true };
+  if (countText === "" && sidesText === "66") return bang ? null : { count: 2, sides: 6, bonus, d66: true };
   const count = countText === "" ? 1 : Number(countText);
   const sides = sidesText === "%" ? 100 : Number(sidesText);
   if (!Number.isInteger(count) || count < 1 || count > 100 || !Number.isInteger(sides) || sides < 2) return null;
-  return { count, sides, bonus, d66: false };
+  return bang ? { count, sides, bonus, d66: false, explode: true } : { count, sides, bonus, d66: false };
 }
 
-/** The formula as a story would write it: `2d6+3`, `d66`, `1d20-1`. */
+/** The formula as a story would write it: `2d6+3`, `d66`, `1d20-1`, `1d6!`. */
 export function formatFormula(f: DiceFormula): string {
   const bonus = f.bonus === 0 ? "" : f.bonus > 0 ? `+${f.bonus}` : String(f.bonus);
-  return (f.d66 ? "d66" : `${f.count}d${f.sides}`) + bonus;
+  return (f.d66 ? "d66" : `${f.count}d${f.sides}${f.explode ? "!" : ""}`) + bonus;
 }
 
-/** Rolls a formula: the faces, and the total with the bonus (tens and units for d66). */
+/** Extra dice one exploding die may add, at most: a guard against an rng stuck on the top face. */
+const MAX_EXPLOSIONS = 20;
+
+/** Rolls a formula: the faces (an exploding die's extra faces follow it), and the total with the bonus (tens and units for d66). */
 export function rollFormula(f: DiceFormula, rng: Rng): { rolls: number[]; total: number } {
-  const rolls = Array.from({ length: f.count }, () => 1 + Math.floor(rng() * f.sides));
+  const face = () => 1 + Math.floor(rng() * f.sides);
+  const rolls: number[] = [];
+  for (let i = 0; i < f.count; i++) {
+    let r = face();
+    rolls.push(r);
+    for (let k = 0; f.explode && r === f.sides && k < MAX_EXPLOSIONS; k++) rolls.push((r = face()));
+  }
   const total = f.d66 ? rolls[0] * 10 + rolls[1] + f.bonus : sum(rolls) + f.bonus;
   return { rolls, total };
 }
@@ -254,6 +265,8 @@ export function formulaSpan(f: DiceFormula): { min: number; max: number } {
 
 /** The expected total, rounded: what the ink fallback returns without an engine to roll. */
 export function averageFormula(f: DiceFormula): number {
+  // An exploding die averages (s+1)/2 · s/(s-1): each top face adds another die's worth.
+  if (f.explode) return Math.round(f.count * ((f.sides + 1) / 2) * (f.sides / (f.sides - 1)) + f.bonus);
   const { min, max } = formulaSpan(f);
   return Math.round((min + max) / 2);
 }

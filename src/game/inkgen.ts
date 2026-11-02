@@ -124,7 +124,8 @@ export function generateInk(config: GameConfig): string {
         const ranged = t.rows.some((r) => parseRange(r.range) !== null);
         const rows = ranged ? [...t.rows].sort((a, b) => (parseRange(a.range)?.lo ?? 0) - (parseRange(b.range)?.lo ?? 0)) : t.rows;
         rows.forEach((r, i) => {
-          const last = i === rows.length - 1;
+          // An open top (`6+`) can only be the last row, which takes the rest anyway.
+          const last = i === rows.length - 1 || parseRange(r.range)?.hi === Infinity;
           const cond = last ? "" : ranged ? ` and ${n.totalParam} <= ${parseRange(r.range)?.hi ?? 0}` : ` and ${n.totalParam} == ${i + 1}`;
           lines.push(`{ ${n.tableParam} == "${t.id}"${cond}:`, `    ~ return ${value(r)}`, "}");
         });

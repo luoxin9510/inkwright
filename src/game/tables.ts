@@ -17,6 +17,11 @@ export interface Range {
 export function parseRange(text: string | number | undefined | null): Range | null {
   if (typeof text === "number") return Number.isInteger(text) ? { lo: text, hi: text } : null;
   if (typeof text !== "string") return null;
+  // Open ends, for totals a modifier pushes past the dice: `6+` (6 or more), `≤0` / `<=0` (0 or less).
+  const up = /^\s*(-?\d+)\s*\+\s*$/.exec(text);
+  if (up) return { lo: Number(up[1]), hi: Infinity };
+  const down = /^\s*(?:≤|<=)\s*(-?\d+)\s*$/.exec(text);
+  if (down) return { lo: -Infinity, hi: Number(down[1]) };
   const m = /^\s*(\d+)\s*(?:[-–—~]\s*(\d+))?\s*$/.exec(text);
   if (!m) return null;
   const lo = Number(m[1]);
@@ -45,7 +50,7 @@ export function tableFormula(table: TableDef): DiceFormula | null {
   const rs = ranges(table).filter((r): r is Range => r !== null);
   if (rs.length === 0) return { count: 1, sides: Math.max(1, table.rows?.length ?? 0), bonus: 0, d66: false };
   if (looksD66(rs)) return { count: 2, sides: 6, bonus: 0, d66: true };
-  return { count: 1, sides: Math.max(1, ...rs.map((r) => r.hi)), bonus: 0, d66: false };
+  return { count: 1, sides: Math.max(1, ...rs.map((r) => (Number.isFinite(r.hi) ? r.hi : r.lo))), bonus: 0, d66: false };
 }
 
 /** The row a total lands on: by its range, or, in a table without ranges, the total-th row (1-based). Null when none. */
@@ -93,7 +98,9 @@ export function tableProblems(table: TableDef): ConfigProblem[] {
   const covered = new Map<number, number>();
   for (const r of rs) {
     if (r === null) continue;
-    for (let n = r.lo; n <= r.hi; n++) covered.set(n, (covered.get(n) ?? 0) + 1);
+    // An open end covers the rest of the dice's span on that side; what a modifier adds beyond it is its own.
+    const lo = Number.isFinite(r.lo) ? r.lo : span.min, hi = Number.isFinite(r.hi) ? r.hi : span.max;
+    for (let n = lo; n <= hi; n++) covered.set(n, (covered.get(n) ?? 0) + 1);
   }
   const totals = formula.d66
     ? Array.from({ length: 36 }, (_, i) => (Math.floor(i / 6) + 1) * 10 + (i % 6) + 1 + formula.bonus)
