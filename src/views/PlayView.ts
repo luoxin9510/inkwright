@@ -458,6 +458,7 @@ export class PlayView extends ItemView {
 
   private renderHud(el: HTMLElement, game: GameView): void {
     const hud = el.createDiv({ cls: "inkwright-hud" });
+    if (game.hud.party) this.renderParty(hud, game.hud.party);
     for (const r of game.hud.resources) {
       const row = hud.createDiv({ cls: "inkwright-hud-row" });
       row.createSpan({ cls: "inkwright-hud-name", text: r.name });
@@ -466,7 +467,8 @@ export class PlayView extends ItemView {
       bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(((r.value - r.min) / span) * 100)}%` });
       row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
     }
-    if (game.hud.items) {
+    // In a party game the gear is on the cards; an empty pack of the protagonist is noise.
+    if (game.hud.items && !(game.hud.party && game.hud.items.length === 0)) {
       const row = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items" });
       row.createSpan({ cls: "inkwright-hud-name", text: T().inventory });
       if (game.hud.items.length === 0) row.createSpan({ cls: "inkwright-hud-value", text: T().nothingCarried });
@@ -480,6 +482,32 @@ export class PlayView extends ItemView {
     for (const c of game.hud.companions) {
       const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");
       hud.createDiv({ cls: "inkwright-hud-companion", text });
+    }
+  }
+
+  /** A card per party member: name, title, stats (bars where there is a maximum), gear; a member who is down is faded. */
+  private renderParty(el: HTMLElement, party: NonNullable<GameView["hud"]["party"]>): void {
+    const box = el.createDiv({ cls: "inkwright-party" });
+    if (party.name) box.createDiv({ cls: "inkwright-party-name", text: party.name });
+    const row = box.createDiv({ cls: "inkwright-party-members" });
+    for (const m of party.members) {
+      const card = row.createDiv({ cls: ["inkwright-party-member", ...(m.down ? ["inkwright-party-down"] : [])] });
+      card.createDiv({ cls: "inkwright-party-who", text: m.name });
+      if (m.title) card.createDiv({ cls: "inkwright-party-title", text: m.title });
+      for (const st of m.stats) {
+        const line = card.createDiv({ cls: "inkwright-party-stat" });
+        line.createSpan({ cls: "inkwright-party-stat-name", text: st.name });
+        if (st.max !== undefined) {
+          const bar = line.createDiv({ cls: "inkwright-hud-bar" });
+          const share = st.max > 0 ? Math.max(0, Math.min(1, st.value / st.max)) : 0;
+          bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(share * 100)}%` });
+        }
+        line.createSpan({ cls: "inkwright-party-stat-value", text: st.max !== undefined ? `${st.value}/${st.max}` : String(st.value) });
+      }
+      if (m.gear && m.gear.length > 0) {
+        const gear = card.createDiv({ cls: "inkwright-party-gear" });
+        for (const item of m.gear) gear.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
+      }
     }
   }
 

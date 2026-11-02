@@ -124,7 +124,7 @@ Visible play panel (the user sees what you do):
                        game (when the story's folder has a game.md): { character, checks[per choice: skill, difficulty, red, level, modifiers, chance],
                          needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice],
                          plays[per choice: the hand a #play choice takes a card from, { hand, name, cards[{ id, name, desc, deck }], known }],
-                         hud (resources, companions, items carried, decks, hands), map (places with here/revealed/counter/go, tokens), dungeon (the growing dungeon: rooms with squares, doors and marks, walls, free doors left), rolls }
+                         hud (resources, companions, items carried, decks, hands, party: members with title, stats, gear, down), map (places with here/revealed/counter/go, tokens), dungeon (the growing dungeon: rooms with squares, doors and marks, walls, free doors left), rolls }
   choose(indexOrText, card?)  make a choice in the panel; a #play choice needs the id of a card in its hand
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)

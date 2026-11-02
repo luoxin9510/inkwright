@@ -356,6 +356,24 @@ test("a game page draws the growing dungeon: floor squares, walls, doors, the li
   expect(dungeon?.querySelectorAll("line.wall").length).toBeGreaterThan(10);
 });
 
+test("a game page lists the party: a line per member with title, stats and gear, the fallen one faded", () => {
+  setLanguage("zh");
+  const config = {
+    ...CONFIG,
+    characters: CONFIG.characters.map((c) => ({ ...c, items: [] })),
+    party: { name: "小队", down: "生命", stats: [{ id: "生命", max: "上限" }, { id: "上限", hidden: true }], members: [{ id: "甲", name: "战士", stats: { 生命: 5, 上限: 5 }, items: ["刀"] }, { id: "乙", name: "法师", stats: { 生命: 2, 上限: 2 } }] },
+  };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n进门。\n+ [挨打]\n    ~ 生命_乙 = 0\n    ~ 称号_甲 = "老兵"\n    倒了。\n    -> END\n`;
+  mount(buildWebPage({ title: "P", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "p", languageVar: "语言", game: config, engine: GAME_ENGINE }));
+  const lines = () => Array.from(document.querySelectorAll("#hud > div")).map((d) => d.textContent).filter((t) => /战士|法师/.test(t ?? ""));
+  expect(lines()).toEqual(["战士生命 5/5 · 刀", "法师生命 2/2"]);
+  // The gear is on the members; the protagonist's empty pack is left out.
+  expect(texts("#hud > div").some((t) => t.startsWith("背包"))).toBe(false);
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(lines()).toEqual(["战士老兵 · 生命 5/5 · 刀", "法师生命 0/2"]);
+  expect(Array.from(document.querySelectorAll("#hud > div.down")).map((d) => d.textContent)).toEqual(["法师生命 0/2"]);
+});
+
 test("a game page draws the map: places, a question mark until revealed, counters, tokens, and a place that a choice goes to is a button", () => {
   setLanguage("zh");
   const config = {

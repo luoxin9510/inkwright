@@ -1,6 +1,6 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText, type PartyDef } from "./config";
 import { boardOf, freeDoors, markRoom, parseLayout, placeRoom, startLayout, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
@@ -172,6 +172,19 @@ export interface Overflow {
   max: number;
 }
 
+/** One party member as the panel draws it: stats in config order (hidden ones left out), `max` where a bar is drawn. */
+export interface PartyMemberView {
+  id: string;
+  name: string;
+  /** The title the story set (`title_<id>`), empty when none. */
+  title: string;
+  stats: { id: string; name: string; value: number; max?: number }[];
+  /** Absent when the game has no items. */
+  gear?: ItemView[];
+  /** The party's `down` stat is 0 or less. */
+  down: boolean;
+}
+
 export interface HudView {
   character: { id: string; name: string; skills: { id: string; name: string; level: number }[] } | null;
   resources: ResourceView[];
@@ -182,6 +195,8 @@ export interface HudView {
   decks?: { id: string; name: string; left: number; total: number }[];
   /** Each hand's cards, absent when the game has no hands. */
   hands?: HandView[];
+  /** The party, absent when the game has none. */
+  party?: { name: string; members: PartyMemberView[] };
 }
 
 /**
@@ -564,12 +579,40 @@ export class GameEngine {
       ...(this.config.items?.length ? { items: this.carried() } : {}),
       ...(this.config.decks?.length ? { decks: this.config.decks.map((d) => ({ id: d.id, name: name(d), left: this.pile(d.id, d.cards).length, total: d.cards.length })) } : {}),
       ...(this.config.hands?.length ? { hands: this.config.hands.map((h) => ({ id: h.id, name: name(h), cards: this.cardsIn(h.id) })) } : {}),
+      ...(this.config.party ? { party: this.party(this.config.party) } : {}),
+    };
+  }
+
+  /** The party's members read from their variables. */
+  private party(p: PartyDef): { name: string; members: PartyMemberView[] } {
+    const n = inkNames(this.config);
+    const num = (v: string) => Number(this.read(v) ?? 0);
+    return {
+      name: localize(p.name, this.language, ""),
+      members: p.members.map((m) => {
+        const stats = p.stats.filter((st) => !st.hidden).map((st) => {
+          const max = typeof st.max === "number" ? st.max : typeof st.max === "string" ? num(`${st.max}_${m.id}`) : undefined;
+          return { id: st.id, name: localize(st.name, this.language, st.id), value: num(`${st.id}_${m.id}`), ...(max !== undefined ? { max } : {}) };
+        });
+        return {
+          id: m.id,
+          name: localize(m.name, this.language, m.id),
+          title: GameEngine.text(this.read(`${n.partyTitle}_${m.id}`)) ?? "",
+          stats,
+          ...(this.config.items?.length ? { gear: this.itemsIn(this.read(`${n.partyGear}_${m.id}`)) } : {}),
+          down: p.down !== undefined && num(`${p.down}_${m.id}`) <= 0,
+        };
+      }),
     };
   }
 
   /** The items carried now, in config order. */
   private carried(): ItemView[] {
-    const inventory = this.read(inkNames(this.config).inventory);
+    return this.itemsIn(this.read(inkNames(this.config).inventory));
+  }
+
+  /** The items an ink list holds, in config order. */
+  private itemsIn(inventory: unknown): ItemView[] {
     return (this.config.items ?? []).filter((i) => carries(inventory, i.id)).map((i) => {
       const desc = localize(i.desc, this.language, "");
       return { id: i.id, name: localize(i.name, this.language, i.id), ...(desc ? { desc } : {}) };

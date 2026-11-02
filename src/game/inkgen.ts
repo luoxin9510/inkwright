@@ -53,6 +53,17 @@ export function generateInk(config: GameConfig): string {
       for (const r of companions) lines.push(`VAR ${r.id}_${c.id} = ${c.companion?.[r.id] ?? r.initial}`);
     }
   }
+  const party = config.party;
+  if (party) {
+    const m0 = party.members[0]?.id ?? "id";
+    const gear = config.items?.length ? `, ${n.partyGear}_${m0} its gear (\`~ ${n.partyGear}_${m0} += ${config.items[0].id}\`)` : "";
+    lines.push("", `// Party: ${party.stats[0] ? `${party.stats[0].id}_${m0} is a member's ${party.stats[0].id}, ` : ""}${n.partyTitle}_${m0} a line the panel shows under the name${gear}.`);
+    for (const m of party.members) {
+      for (const st of party.stats) lines.push(`VAR ${st.id}_${m.id} = ${m.stats?.[st.id] ?? 0}`);
+      lines.push(`VAR ${n.partyTitle}_${m.id} = ""`);
+      if (config.items?.length) lines.push(`VAR ${n.partyGear}_${m.id} = (${(m.items ?? []).join(", ")})`);
+    }
+  }
   lines.push(
     "",
     `EXTERNAL ${n.check}(${n.skillParam}, ${n.difficultyParam})`,
