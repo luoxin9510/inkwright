@@ -80,6 +80,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
     this.addRibbonIcon("play", T().openPlay, () => void this.openPlay());
     this.addCommand({ id: "open-play", name: T().openPlay, callback: () => void this.openPlay() });
+    this.addCommand({ id: "open-play-main", name: T().openPlayMain, callback: () => void this.openPlay("main") });
     this.addRibbonIcon("git-fork", T().openGraph, () => void this.openGraph());
     this.addCommand({ id: "open-graph", name: T().openGraph, callback: () => void this.openGraph() });
     this.addCommand({ id: "lock-main", name: T().lockCurrent, callback: () => void this.lockCurrent() });
@@ -480,15 +481,28 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.schedule();
   }
 
-  async openPlay(): Promise<void> {
+  /** Opens the player (or shows it where it is); `where` moves it to the main area (a tab: full screen on a phone) or back to the right sidebar. */
+  async openPlay(where?: "main" | "side"): Promise<void> {
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(PLAY_VIEW_TYPE)[0] ?? null;
+    if (leaf && where !== undefined && (leaf.getRoot() === workspace.rootSplit) !== (where === "main")) {
+      leaf.detach();
+      leaf = null;
+    }
     if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
+      leaf = where === "main" ? workspace.getLeaf("tab") : workspace.getRightLeaf(false);
       await leaf?.setViewState({ type: PLAY_VIEW_TYPE, active: true });
     }
     if (leaf) void workspace.revealLeaf(leaf);
     this.schedule();
+  }
+
+  movePlay(view: PlayView): void {
+    void this.openPlay(view.leaf.getRoot() === this.app.workspace.rootSplit ? "side" : "main");
+  }
+
+  inMainArea(view: PlayView): boolean {
+    return view.leaf.getRoot() === this.app.workspace.rootSplit;
   }
 
   private async lockCurrent(): Promise<void> {
