@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "check-ink": "esbuild scripts/check-ink.ts --bundle --packages=external --platform=node --format=esm --outfile=.cache/check-ink.mjs --log-level=error && node .cache/check-ink.mjs",
+    "gen-engine": "esbuild scripts/gen-engine.ts --bundle --packages=external --platform=node --format=esm --outfile=.cache/gen-engine.mjs --log-level=error && node .cache/gen-engine.mjs",
     "lint": "eslint . --max-warnings 0 && stylelint styles.css",
     "check-release": "node scripts/check-release.mjs",
     "export-web": "esbuild scripts/export-web.ts --bundle --packages=external --platform=node --format=esm --outfile=.cache/export-web.mjs --log-level=error && node .cache/export-web.mjs"

@@ -10,13 +10,11 @@
 // the odds of each ending.
 // Usage: npm run check-ink -- <folder> [--quiet] [--all] [--novelty [N]] [--random N] [--seed S] [--lang zh|en] [--max-steps N] [--states-per-spot N]
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { compileStory } from "../src/compile/compile";
 import { resolveInclude, scanIncludes } from "../src/compile/paths";
-import { playableCharacters, readConfig, type GameConfig } from "../src/game/config";
-import { resolveConfig, type ConfigSource } from "../src/game/resolve";
-import { parse as parseYaml } from "yaml";
-import { gameNote } from "./game-note";
+import { playableCharacters, type GameConfig } from "../src/game/config";
+import { loadGameConfig } from "./game-note";
 import { T } from "../src/i18n";
 import { exploreStory, type ExploreResult } from "../src/play/explore";
 import { PlaySession } from "../src/play/session";
@@ -92,44 +90,11 @@ for (const file of files) {
   // Game mode: one exploration per character, each walking both outcomes of every check.
   let game: GameConfig | null = null;
   if (r.story && (all || randomRuns > 0)) {
-    const note = await gameNote(file);
-    if (note?.error) warnings.push(`${note.name}: ${note.error}`);
-    else if (note) {
-      const read = readConfig(note.frontmatter);
-      for (const p of read.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
-      game = read.config;
-      if (game) {
-        // Tables kept in other notes, decks kept as folders, a map drawn in a canvas: paths relative to the game's folder.
-        const dir = dirname(file);
-        const source: ConfigSource = {
-          read: (p) => readFile(join(dir, p), "utf8").catch(() => null),
-          notes: async (folder) => {
-            const abs = join(dir, folder);
-            let names: string[];
-            try {
-              names = await readdir(abs);
-            } catch {
-              return null;
-            }
-            const out = [];
-            for (const name of names.filter((n) => n.endsWith(".md"))) {
-              const text = await readFile(join(abs, name), "utf8");
-              const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-              let fm: unknown;
-              try {
-                fm = m ? parseYaml(m[1]) : undefined;
-              } catch {
-                fm = undefined;
-              }
-              out.push({ path: join(abs, name), name: name.slice(0, -3), frontmatter: fm && typeof fm === "object" ? (fm as Record<string, unknown>) : undefined, body: m ? text.slice(m[0].length) : text });
-            }
-            return out;
-          },
-        };
-        const r = await resolveConfig(game, source, "");
-        for (const p of r.problems) warnings.push(`${note.name}: ${T().configProblem(p)}`);
-        game = r.config;
-      }
+    const loaded = await loadGameConfig(file);
+    if (loaded?.note.error) warnings.push(`${loaded.note.name}: ${loaded.note.error}`);
+    else if (loaded) {
+      for (const p of loaded.problems) warnings.push(`${loaded.note.name}: ${T().configProblem(p)}`);
+      game = loaded.config;
     }
   }
   const characters = game ? playableCharacters(game).map((c) => ({ tag: `[${c.id}] `, character: c.id })) : [{ tag: "", character: undefined }];
