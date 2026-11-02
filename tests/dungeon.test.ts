@@ -180,6 +180,9 @@ describe("secret doors and the way through", () => {
     notes = noteSet(notes, 3, "foe", "");
     expect(noteGet(notes, 3, "foe")).toBe("");
     expect(notes).toBe("7.foe=ogrex;3.n=2");
+    // A field with ; or = reads back what was set; decimals read back as numbers.
+    expect(noteGet(noteSet("", 2, "a=b", "x"), 2, "a=b")).toBe("x");
+    expect(noteGet(noteSet("", 2, "w", 1.5), 2, "w")).toBe(1.5);
     // "13.n" is not "3.n".
     expect(noteGet(noteSet("", 13, "n", 1), 3, "n")).toBe("");
   });
