@@ -331,6 +331,18 @@ export interface InkNames {
   dungeonSecret: string;
   dungeonSteps: string;
   dungeonNearest: string;
+  /** The k-th room walked into on the shortest way (`dungeon_via(layout, from, to, k)`, 0 past the end). */
+  dungeonVia: string;
+  /** Room notes: the VAR holding them, the pure EXTERNALs on it, and the wrappers `room_note(room, field)` / `set_room_note(room, field, value)`. */
+  notesVar: string;
+  noteGet: string;
+  noteSet: string;
+  roomNote: string;
+  setRoomNote: string;
+  notesParam: string;
+  fieldParam: string;
+  valueParam: string;
+  kParam2: string;
   beginDungeon: string;
   addRoom: string;
   markRoom: string;
@@ -368,6 +380,8 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     dungeonVar: "dungeon", dungeonRoom: "room", dungeonStart: "dungeon_start", dungeonAdd: "dungeon_add", dungeonRooms: "dungeon_rooms", dungeonDoors: "dungeon_doors",
     dungeonMark: "dungeon_mark", dungeonShape: "dungeon_shape", dungeonCorridor: "dungeon_corridor", beginDungeon: "begin_dungeon", addRoom: "add_room", markRoom: "mark_room",
     dungeonSecret: "dungeon_secret", dungeonSteps: "dungeon_steps", dungeonNearest: "dungeon_nearest", secretRoom: "secret_room", toParam: "to_room",
+    dungeonVia: "dungeon_via", notesVar: "room_notes", noteGet: "dungeon_note_get", noteSet: "dungeon_note_set", roomNote: "room_note", setRoomNote: "set_room_note",
+    notesParam: "notes_text", fieldParam: "field", valueParam: "value", kParam2: "nth",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
     partyTitle: "title", partyGear: "gear",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
@@ -382,6 +396,8 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     dungeonVar: "地城", dungeonRoom: "所在房间", dungeonStart: "地城_起", dungeonAdd: "地城_接", dungeonRooms: "地城_房数", dungeonDoors: "地城_余门",
     dungeonMark: "地城_标记", dungeonShape: "地城_形状", dungeonCorridor: "地城_走廊", beginDungeon: "开地城", addRoom: "接房间", markRoom: "标记房间",
     dungeonSecret: "地城_暗门", dungeonSteps: "地城_步数", dungeonNearest: "地城_最近有门", secretRoom: "开暗门", toParam: "目标房间",
+    dungeonVia: "地城_途经", notesVar: "房间记事", noteGet: "地城_取记事", noteSet: "地城_存记事", roomNote: "读房间记事", setRoomNote: "写房间记事",
+    notesParam: "记事", fieldParam: "项", valueParam: "值", kParam2: "第几间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
     partyTitle: "称号", partyGear: "装备",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
@@ -674,7 +690,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
-  const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
+  const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "dungeonVia", "notesVar", "noteGet", "noteSet", "roomNote", "setRoomNote", "notesParam", "fieldParam", "valueParam", "kParam2", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
   const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames)]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {

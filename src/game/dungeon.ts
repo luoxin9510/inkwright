@@ -380,6 +380,49 @@ function distances(board: Board, from: number): Map<number, number> {
   return dist;
 }
 
+/** The rooms walked into going from `from` to `to` by the shortest way, in order (ending with `to`); empty when it is the same room or there is no way. */
+export function wayBetween(board: Board, from: number, to: number): number[] {
+  const links = linksOf(board);
+  if (!links.has(from) || !links.has(to) || from === to) return [];
+  const before = new Map<number, number>([[from, 0]]);
+  const queue = [from];
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    if (at === to) break;
+    for (const next of [...(links.get(at) ?? [])].sort((a, b) => a - b)) {
+      if (before.has(next)) continue;
+      before.set(next, at);
+      queue.push(next);
+    }
+  }
+  if (!before.has(to)) return [];
+  const way: number[] = [];
+  for (let at = to; at !== from; at = before.get(at)!) way.unshift(at);
+  return way;
+}
+
+/**
+ * Notes kept per room, for what the layout does not hold (who lives there, what was left behind):
+ * one string `room.field=value` entries joined by `;`. A value that reads as a whole number comes
+ * back as a number, anything else as text; a missing one as "".
+ */
+export function noteGet(notes: string, room: number, field: string): string | number {
+  const key = `${room}.${field}=`;
+  const entry = String(notes ?? "").split(";").find((e) => e.startsWith(key));
+  if (entry === undefined) return "";
+  const value = entry.slice(key.length);
+  return /^-?\d+$/.test(value) ? Number(value) : value;
+}
+
+/** Sets (or, with an empty value, removes) a room's note; `;` and `=` in the value are dropped. */
+export function noteSet(notes: string, room: number, field: string, value: string | number): string {
+  const key = `${room}.${field.replace(/[;=]/g, "")}=`;
+  const kept = String(notes ?? "").split(";").filter((e) => e !== "" && !e.startsWith(key));
+  const text = String(value ?? "").replace(/[;=]/g, "");
+  if (text !== "") kept.push(key + text);
+  return kept.join(";");
+}
+
 /** How many rooms the party walks into going from `from` to `to` by the shortest way (0 when it is the same room; -1 when there is no way). */
 export function stepsBetween(board: Board, from: number, to: number): number {
   return distances(board, from).get(to) ?? -1;

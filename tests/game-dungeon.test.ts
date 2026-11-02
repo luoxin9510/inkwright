@@ -146,12 +146,17 @@ ${generateInk(GAME)}
 ~ 开地城("gate")
 ~ temp a = 接房间("corridor", 1, 1)
 ~ temp s = 开暗门("hall", a)
-暗门后是 {s},回门厅 {地城_步数(地城, s, 1)} 步,最近有门的是 {地城_最近有门(地城, s)}。
+暗门后是 {s},回门厅 {地城_步数(地城, s, 1)} 步,最近有门的是 {地城_最近有门(地城, s)},途经 {地城_途经(地城, s, 1, 1)}、{地城_途经(地城, s, 1, 2)}、{地城_途经(地城, s, 1, 3)}。
+~ 写房间记事(s, "怪", "食人魔")
+~ 写房间记事(s, "血", 4)
+~ 写房间记事(s, "血", 读房间记事(s, "血") - 1)
+记事:{读房间记事(s, "怪")} {读房间记事(s, "血")} [{读房间记事(1, "怪")}]
 -> END
 `;
     const engine = new GameEngine(GAME);
     const session = new PlaySession(new Compiler(story).Compile(), { setup: (st) => engine.setup(st, "昕") });
-    expect(session.start().paragraphs[0].text).toBe("暗门后是 3,回门厅 2 步,最近有门的是 3。");
+    const out = session.start().paragraphs.map((p) => p.text);
+    expect(out).toEqual(["暗门后是 3,回门厅 2 步,最近有门的是 3,途经 2、1、0。", "记事:食人魔 3 []"]);
     expect(engine.dungeon()?.rooms).toHaveLength(3);
   });
 });

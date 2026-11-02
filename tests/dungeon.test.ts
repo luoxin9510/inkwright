@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { boardOf, freeDoors, formatLayout, isCorridor, markRoom, nearestFreeRoom, orientations, parseLayout, placeRoom, placeSecret, shapeProblem, startLayout, stepsBetween, viewBox, type DungeonDef, type ShapeDef } from "../src/game/dungeon";
+import { boardOf, freeDoors, formatLayout, isCorridor, markRoom, nearestFreeRoom, noteGet, noteSet, orientations, parseLayout, placeRoom, placeSecret, shapeProblem, startLayout, stepsBetween, viewBox, wayBetween, type DungeonDef, type ShapeDef } from "../src/game/dungeon";
 
 const GATE: ShapeDef = { id: "gate", cells: ["###", "###"], doors: ["top:1", "top:3"], entry: "bottom:2" };
 const CORRIDOR: ShapeDef = { id: "corridor", cells: ["#", "#", "#"], doors: ["top:1", "bottom:1"] };
@@ -155,6 +155,33 @@ describe("secret doors and the way through", () => {
     // A room with no wall facing empty sheet gets nothing.
     expect(placeSecret(DEF2, s.layout, "box", 9).room).toBe(0);
     expect(placeSecret(DEF2, s.layout, "nope", 1)).toEqual({ layout: s.layout, room: 0, truncated: false });
+  });
+
+  test("the way between rooms lists the rooms walked into, in order", () => {
+    const a = placeRoom(DEF2, startLayout(DEF2, "gate")!, "corridor", 1, 1);
+    const s = placeSecret(DEF2, a.layout, "box", 2);
+    const board = boardOf(DEF2, parseLayout(s.layout));
+    expect(wayBetween(board, 3, 1)).toEqual([2, 1]);
+    expect(wayBetween(board, 1, 3)).toEqual([2, 3]);
+    expect(wayBetween(board, 2, 2)).toEqual([]);
+    expect(wayBetween(board, 1, 9)).toEqual([]);
+  });
+
+  test("room notes: set, read back as numbers or text, overwrite, remove", () => {
+    let notes = noteSet("", 3, "foe", "goblins");
+    notes = noteSet(notes, 3, "n", 5);
+    notes = noteSet(notes, 7, "foe", "ogre;=x");
+    expect(noteGet(notes, 3, "foe")).toBe("goblins");
+    expect(noteGet(notes, 3, "n")).toBe(5);
+    expect(noteGet(notes, 7, "foe")).toBe("ogrex");
+    expect(noteGet(notes, 4, "foe")).toBe("");
+    notes = noteSet(notes, 3, "n", 2);
+    expect(noteGet(notes, 3, "n")).toBe(2);
+    notes = noteSet(notes, 3, "foe", "");
+    expect(noteGet(notes, 3, "foe")).toBe("");
+    expect(notes).toBe("7.foe=ogrex;3.n=2");
+    // "13.n" is not "3.n".
+    expect(noteGet(noteSet("", 13, "n", 1), 3, "n")).toBe("");
   });
 
   test("old layouts without secret doors read the same", () => {
