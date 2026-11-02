@@ -93,6 +93,7 @@ export function buildWebPage(o: WebPageOptions): string {
 <h1>${escapeHtml(o.title)}</h1>
 <div id="hud" hidden></div>
 <div id="map" hidden></div>
+<div id="dungeon" hidden></div>
 <div id="story"></div>
 <div id="hands" hidden></div>
 <div id="choices"></div>
@@ -156,6 +157,16 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #map .place.go { border-color: var(--accent); animation: go 1.2s ease-in-out infinite; }
 @keyframes go { 50% { box-shadow: 0 0 0 4px var(--accent); } }
 #map .counter { min-width: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 0.75em; text-align: center; }
+#dungeon { margin: 0 0 1.2em; }
+#dungeon svg { display: block; width: 100%; margin: 0 auto; }
+#dungeon .floor { fill: var(--line); }
+#dungeon .corridor { fill: var(--muted); fill-opacity: 0.35; }
+#dungeon .here { fill: var(--accent); fill-opacity: 0.4; }
+#dungeon .wall { stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+#dungeon .door { stroke-width: 4; stroke-linecap: round; }
+#dungeon .door.free { stroke: var(--accent); }
+#dungeon .door.used { stroke: var(--muted); opacity: 0.5; }
+#dungeon text { fill: var(--fg); font-size: 14px; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 #map .token { position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #c33; color: #fff; font-size: 0.7em; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%); border: 2px solid var(--bg); pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { #map .place.go { animation: none; } }
 #hands { margin-top: 1.2em; }
@@ -240,7 +251,7 @@ const PLAYER = `(function () {
   var G = cfg.game && window.InkwrightGame ? window.InkwrightGame : null;
   var engine = G ? new G.GameEngine(cfg.game) : null;
   var playable = cfg.game ? cfg.game.characters.filter(function (c) { return c.playable !== false; }) : [];
-  var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice"), handsEl = document.getElementById("hands"), mapEl = document.getElementById("map");
+  var hudEl = document.getElementById("hud"), diceEl = document.getElementById("dice"), handsEl = document.getElementById("hands"), mapEl = document.getElementById("map"), dungeonEl = document.getElementById("dungeon");
   var charEl = document.getElementById("character"), CHAR_KEY = "inkwright-character:" + cfg.id;
   if (engine) engine.setup(story, storage(true, CHAR_KEY) || undefined);
 
@@ -329,6 +340,46 @@ const PLAYER = `(function () {
       tok.style.top = "calc(" + pct(p.y, m.height) + " - 22px)";
       mapEl.appendChild(tok);
     });
+  }
+
+  // The growing dungeon: floor per room (the room the party is in lit), walls, doors (free ones bright), a room's note in its middle.
+  function renderDungeon() {
+    var d = engine ? engine.dungeon() : null;
+    dungeonEl.textContent = "";
+    dungeonEl.hidden = !d;
+    if (!d) return;
+    var S = 24, NS = "http://www.w3.org/2000/svg", b = d.box;
+    var svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 " + (b.w * S) + " " + (b.h * S));
+    svg.style.maxWidth = (b.w * S * 1.6) + "px";
+    var px = function (c) { return (c - b.x) * S; }, py = function (r) { return (r - b.y) * S; };
+    var add = function (tag, cls, attrs) {
+      var el = document.createElementNS(NS, tag);
+      el.setAttribute("class", cls);
+      Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+      svg.appendChild(el);
+      return el;
+    };
+    d.rooms.forEach(function (room) {
+      room.cells.forEach(function (cell) {
+        add("rect", "floor" + (room.corridor ? " corridor" : "") + (room.here ? " here" : ""), { x: px(cell[1]), y: py(cell[0]), width: S, height: S });
+      });
+    });
+    d.walls.forEach(function (w) { add("line", "wall", { x1: px(w[1]), y1: py(w[0]), x2: px(w[3]), y2: py(w[2]) }); });
+    d.rooms.forEach(function (room) {
+      room.doors.forEach(function (door) {
+        if (door.state === "blocked") return;
+        var cx = px(door.c) + S / 2, cy = py(door.r) + S / 2, horizontal = door.side === "top" || door.side === "bottom";
+        var ex = door.side === "left" ? px(door.c) : door.side === "right" ? px(door.c) + S : cx;
+        var ey = door.side === "top" ? py(door.r) : door.side === "bottom" ? py(door.r) + S : cy, h = S * 0.3;
+        add("line", "door " + door.state, { x1: horizontal ? ex - h : ex, y1: horizontal ? ey : ey - h, x2: horizontal ? ex + h : ex, y2: horizontal ? ey : ey + h });
+      });
+      if (room.mark && room.cells.length) {
+        var mid = room.cells[Math.floor(room.cells.length / 2)];
+        add("text", "", { x: px(mid[1]) + S / 2, y: py(mid[0]) + S / 2 }).textContent = room.mark;
+      }
+    });
+    dungeonEl.appendChild(svg);
   }
 
   // Each hand as a row of cards: tap one to pick it (its description shows under the row), tap again to put it back.
@@ -504,6 +555,7 @@ const PLAYER = `(function () {
       if (fresh && i >= shown && e.fx) fx = fx.concat(e.fx);
     });
     renderMap();
+    renderDungeon();
     renderHands();
     choicesEl.textContent = "";
     story.currentChoices.forEach(function (c) {

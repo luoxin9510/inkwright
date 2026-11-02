@@ -4,7 +4,7 @@ import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
-import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, MapView, RollRecord } from "../game/engine";
+import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, GridView, MapView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
 import { tokenText } from "../game/dice";
 
@@ -23,6 +23,8 @@ export interface GameView {
   /** The map with the state read into it; null when the game has none. `mapImage` is its image as a URL the panel can show. */
   map: MapView | null;
   mapImage: string | null;
+  /** The growing dungeon drawn so far; null when the game has none or nothing is drawn. */
+  dungeon: GridView | null;
   /** Card art by card id, as URLs the panel can show. */
   cardImages: Record<string, string>;
   /** Speaking skill per paragraph, aligned with `log`. */
@@ -158,6 +160,7 @@ export class PlayView extends ItemView {
     if (s.flows.length > 0) this.renderStartFrom(el, s);
     if (s.hasStory && s.game) this.renderHud(el, s.game);
     if (s.hasStory && s.game?.map) this.renderMap(el, s.game.map, s.game.mapImage);
+    if (s.hasStory && s.game?.dungeon) this.renderDungeon(el, s.game.dungeon);
     if (s.inspection) this.renderInspector(el, s.inspection);
     if (s.hasStory && s.game) this.renderDice(el, s.game);
     if (s.hasStory && s.saves.length > 0) this.renderSaves(el, s);
@@ -339,6 +342,40 @@ export class PlayView extends ItemView {
     if (check.red) badge.createSpan({ cls: "inkwright-check-red", text: ` · ${T().redCheck}` });
     const parts = [`${name} ${check.level}`, ...check.modifiers.map((m) => `${m.value > 0 ? "+" : ""}${m.value} ${m.source}`)];
     button.title = parts.join(", ");
+  }
+
+  /** The growing dungeon on its squares: floor per room (the room the party is in lit), walls, doors (free ones bright), a room's note in its middle. */
+  private renderDungeon(el: HTMLElement, d: GridView): void {
+    const S = 24;
+    const { x, y, w, h } = d.box;
+    const svg = el.createSvg("svg", { cls: "inkwright-dungeon", attr: { viewBox: `0 0 ${w * S} ${h * S}`, preserveAspectRatio: "xMidYMin meet" } });
+    svg.setCssProps({ "--inkwright-dungeon-width": `${w * S * 1.6}px` });
+    const px = (c: number) => (c - x) * S, py = (r: number) => (r - y) * S;
+    for (const room of d.rooms) {
+      // createSvg takes several classes as an array.
+      const cls = ["inkwright-dungeon-floor", ...(room.corridor ? ["inkwright-dungeon-corridor"] : []), ...(room.here ? ["inkwright-dungeon-here"] : [])];
+      for (const [r, c] of room.cells) svg.createSvg("rect", { cls, attr: { x: px(c), y: py(r), width: S, height: S } });
+    }
+    for (const [r1, c1, r2, c2] of d.walls) svg.createSvg("line", { cls: "inkwright-dungeon-wall", attr: { x1: px(c1), y1: py(r1), x2: px(c2), y2: py(r2) } });
+    for (const room of d.rooms) {
+      for (const door of room.doors) {
+        if (door.state === "blocked") continue;
+        // A door is a short bar across the edge of its square.
+        const cx = px(door.c) + S / 2, cy = py(door.r) + S / 2;
+        const horizontal = door.side === "top" || door.side === "bottom";
+        const ex = door.side === "left" ? px(door.c) : door.side === "right" ? px(door.c) + S : cx;
+        const ey = door.side === "top" ? py(door.r) : door.side === "bottom" ? py(door.r) + S : cy;
+        const half = S * 0.3;
+        svg.createSvg("line", {
+          cls: ["inkwright-dungeon-door", `inkwright-dungeon-door-${door.state}`],
+          attr: { x1: horizontal ? ex - half : ex, y1: horizontal ? ey : ey - half, x2: horizontal ? ex + half : ex, y2: horizontal ? ey : ey + half },
+        });
+      }
+      if (room.mark !== "" && room.cells.length > 0) {
+        const mid = room.cells[Math.floor(room.cells.length / 2)];
+        svg.createSvg("text", { cls: "inkwright-dungeon-mark", attr: { x: px(mid[1]) + S / 2, y: py(mid[0]) + S / 2, "text-anchor": "middle", "dominant-baseline": "central" } }).setText(room.mark);
+      }
+    }
   }
 
   /** The map: the image (or a plain board), lines between linked places, each place (a question mark until revealed, a ring where the player stands, pulsing when a choice goes there), counters and tokens. */
