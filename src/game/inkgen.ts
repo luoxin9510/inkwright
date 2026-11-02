@@ -247,7 +247,8 @@ export function generateInk(config: GameConfig): string {
       `=== function ${n.dungeonShape}(${n.layoutParam}, ${n.roomParam}) ===`, `~ return ""`,
       `=== function ${n.dungeonCorridor}(${n.layoutParam}, ${n.roomParam}) ===`, "~ return 0",
       `=== function ${n.dungeonSecret}(${n.layoutParam}, ${n.shapeParam}, ${n.roomParam}) ===`, `~ return ${n.layoutParam}`,
-      `=== function ${n.dungeonSteps}(${n.layoutParam}, ${n.roomParam}, ${n.toParam}) ===`, "~ return 0",
+      // No dungeon, no way between rooms: -1, as the engine says for rooms it cannot join.
+      `=== function ${n.dungeonSteps}(${n.layoutParam}, ${n.roomParam}, ${n.toParam}) ===`, "~ return -1",
       `=== function ${n.dungeonNearest}(${n.layoutParam}, ${n.roomParam}) ===`, "~ return 0",
       "",
       `=== function ${n.beginDungeon}(${n.shapeParam}) ===`,
