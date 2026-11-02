@@ -36,6 +36,9 @@ export interface GameView {
 
 export const PLAY_VIEW_TYPE = "inkwright-play";
 
+/** The status column (party, resources, map, dice) folded away to give the text room; kept when the player moves between the sidebar and the main area. */
+let sideHidden = false;
+
 export interface PlayState {
   root: string | null;
   locked: string | null;
@@ -91,8 +94,7 @@ export class PlayView extends ItemView {
   /** The card tapped in a hand, for the next `#play` choice; forgotten when the choices change. */
   private picked: { hand: string; card: string } | null = null;
   private pickedAt = "";
-  /** The status column (party, resources, map, dice) folded away to give the text room. */
-  private sideHidden = false;
+  private bar: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
     super(leaf);
@@ -112,7 +114,18 @@ export class PlayView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.contentEl.addClass("inkwright-play");
+    const watch = new ResizeObserver(() => this.fitSide());
+    watch.observe(this.contentEl);
+    this.register(() => watch.disconnect());
     this.render();
+  }
+
+  /** The sticky status column starts under a pinned bar and is as tall as the panel leaves it (its own scroll beyond that). */
+  private fitSide(): void {
+    const el = this.contentEl;
+    const pinned = this.bar?.hasClass("inkwright-bar-pinned") ?? false;
+    const top = pinned && this.bar ? this.bar.offsetHeight : 0;
+    el.setCssProps({ "--inkwright-side-top": `${top}px`, "--inkwright-side-max": `${Math.max(200, el.clientHeight - top - 24)}px` });
   }
 
   showState(state: PlayState): void {
@@ -130,6 +143,7 @@ export class PlayView extends ItemView {
     }
 
     const bar = el.createDiv({ cls: `inkwright-bar${s.pinned ? " inkwright-bar-pinned" : ""}` });
+    this.bar = bar;
     const locked = s.locked !== null;
     bar.createSpan({
       cls: "inkwright-root",
@@ -170,16 +184,17 @@ export class PlayView extends ItemView {
     // (styles.css, a container query); narrow, it sits above the text and can be folded away.
     const hasSide = s.hasStory && s.game !== null && s.game !== undefined;
     if (hasSide) {
-      const fold = bar.createEl("button", { cls: `inkwright-fold${this.sideHidden ? "" : " inkwright-fold-on"}`, attr: { "aria-label": this.sideHidden ? T().showSide : T().hideSide, title: this.sideHidden ? T().showSide : T().hideSide } });
+      const fold = bar.createEl("button", { cls: `inkwright-fold${sideHidden ? "" : " inkwright-fold-on"}`, attr: { "aria-label": sideHidden ? T().showSide : T().hideSide, title: sideHidden ? T().showSide : T().hideSide } });
       setIcon(fold, "layout-dashboard");
       fold.onclick = () => {
-        this.sideHidden = !this.sideHidden;
+        sideHidden = !sideHidden;
         this.render();
       };
     }
-    const stage = el.createDiv({ cls: `inkwright-stage${hasSide && !this.sideHidden ? " inkwright-stage-split" : ""}` });
-    const side = stage.createDiv({ cls: `inkwright-side${hasSide && !this.sideHidden ? "" : " inkwright-side-hidden"}` });
+    const stage = el.createDiv({ cls: `inkwright-stage${hasSide && !sideHidden ? " inkwright-stage-split" : ""}` });
+    const side = stage.createDiv({ cls: `inkwright-side${hasSide && !sideHidden ? "" : " inkwright-side-hidden"}` });
     const main = stage.createDiv({ cls: "inkwright-main" });
+    this.fitSide();
 
     if (s.flows.length > 0) this.renderStartFrom(main, s);
     if (s.hasStory && s.game) this.renderHud(side, s.game);

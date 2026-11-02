@@ -84,7 +84,7 @@
 @container (min-width: 720px) {
   .inkwright-stage-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 38%); gap: 24px; align-items: start; }
   .inkwright-stage-split > .inkwright-main { grid-column: 1; grid-row: 1; max-width: 46em; }
-  .inkwright-stage-split > .inkwright-side { grid-column: 2; grid-row: 1; position: sticky; top: 0; max-height: calc(100vh - 140px); overflow-y: auto; }
+  .inkwright-stage-split > .inkwright-side { grid-column: 2; grid-row: 1; position: sticky; top: var(--inkwright-side-top, 0); max-height: var(--inkwright-side-max, 80vh); overflow-y: auto; }
 }
 .inkwright-pin-on { color: var(--text-accent); }
 .inkwright-turn { display: flex; align-items: center; gap: 0.6em; margin: 1.2em 0 0.8em; color: var(--text-accent); font-size: var(--font-smaller); }
