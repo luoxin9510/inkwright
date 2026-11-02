@@ -161,6 +161,40 @@ export interface MapDef {
   tokens?: TokenDef[];
 }
 
+/** A number every party member has: `life_<member>` in ink. */
+export interface PartyStatDef {
+  id: string;
+  name?: LocalizedText;
+  /** Drawn as a bar up to this: a number, or the id of another stat that holds each member's maximum (`life_max`). */
+  max?: number | string;
+  /** Kept in ink but not shown (a maximum the bar reads, say). */
+  hidden?: boolean;
+}
+
+/** One member of the party; the generated ink gives each stat, the member's title and gear its own VAR. */
+export interface PartyMemberDef {
+  /** Also the suffix of the member's variables (`life_<id>`), so it must be a valid ink identifier. */
+  id: string;
+  name?: LocalizedText;
+  /** Starting stat values; keys are stat ids (missing ones start at 0). */
+  stats?: Record<string, number>;
+  /** Starting gear; ids from `items`. */
+  items?: string[];
+}
+
+/**
+ * Several characters played at once, shown as a row of cards: name, a title the story can set
+ * (`~ title_m1 = "Cleric"`), stats (bars where they have a maximum) and gear (an items list per
+ * member). The story owns every number; the panel only draws them.
+ */
+export interface PartyDef {
+  name?: LocalizedText;
+  stats: PartyStatDef[];
+  members: PartyMemberDef[];
+  /** A stat that lays a member out (drawn faded) when it is 0 or less, e.g. `life`. */
+  down?: string;
+}
+
 /** Where "write this session to a note" puts its note: a path with `{dir}`, `{story}`, `{date}`, `{time}`, `{character}`. */
 export interface JournalConfig {
   path?: string;
@@ -205,6 +239,8 @@ export interface GameConfig {
   characters: CharacterDef[];
   /** Things the character can carry; the generated ink declares them as a LIST and an inventory VAR. */
   items?: ItemDef[];
+  /** Several characters played at once: the panel shows a card per member. */
+  party?: PartyDef;
   /** Random tables the story rolls on (`{table("id")}`). */
   tables?: TableDef[];
   /** Decks the story draws from (`draw("id")`). */
@@ -299,6 +335,9 @@ export interface InkNames {
   roomParam: string;
   doorParam: string;
   markParam: string;
+  /** Party: prefixes of each member's title (text) and gear (an items list) VARs: `title_m1`, `gear_m1`. */
+  partyTitle: string;
+  partyGear: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -322,6 +361,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     dungeonVar: "dungeon", dungeonRoom: "room", dungeonStart: "dungeon_start", dungeonAdd: "dungeon_add", dungeonRooms: "dungeon_rooms", dungeonDoors: "dungeon_doors",
     dungeonMark: "dungeon_mark", dungeonShape: "dungeon_shape", dungeonCorridor: "dungeon_corridor", beginDungeon: "begin_dungeon", addRoom: "add_room", markRoom: "mark_room",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
+    partyTitle: "title", partyGear: "gear",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
     deckParam: "deck", stackParam: "stack", kParam: "k",
   },
@@ -334,6 +374,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     dungeonVar: "地城", dungeonRoom: "所在房间", dungeonStart: "地城_起", dungeonAdd: "地城_接", dungeonRooms: "地城_房数", dungeonDoors: "地城_余门",
     dungeonMark: "地城_标记", dungeonShape: "地城_形状", dungeonCorridor: "地城_走廊", beginDungeon: "开地城", addRoom: "接房间", markRoom: "标记房间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
+    partyTitle: "称号", partyGear: "装备",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
     deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
@@ -507,7 +548,7 @@ export const CONFIG_PROBLEM_CODES = [
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
-  "dungeonSize", "dungeonShape", "dungeonFile",
+  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -586,6 +627,31 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     }
     if (d.shapes.length === 0 && d.from === undefined) bad("dungeonShape", "-", "no shapes");
   }
+  if (config.party) {
+    const p = config.party;
+    const n = inkNames(config);
+    const stats = new Set<string>();
+    for (const st of p.stats) {
+      if (!IDENT.test(st.id)) bad("ident", st.id);
+      if (stats.has(st.id)) bad("duplicate", st.id);
+      stats.add(st.id);
+    }
+    for (const st of p.stats) if (typeof st.max === "string" && !stats.has(st.max)) bad("partyStat", st.id, st.max);
+    if (p.down !== undefined && !stats.has(p.down)) bad("partyStat", "down", p.down);
+    if (p.members.length === 0) bad("list", "party.members");
+    const members = new Set<string>();
+    const itemIds = new Set((config.items ?? []).map((i) => i.id));
+    for (const m of p.members) {
+      if (!IDENT.test(m.id)) bad("ident", m.id);
+      if (members.has(m.id)) bad("duplicate", m.id);
+      members.add(m.id);
+      for (const st of p.stats) ident(`${st.id}_${m.id}`);
+      ident(`${n.partyTitle}_${m.id}`);
+      if (config.items?.length) ident(`${n.partyGear}_${m.id}`);
+      for (const id of Object.keys(m.stats ?? {})) if (!stats.has(id)) bad("partyStat", m.id, id);
+      for (const id of m.items ?? []) if (!itemIds.has(id)) bad("unknownItem", m.id, id);
+    }
+  }
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
@@ -600,7 +666,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
   const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "beginDungeon", "addRoom", "markRoom", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
-  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames)]);
+  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames)]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
@@ -720,6 +786,9 @@ export function readConfig(fm: unknown): LoadedConfig {
   const shapeEntry = (e: unknown) => isObj(e) && isStr(e.id) && Array.isArray(e.cells) && e.cells.every(isStr) && opt(e.name, isText) && opt(e.doors, (v) => Array.isArray(v) && v.every(isStr))
     && opt(e.entry, isStr) && (e.kind === undefined || e.kind === "room" || e.kind === "corridor");
   if (!opt(fm.dungeon, (v) => isObj(v) && isNum(v.width) && isNum(v.height) && opt(v.from, isStr) && opt(v.shapes, (w) => Array.isArray(w) && w.every(shapeEntry)))) shape("dungeon");
+  const partyStat = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.max, (v) => isNum(v) || isStr(v)) && opt(e.hidden, isBool);
+  const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
+  if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr))) shape("party");
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
@@ -750,6 +819,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     hands: (fm.hands ?? []) as HandDef[],
     map: isObj(fm.map) ? readMap(fm.map) : undefined,
     dungeon: isObj(fm.dungeon) ? readDungeon(fm.dungeon) : undefined,
+    party: isObj(fm.party) ? readParty(fm.party) : undefined,
     attributes: isObj(fm.attributes) ? (fm.attributes as Record<string, LocalizedText>) : undefined,
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
@@ -762,6 +832,17 @@ export function readConfig(fm: unknown): LoadedConfig {
 
 /** A string or a number from the frontmatter as text; undefined for anything else. */
 const scalarText = (v: unknown): string | undefined => (isStr(v) ? v : isNum(v) ? String(v) : undefined);
+
+/** The party entry from the frontmatter, field by field (the shape was checked already). */
+function readParty(p: Record<string, unknown>): PartyDef {
+  const stats = (p.stats as Record<string, unknown>[]).map((st): PartyStatDef => ({
+    id: String(st.id), ...(isText(st.name) ? { name: st.name } : {}), ...(isNum(st.max) || isStr(st.max) ? { max: st.max } : {}), ...(st.hidden === true ? { hidden: true } : {}),
+  }));
+  const members = (p.members as Record<string, unknown>[]).map((m): PartyMemberDef => ({
+    id: String(m.id), ...(isText(m.name) ? { name: m.name } : {}), ...(numMap(m.stats) ? { stats: m.stats } : {}), ...(Array.isArray(m.items) ? { items: m.items.filter(isStr) } : {}),
+  }));
+  return { ...(isText(p.name) ? { name: p.name } : {}), stats, members, ...(isStr(p.down) ? { down: p.down } : {}) };
+}
 
 /** The map entry from the frontmatter, field by field (the shape was checked already). */
 function readMap(m: Record<string, unknown>): MapDef {

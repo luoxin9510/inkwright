@@ -137,6 +137,7 @@ nav select { font: inherit; font-size: 0.8em; color: var(--muted); background: n
 nav button:disabled { opacity: 0.4; cursor: default; }
 #hud { font-size: 0.8em; color: var(--muted); margin-bottom: 1.4em; line-height: 1.6; }
 #hud .name { color: var(--fg); font-weight: 600; margin-right: 0.4em; }
+#hud .down { opacity: 0.45; }
 #story p.voice { border-left: 3px solid var(--voice, var(--accent)); padding-left: 10px; }
 #story p.voice .who { color: var(--voice, var(--accent)); font-weight: 600; font-size: 0.85em; margin-right: 0.5em; }
 #choices button .check { display: block; font-size: 0.75em; color: var(--muted); }
@@ -463,11 +464,21 @@ const PLAYER = `(function () {
     hudEl.hidden = false;
     if (h.character) line(h.character.name, h.character.skills.map(function (k) { return k.name + " " + k.level; }).join(" · "));
     if (h.resources.length) line(s.status, h.resources.map(function (r) { return r.name + " " + r.value + "/" + r.max; }).join(" · "));
-    if (h.items) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
+    if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
     if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
     h.companions.forEach(function (c) {
       if (c.resources.length) line(c.name, c.resources.map(function (r) { return r.name + " " + r.value; }).join(" · "));
     });
+    if (h.party) {
+      if (h.party.name) line(h.party.name, "");
+      h.party.members.forEach(function (m) {
+        var bits = m.title ? [m.title] : [];
+        m.stats.forEach(function (st) { bits.push(st.name + " " + st.value + (st.max !== undefined ? "/" + st.max : "")); });
+        if (m.gear && m.gear.length) bits.push(m.gear.map(function (i) { return i.name; }).join(", "));
+        line(m.name, bits.join(" · "));
+        if (m.down) hudEl.lastChild.className = "down";
+      });
+    }
   }
 
   function renderDice() {

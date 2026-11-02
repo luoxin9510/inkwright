@@ -91,6 +91,16 @@
 .inkwright-hud-fill { height: 100%; background: var(--interactive-accent); }
 .inkwright-hud-value { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .inkwright-hud-companion { color: var(--text-muted); }
+.inkwright-party-name { color: var(--text-muted); margin-bottom: 2px; }
+.inkwright-party-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr)); gap: 6px; }
+.inkwright-party-member { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; }
+.inkwright-party-down { opacity: 0.45; }
+.inkwright-party-who { font-weight: 600; }
+.inkwright-party-title { color: var(--text-muted); }
+.inkwright-party-stat { display: flex; align-items: center; gap: 6px; }
+.inkwright-party-stat-name { min-width: 2.5em; color: var(--text-muted); }
+.inkwright-party-stat-value { font-variant-numeric: tabular-nums; margin-left: auto; }
+.inkwright-party-gear { display: flex; flex-wrap: wrap; gap: 2px 8px; }
 .inkwright-voice { border-left: 3px solid var(--inkwright-voice, var(--text-accent)); padding-left: 8px; color: var(--text-muted); font-style: italic; }
 .inkwright-voice-name { color: var(--inkwright-voice, var(--text-accent)); font-style: normal; font-weight: 600; margin-right: 6px; }
 .inkwright-check { display: inline-block; margin-left: 8px; font-size: var(--font-smaller); color: var(--text-muted); white-space: nowrap; }
