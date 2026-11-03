@@ -595,7 +595,7 @@ export class GameEngine {
     const num = (v: string) => Number(this.read(v) ?? 0);
     return {
       name: localize(p.name, this.language, ""),
-      members: p.members.map((m) => {
+      members: p.members.filter((m) => p.present === undefined || num(`${p.present}_${m.id}`) > 0).map((m) => {
         const stats = p.stats.filter((st) => !st.hidden).map((st) => {
           const max = typeof st.max === "number" ? st.max : typeof st.max === "string" ? num(`${st.max}_${m.id}`) : undefined;
           return { id: st.id, name: localize(st.name, this.language, st.id), value: num(`${st.id}_${m.id}`), ...(max !== undefined ? { max } : {}) };

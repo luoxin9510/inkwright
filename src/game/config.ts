@@ -193,6 +193,8 @@ export interface PartyDef {
   members: PartyMemberDef[];
   /** A stat that lays a member out (drawn faded) when it is 0 or less, e.g. `life`. */
   down?: string;
+  /** A stat that leaves a member out of the panel while it is 0 or less, e.g. a solo game's empty slots. */
+  present?: string;
 }
 
 /** Where "write this session to a note" puts its note: a path with `{dir}`, `{story}`, `{date}`, `{time}`, `{character}`. */
@@ -665,6 +667,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     }
     for (const st of p.stats) if (typeof st.max === "string" && !stats.has(st.max)) bad("partyStat", st.id, st.max);
     if (p.down !== undefined && !stats.has(p.down)) bad("partyStat", "down", p.down);
+    if (p.present !== undefined && !stats.has(p.present)) bad("partyStat", "present", p.present);
     if (p.members.length === 0) bad("list", "party.members");
     const members = new Set<string>();
     const itemIds = new Set((config.items ?? []).map((i) => i.id));
@@ -815,7 +818,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   if (!opt(fm.dungeon, (v) => isObj(v) && isNum(v.width) && isNum(v.height) && opt(v.from, isStr) && opt(v.stretch, isNum) && opt(v.passages, (w) => typeof w === "boolean") && opt(v.shapes, (w) => Array.isArray(w) && w.every(shapeEntry)))) shape("dungeon");
   const partyStat = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.max, (v) => isNum(v) || isStr(v)) && opt(e.hidden, isBool);
   const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
-  if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr))) shape("party");
+  if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr) && opt(v.present, isStr))) shape("party");
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
@@ -868,7 +871,7 @@ function readParty(p: Record<string, unknown>): PartyDef {
   const members = (p.members as Record<string, unknown>[]).map((m): PartyMemberDef => ({
     id: String(m.id), ...(isText(m.name) ? { name: m.name } : {}), ...(numMap(m.stats) ? { stats: m.stats } : {}), ...(Array.isArray(m.items) ? { items: m.items.filter(isStr) } : {}),
   }));
-  return { ...(isText(p.name) ? { name: p.name } : {}), stats, members, ...(isStr(p.down) ? { down: p.down } : {}) };
+  return { ...(isText(p.name) ? { name: p.name } : {}), stats, members, ...(isStr(p.down) ? { down: p.down } : {}), ...(isStr(p.present) ? { present: p.present } : {}) };
 }
 
 /** The map entry from the frontmatter, field by field (the shape was checked already). */
