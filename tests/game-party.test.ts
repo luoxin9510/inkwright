@@ -82,4 +82,14 @@ describe("the party", () => {
     expect(engine.hud().party?.members.map((m) => m.name)).toEqual(["Warrior", "Wizard"]);
     expect(new GameEngine(CONFIG).hud().party).toBeUndefined();
   });
+
+  test("present: a member is left out of the panel while that stat is 0 or less", () => {
+    const solo: GameConfig = { ...GAME, party: { ...PARTY, present: "生命上限", members: [PARTY.members[0], { ...PARTY.members[1], stats: { 生命: 0, 生命上限: 0, 等级: 1 } }] } };
+    expect(validateConfig(solo)).toEqual([]);
+    expect(validateConfig({ ...GAME, party: { ...PARTY, present: "在" } })).toContainEqual({ code: "partyStat", args: ["present", "在"] });
+    const engine = new GameEngine(solo);
+    new PlaySession(new Compiler(`-> main\n${generateInk(solo)}\n=== main ===\n.\n-> END\n`).Compile(), { setup: (s) => engine.setup(s, "昕") }).start();
+    expect(engine.hud().party?.members.map((m) => m.id)).toEqual(["甲"]);
+    expect(readConfig({ ...solo, party: { ...solo.party, present: "生命上限" } }).config?.party?.present).toBe("生命上限");
+  });
 });
