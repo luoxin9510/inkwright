@@ -219,34 +219,60 @@ export interface DiceFormula {
   d66: boolean;
   /** `d6!`: a die showing its top face is rolled again and added, as often as it comes up. */
   explode?: boolean;
+  /** `4d6kh3` / `2d20kl1`: only the highest (or lowest) `count` faces are added up. Not with `explode` or `pool`. */
+  keep?: { high: boolean; count: number };
+  /** `5d6>=5`: a dice pool; the total is the number of faces at or above this (plus the bonus). */
+  pool?: number;
 }
 
-const FORMULA = /^\s*(\d*)[dD](\d+|%)(!?)\s*(?:([+-])\s*(\d+))?\s*$/;
+const FORMULA = /^\s*(\d*)[dD](\d+|%)(!?)\s*(?:([kK][hHlL])\s*(\d*))?\s*(?:(?:>=|≥)\s*(\d+))?\s*(?:([+-])\s*(\d+))?\s*$/;
 
-/** Parses `NdM[+K|-K]`, `dM`, `d%`, `d66` and exploding `dM!`; null when the text is not a formula. */
+/**
+ * Parses `NdM[+K|-K]`, `dM`, `d%`, `d66`, exploding `dM!`, keep highest/lowest `4d6kh3` / `2d20kl` (one die
+ * when the number is left out) and dice pools `5d6>=5`; null when the text is not a formula.
+ */
 export function parseFormula(text: string): DiceFormula | null {
   const m = FORMULA.exec(text);
   if (!m) return null;
-  const [, countText, sidesText, bang, sign, bonusText] = m;
+  const [, countText, sidesText, bang, keepText, keepCount, poolText, sign, bonusText] = m;
   const bonus = bonusText === undefined ? 0 : (sign === "-" ? -1 : 1) * Number(bonusText);
-  if (countText === "" && sidesText === "66") return bang ? null : { count: 2, sides: 6, bonus, d66: true };
+  if (countText === "" && sidesText === "66") return bang || keepText || poolText ? null : { count: 2, sides: 6, bonus, d66: true };
   const count = countText === "" ? 1 : Number(countText);
   const sides = sidesText === "%" ? 100 : Number(sidesText);
   if (!Number.isInteger(count) || count < 1 || count > 100 || !Number.isInteger(sides) || sides < 2) return null;
-  return bang ? { count, sides, bonus, d66: false, explode: true } : { count, sides, bonus, d66: false };
+  const f: DiceFormula = { count, sides, bonus, d66: false };
+  if (bang) f.explode = true;
+  if (keepText) {
+    const k = keepCount === "" || keepCount === undefined ? 1 : Number(keepCount);
+    if (bang || poolText !== undefined || k < 1 || k > count) return null;
+    f.keep = { high: keepText.toLowerCase() === "kh", count: k };
+  }
+  if (poolText !== undefined) {
+    const target = Number(poolText);
+    if (target < 1 || target > sides) return null;
+    f.pool = target;
+  }
+  return f;
 }
 
-/** The formula as a story would write it: `2d6+3`, `d66`, `1d20-1`, `1d6!`. */
+/** The formula as a story would write it: `2d6+3`, `d66`, `1d20-1`, `1d6!`, `4d6kh3`, `5d10!>=8+1`. */
 export function formatFormula(f: DiceFormula): string {
   const bonus = f.bonus === 0 ? "" : f.bonus > 0 ? `+${f.bonus}` : String(f.bonus);
-  return (f.d66 ? "d66" : `${f.count}d${f.sides}${f.explode ? "!" : ""}`) + bonus;
+  if (f.d66) return "d66" + bonus;
+  const keep = f.keep ? `k${f.keep.high ? "h" : "l"}${f.keep.count}` : "";
+  const pool = f.pool !== undefined ? `>=${f.pool}` : "";
+  return `${f.count}d${f.sides}${f.explode ? "!" : ""}${keep}${pool}${bonus}`;
 }
 
 /** Extra dice one exploding die may add, at most: a guard against an rng stuck on the top face. */
 const MAX_EXPLOSIONS = 20;
 
-/** Rolls a formula: the faces (an exploding die's extra faces follow it), and the total with the bonus (tens and units for d66). */
-export function rollFormula(f: DiceFormula, rng: Rng): { rolls: number[]; total: number } {
+/**
+ * Rolls a formula: the faces (an exploding die's extra faces follow it), and the total with the bonus (tens and units
+ * for d66; the kept faces for keep highest/lowest; the hits for a pool). `dropped` lists the indices of the faces that
+ * do not count (not kept, or missed), only when there are any rules that drop faces.
+ */
+export function rollFormula(f: DiceFormula, rng: Rng): { rolls: number[]; total: number; dropped?: number[] } {
   const face = () => 1 + Math.floor(rng() * f.sides);
   const rolls: number[] = [];
   for (let i = 0; i < f.count; i++) {
@@ -254,19 +280,62 @@ export function rollFormula(f: DiceFormula, rng: Rng): { rolls: number[]; total:
     rolls.push(r);
     for (let k = 0; f.explode && r === f.sides && k < MAX_EXPLOSIONS; k++) rolls.push((r = face()));
   }
+  if (f.keep) {
+    // Best faces first; among equal faces the earlier one is kept.
+    const keep = f.keep;
+    const order = rolls.map((_, i) => i).sort((a, b) => (keep.high ? rolls[b] - rolls[a] : rolls[a] - rolls[b]) || a - b);
+    const kept = new Set(order.slice(0, keep.count));
+    const dropped = rolls.map((_, i) => i).filter((i) => !kept.has(i));
+    return { rolls, total: sum([...kept].map((i) => rolls[i])) + f.bonus, dropped };
+  }
+  if (f.pool !== undefined) {
+    const target = f.pool;
+    const dropped = rolls.map((_, i) => i).filter((i) => rolls[i] < target);
+    return { rolls, total: rolls.length - dropped.length + f.bonus, dropped };
+  }
   const total = f.d66 ? rolls[0] * 10 + rolls[1] + f.bonus : sum(rolls) + f.bonus;
   return { rolls, total };
 }
 
-/** The lowest and highest total the formula can give. */
+/** The lowest and highest total the formula can give (an exploding die's extra faces aside). */
 export function formulaSpan(f: DiceFormula): { min: number; max: number } {
-  return f.d66 ? { min: 11 + f.bonus, max: 66 + f.bonus } : { min: f.count + f.bonus, max: f.count * f.sides + f.bonus };
+  if (f.d66) return { min: 11 + f.bonus, max: 66 + f.bonus };
+  if (f.keep) return { min: f.keep.count + f.bonus, max: f.keep.count * f.sides + f.bonus };
+  if (f.pool !== undefined) return { min: f.bonus, max: f.count + f.bonus };
+  return { min: f.count + f.bonus, max: f.count * f.sides + f.bonus };
 }
 
 /** The expected total, rounded: what the ink fallback returns without an engine to roll. */
 export function averageFormula(f: DiceFormula): number {
-  // An exploding die averages (s+1)/2 · s/(s-1): each top face adds another die's worth.
-  if (f.explode) return Math.round(f.count * ((f.sides + 1) / 2) * (f.sides / (f.sides - 1)) + f.bonus);
+  // Each top face adds another die: a die is worth s/(s-1) dice on average.
+  const grow = f.explode ? f.sides / (f.sides - 1) : 1;
+  if (f.pool !== undefined) return Math.round(f.count * grow * ((f.sides - f.pool + 1) / f.sides) + f.bonus);
+  if (f.keep) return Math.round(keptMean(f.count, f.sides, f.keep) + f.bonus);
+  if (f.explode) return Math.round(f.count * ((f.sides + 1) / 2) * grow + f.bonus);
   const { min, max } = formulaSpan(f);
   return Math.round((min + max) / 2);
+}
+
+/**
+ * The expected sum of the kept faces of n s-sided dice: the sum of the expected order statistics.
+ * The j-th lowest face is at least v when at least n-j+1 dice show v or more.
+ */
+function keptMean(n: number, s: number, keep: { high: boolean; count: number }): number {
+  const choose = (a: number, b: number) => {
+    let c = 1;
+    for (let i = 1; i <= b; i++) c = (c * (a - b + i)) / i;
+    return c;
+  };
+  const atLeast = (j: number, v: number) => {
+    const p = (s - v + 1) / s;
+    let total = 0;
+    for (let i = n - j + 1; i <= n; i++) total += choose(n, i) * p ** i * (1 - p) ** (n - i);
+    return total;
+  };
+  let mean = 0;
+  for (let k = 0; k < keep.count; k++) {
+    const j = keep.high ? n - k : k + 1;
+    for (let v = 1; v <= s; v++) mean += atLeast(j, v);
+  }
+  return mean;
 }

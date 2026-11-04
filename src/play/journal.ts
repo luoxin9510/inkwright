@@ -35,7 +35,9 @@ export function formatDate(d: Date): string {
 /** One roll as a line: `🎲 力量 10:3+4 +5 = 12 · 成功`, or `🎲 遭遇 1d6:4 = 4 · 狼`. */
 export function rollLine(r: RollRecord, language: Language, skills: readonly { id: string; name: string }[] = []): string {
   const s = stringsFor(language);
-  const faces = r.rolls.length > 0 ? r.rolls.join("+") : "—";
+  // Faces that do not count (not kept, or missed in a pool) are struck out.
+  const out = new Set(r.kind === "dice" ? r.dropped ?? [] : []);
+  const faces = r.rolls.length > 0 ? r.rolls.map((f, i) => (out.has(i) ? `~~${f}~~` : String(f))).join("+") : "—";
   if (r.kind === "dice") {
     if (r.unknown) return `🎲 ${r.formula} ${s.badFormula}`;
     const head = r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula;

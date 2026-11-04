@@ -458,3 +458,19 @@ test("an #input choice gets a text field; the button waits for a line, which goe
   mount(html);
   expect(texts("#story p").at(-1)).toBe("You call it 雪团.");
 });
+
+test("a game page fades the faces that do not count: the lowest of 4d6kh3, the misses of a pool", () => {
+  setLanguage("zh");
+  const src = `-> main\n${generateInk(CONFIG)}\n=== main ===\n开始。\n* [掷]\n    属性 {掷("4d6kh3")}。\n    命中 {掷("6d6>=4")}。\n    -> END\n`;
+  mount(buildWebPage({ title: "K", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "k", languageVar: "语言", game: CONFIG, engine: GAME_ENGINE }));
+  (document.querySelector("#choices button") as HTMLElement).click();
+  const [stat, pool] = Array.from(document.querySelectorAll("#story .roll.free"));
+  const faces = (card: Element) => Array.from(card.querySelectorAll(".die")).map((d) => ({ face: Number(d.textContent), out: d.classList.contains("dropped") }));
+  const kept = faces(stat);
+  expect(kept).toHaveLength(4);
+  expect(kept.filter((f) => f.out)).toHaveLength(1);
+  expect(kept.find((f) => f.out)!.face).toBe(Math.min(...kept.map((f) => f.face)));
+  const hits = faces(pool);
+  expect(hits).toHaveLength(6);
+  for (const f of hits) expect(f.out).toBe(f.face < 4);
+});

@@ -123,7 +123,7 @@ What a game note can declare:
 - **Resources, characters, companions**: clamped to `min..max`; several playable characters as presets; companions with their own resources.
 - **Items**: an inventory list; `#needs:item` locks a choice until the item is carried.
 - **Effects**: `#fx:shake|flash|dark|pulse` on a line.
-- **Dice and random tables**: `{roll("2d6+3")}`, `d66`, exploding `d6!`; `{table("encounter")}` reads a row from a table written inline or in another note's markdown table.
+- **Dice and random tables**: `{roll("2d6+3")}`, `d66`, exploding `d6!`, keep highest `4d6kh3` / lowest `2d20kl`, dice pools `5d6>=5`; `{table("encounter")}` reads a row from a table written inline or in another note's markdown table.
 - **Decks and hands**: `draw("clues")`, `shuffle`, `deck_left`; hands drawn as rows of cards, `#play:hand` plays the picked card. Cards can carry numbers and art and come from a folder of notes.
 - **Map**: places, links, hidden places, counters and tokens over an image, or drawn on an Obsidian canvas; `#go:place` makes a place tappable.
 - **Growing dungeon**: rooms from a sheet of shapes, hung on free doors as you explore, with secret doors, the way back and notes per room.
