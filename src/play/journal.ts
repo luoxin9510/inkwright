@@ -124,3 +124,80 @@ export function renderJournal(j: JournalInput): string {
   choicesBefore(Number.MAX_SAFE_INTEGER);
   return out.join("\n").trimEnd() + "\n";
 }
+
+
+/** What the live journal reads: the session's text, choices (with where their text begins) and asides, and how far it was written. */
+export interface LiveInput {
+  language: Language;
+  log: readonly Paragraph[];
+  turns: readonly (number | null)[];
+  rolls: readonly RollRecord[];
+  voices?: readonly (string | null)[];
+  skills?: readonly { id: string; name: string }[];
+  /** The choices made, oldest first: seq, text, the index in `log` where their text begins, what they carried, whether it was a paragraph (#write). */
+  taken: readonly { seq: number; text: string; at: number; payload?: { text?: string; item?: string }; write?: boolean }[];
+  asides: readonly PlacedAside[];
+  /** The highest seq written so far (-1: nothing). */
+  writtenSeq: number;
+  /** The latest seq in the run when it was last written (-1: nothing): gone now means the player went back. */
+  writtenTop: number;
+}
+
+/** The player's own text, quoted line by line so nothing in it (a heading, a rule) can change the note. */
+const quote = (text: string) => text.split("\n").map((l) => `> ${l}`).join("\n");
+
+/** The paragraphs log[from, to) with the roll lines where their turns begin, as journal lines. */
+function paragraphs(j: LiveInput, from: number, to: number): string[] {
+  const byTurn = new Map<number, RollRecord[]>();
+  for (const r of j.rolls) byTurn.set(r.turn, [...(byTurn.get(r.turn) ?? []), r]);
+  const out: string[] = [];
+  for (let i = from; i < to && i < j.log.length; i++) {
+    const turn = j.turns[i] ?? null;
+    if (turn !== null && (i === 0 || turn !== (j.turns[i - 1] ?? null))) for (const r of byTurn.get(turn) ?? []) out.push(`> ${rollLine(r, j.language, j.skills)}`);
+    const voice = j.voices?.[i] ?? null;
+    const skill = voice === null ? undefined : j.skills?.find((k) => k.id === voice);
+    out.push(skill ? `*${skill.name}:${j.log[i].text}*` : j.log[i].text);
+  }
+  return out;
+}
+
+/** The top of a live journal: the title, the date (and character), and the text before the first choice. */
+export function liveHeader(meta: { title: string; date: Date; language: Language; character?: string | null }, j: LiveInput): string {
+  const s = stringsFor(meta.language);
+  const head = [`# ${meta.title}`, [formatDate(meta.date), ...(meta.character ? [`${s.character}: ${meta.character}`] : [])].join(" · ")];
+  const intro = paragraphs(j, 0, j.taken[0]?.at ?? j.log.length);
+  return [...head, ...intro].join("\n\n") + "\n";
+}
+
+/**
+ * What to append to a live journal now: each action done since it was last written (by seq), a choice with the
+ * text it brought (and a paragraph written with it, quoted), an aside as a line; and, when the action last
+ * written is gone (the player went back), a line saying so first. Nothing written before is ever taken out.
+ */
+export function liveBlocks(j: LiveInput): { text: string; writtenSeq: number; writtenTop: number } {
+  const s = stringsFor(j.language);
+  const present = new Set([...j.taken.map((t) => t.seq), ...j.asides.map((a) => a.seq)]);
+  const top = Math.max(-1, ...present);
+  const blocks: string[] = [];
+  // Went back: to the step after the choices written before that are still there.
+  if (j.writtenTop >= 0 && !present.has(j.writtenTop)) blocks.push(`↩ ${s.wentBack(j.taken.filter((t) => t.seq <= j.writtenSeq).length + 1)}`);
+  type Item = { seq: number; render: () => string[] };
+  const items: Item[] = [];
+  j.taken.forEach((t, k) => {
+    if (t.seq <= j.writtenSeq) return;
+    items.push({
+      seq: t.seq,
+      render: () => {
+        const written = t.write && t.payload?.text ? [quote(t.payload.text)] : [];
+        const head = t.payload?.text && !t.write ? `${t.text} · ${t.payload.text}` : t.text;
+        return [`**→ ${head}**`, ...written, ...paragraphs(j, t.at, j.taken[k + 1]?.at ?? j.log.length)];
+      },
+    });
+  });
+  for (const a of mergeAsides(j.asides)) if (a.seq > j.writtenSeq) items.push({ seq: a.seq, render: () => [`> ${asideLine(a, j.language)}`] });
+  items.sort((x, y) => x.seq - y.seq);
+  for (const it of items) blocks.push(...it.render());
+  const writtenSeq = Math.max(j.writtenSeq, ...items.map((i) => i.seq));
+  return { text: blocks.map((b) => `\n${b}\n`).join(""), writtenSeq, writtenTop: top };
+}
+

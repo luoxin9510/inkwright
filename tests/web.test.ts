@@ -551,3 +551,18 @@ test("a game page shows a clock as slices and a track as boxes of four ticks", (
   expect(document.querySelector("#hud")?.textContent).toContain("末日 ●●●○");
   expect(document.querySelector("#hud")?.textContent).toContain("誓言 ■◑□");
 });
+
+test("a #write choice gets a box of several lines; the paragraph goes into the VAR with its lines", () => {
+  setLanguage("zh");
+  const src = 'VAR entry = ""\n今晚。\n+ [写下这一晚 #write:entry]\n    你写下:{entry}\n    -> END\n';
+  mount(buildWebPage({ title: "W", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "w" }));
+  const box = document.querySelector<HTMLTextAreaElement>("#choices textarea")!;
+  expect(box.placeholder).toContain("写一段");
+  box.value = "第一行\n第二行";
+  box.dispatchEvent(new Event("input"));
+  // Enter alone is a new line, not the choice.
+  box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  expect(texts("#story p")).toEqual(["今晚。"]);
+  box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
+  expect(texts("#story p").at(-1)).toBe("你写下:第一行\n第二行");
+});

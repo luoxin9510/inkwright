@@ -3,7 +3,7 @@ import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
-import { inputOf } from "../play/input";
+import { inputOf, isWrite } from "../play/input";
 import { STORY_LANGUAGES, type Choice, type Paragraph, type PlacedAside } from "../play/session";
 import { ODDS, type Odds, type OracleResult, type TrayRoll } from "../play/oracle";
 import { mergeAsides } from "../play/journal";
@@ -389,7 +389,11 @@ export class PlayView extends ItemView {
       const card = play && this.picked?.hand === play.hand ? play.cards.find((k) => k.id === this.picked?.card) : undefined;
       // An #input choice (not a #play one) gets a text field above its button; the button waits for a line.
       const variable = play ? null : inputOf(c);
-      const field = variable === null ? null : choices.createEl("input", { cls: "inkwright-input", type: "text", placeholder: T().typeHere, value: this.typed.get(c.index) ?? "" });
+      // #write asks for a paragraph: a box of several lines (Enter is a new line; Ctrl/Cmd+Enter takes the choice).
+      const multiline = variable !== null && isWrite(c);
+      const field: HTMLInputElement | HTMLTextAreaElement | null = variable === null ? null
+        : multiline ? choices.createEl("textarea", { cls: "inkwright-input inkwright-write", placeholder: T().writeHere, text: this.typed.get(c.index) ?? "" })
+        : choices.createEl("input", { cls: "inkwright-input", type: "text", placeholder: T().typeHere, value: this.typed.get(c.index) ?? "" });
       const button = choices.createEl("button", { text: card ? `${c.text} · ${card.name}` : c.text, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
@@ -417,7 +421,12 @@ export class PlayView extends ItemView {
           button.disabled = locked || empty();
         };
         field.onkeydown = (e) => {
-          if (e.key === "Enter" && !e.isComposing && !button.disabled) button.click();
+          // A line goes with Enter; a paragraph with Ctrl/Cmd+Enter (Enter alone is a new line in it).
+          const go = e.key === "Enter" && !e.isComposing && (!multiline || e.ctrlKey || e.metaKey);
+          if (go && !button.disabled) {
+            e.preventDefault();
+            button.click();
+          }
         };
       }
     });

@@ -29,7 +29,8 @@ export interface Run {
   actions: Action[];
   /** Actions a replay could not take (the story changed); kept until the player does something new there. Never written. */
   pending?: Action[];
-  journal?: { path: string; writtenSeq: number };
+  /** The live journal note of this run, and how far it was written (see journal.ts liveBlocks). */
+  journal?: { path: string; writtenSeq: number; writtenTop?: number };
   /** Hash of the version of the story (compiled story and game config) the run was last played on; kept as a build. */
   build?: string;
   /** Set on a run kept because two devices went different ways at once: the id of the run it forked from. */
@@ -265,6 +266,9 @@ export function parseRun(text: string): Run | null {
     if (legacy.from === "save" ? !Array.isArray(legacy.log) : legacy.from !== "start") return null;
   }
   const actions = v.actions;
+  // A journal entry that is not well formed is dropped (the run plays on; a new note is started).
+  const journal = v.journal;
+  if (journal !== undefined && !(isObject(journal) && isString(journal.path) && isNumber(journal.writtenSeq) && (journal.writtenTop === undefined || isNumber(journal.writtenTop)))) delete v.journal;
   const createdAt = isString(v.createdAt) ? v.createdAt : new Date(0).toISOString();
   const run = {
     ...v,

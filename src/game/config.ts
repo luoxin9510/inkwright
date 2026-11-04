@@ -220,6 +220,8 @@ export interface PartyDef {
 /** Where "write this session to a note" puts its note: a path with `{dir}`, `{story}`, `{date}`, `{time}`, `{character}`. */
 export interface JournalConfig {
   path?: string;
+  /** Write the run into the journal note as it is played (solo PRD §4.7), not only by the command. */
+  live?: boolean;
 }
 
 /** The characters the player can pick. */
@@ -847,7 +849,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   const partyStat = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.max, (v) => isNum(v) || isStr(v)) && opt(e.hidden, isBool);
   const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
   if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr) && opt(v.present, isStr))) shape("party");
-  if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
+  if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr) && opt(v.live, isBool))) shape("journal");
   const oddsMap = (v: unknown) => isObj(v) && Object.entries(v).every(([k, n]) => (ODDS as readonly string[]).includes(k) && isNum(n));
   if (!opt(fm.oracle, (v) => isObj(v) && opt(v.odds, oddsMap) && opt(v.chaos, isStr) && opt(v.chaosStep, isNum))) shape("oracle");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
@@ -882,7 +884,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     party: isObj(fm.party) ? readParty(fm.party) : undefined,
     attributes: isObj(fm.attributes) ? (fm.attributes as Record<string, LocalizedText>) : undefined,
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
-    journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
+    journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}), ...(fm.journal.live === true ? { live: true } : {}) } : undefined,
     oracle: isObj(fm.oracle) ? fm.oracle : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,
     engineFile: (fm.engineFile ?? undefined) as string | undefined,

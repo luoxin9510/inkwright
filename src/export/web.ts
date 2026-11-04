@@ -63,7 +63,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, updatedStop: t.webUpdatedStop("{n}"),
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, updatedStop: t.webUpdatedStop("{n}"),
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -148,6 +148,7 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #choices button .need.missing { color: #c33; }
 #choices button:disabled { opacity: 0.55; cursor: default; }
 #choices button:disabled:hover { border-color: var(--line); }
+#choices textarea { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-height: 6em; margin-bottom: -4px; }
 #choices input { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 8px;
   padding: 10px 14px; margin-bottom: -4px; }
 #choices input:focus { outline: none; border-color: var(--accent); }
@@ -258,7 +259,7 @@ const PLAYER = `(function () {
   function inputOf(tags) {
     for (var i = 0; i < (tags || []).length; i++) {
       var p = tags[i].split(":").map(function (x) { return x.trim(); });
-      if (p.length === 2 && p[0] === "input" && p[1] !== "") return p[1];
+      if (p.length === 2 && (p[0] === "input" || p[0] === "write") && p[1] !== "") return p[1];
     }
     return null;
   }
@@ -635,14 +636,18 @@ const PLAYER = `(function () {
       var v = play ? null : inputOf(c.tags);
       var field = null;
       if (v !== null) {
-        field = document.createElement("input");
-        field.type = "text";
-        field.placeholder = str().typeHere;
+        // #write: a box of several lines (Enter is a new line; Ctrl/Cmd+Enter takes the choice).
+        var multi = (c.tags || []).some(function (t) { var q = t.split(":").map(function (x) { return x.trim(); }); return q.length === 2 && q[0] === "write" && q[1] !== ""; });
+        field = document.createElement(multi ? "textarea" : "input");
+        if (!multi) field.type = "text";
+        field.placeholder = multi ? str().writeHere : str().typeHere;
         field.value = typed[c.index] || "";
         field.disabled = !!locked;
         b.disabled = !!locked || !field.value.trim();
         field.oninput = function () { typed[c.index] = field.value; b.disabled = !!locked || !field.value.trim(); };
-        field.onkeydown = function (e) { if (e.key === "Enter" && !e.isComposing && !b.disabled) b.click(); };
+        field.onkeydown = function (e) {
+          if (e.key === "Enter" && !e.isComposing && (!multi || e.ctrlKey || e.metaKey) && !b.disabled) { e.preventDefault(); b.click(); }
+        };
         choicesEl.appendChild(field);
       }
       b.onclick = function () {

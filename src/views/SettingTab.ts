@@ -11,6 +11,8 @@ interface LanguageHost {
   setSaveFolder(value: string): Promise<void>;
   getSyncMode(): SyncMode;
   setSyncMode(value: SyncMode): Promise<void>;
+  getLiveJournal(): boolean;
+  setLiveJournal(value: boolean): Promise<void>;
 }
 
 const LANGUAGE_SETTINGS: readonly string[] = ["auto", "zh", "en"];
@@ -34,6 +36,10 @@ export class InkwrightSettingTab extends PluginSettingTab {
       desc: T().settingPinDesc,
       control: { type: "toggle", key: "pinBar" },
     }, {
+      name: T().settingLiveJournal,
+      desc: T().settingLiveJournalDesc,
+      control: { type: "toggle", key: "liveJournal" },
+    }, {
       name: T().settingSaveFolder,
       desc: T().settingSaveFolderDesc,
       control: { type: "text", key: "saveFolder", placeholder: "Inkwright/存档" },
@@ -48,6 +54,7 @@ export class InkwrightSettingTab extends PluginSettingTab {
     if (key === "language") return this.host.getLanguageSetting();
     if (key === "pinBar") return this.host.getPinBar();
     if (key === "saveFolder") return this.host.getSaveFolder();
+    if (key === "liveJournal") return this.host.getLiveJournal();
     if (key === "syncMode") return this.host.getSyncMode();
     return undefined;
   }
@@ -55,6 +62,10 @@ export class InkwrightSettingTab extends PluginSettingTab {
   async setControlValue(key: string, value: unknown): Promise<void> {
     if (key === "pinBar" && typeof value === "boolean") {
       await this.host.setPinBar(value);
+      return;
+    }
+    if (key === "liveJournal" && typeof value === "boolean") {
+      await this.host.setLiveJournal(value);
       return;
     }
     if (key === "saveFolder" && typeof value === "string") {
