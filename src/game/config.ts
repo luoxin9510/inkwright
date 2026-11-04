@@ -105,6 +105,13 @@ export interface TableDef {
   oracle?: boolean;
 }
 
+/** A record: a list of short entries kept in one ink string (`record_add("clues", "the old mill")`), with a counter. */
+export interface RecordDef {
+  /** Also the ink variable holding it; `<id>_count` (InkNames.countSuffix) counts its entries. */
+  id: string;
+  name?: LocalizedText;
+}
+
 /** A card: an item of its deck's LIST, so a hand is a list the story keeps (`~ hand += draw("clues")`). */
 export interface CardDef {
   /** Also the ink list item name: a valid ink identifier, unique across the game. */
@@ -282,6 +289,8 @@ export interface GameConfig {
   journal?: JournalConfig;
   /** The dice tray's oracle: thresholds and a chaos resource (solo PRD §4.3). */
   oracle?: OracleConfig;
+  /** Records the story and the player keep: clues, people, threads (solo PRD §4.5). */
+  records?: RecordDef[];
   /**
    * Languages the story is written in, e.g. ["zh", "en"] (the first is the default). The
    * generated ink then declares the language variable and the text function (`{t("中文", "English")}`).
@@ -359,6 +368,22 @@ export interface InkNames {
   dungeonNearest: string;
   /** The k-th room walked into on the shortest way (`dungeon_via(layout, from, to, k)`, 0 past the end). */
   dungeonVia: string;
+  /** Records (clues, people, threads): the wrappers `record_add/remove/count/pick/list(record, …)`, the pure EXTERNALs on a store, the counter suffix, and parameter names. */
+  recordAdd: string;
+  recordRemove: string;
+  recordCount: string;
+  recordPick: string;
+  recordList: string;
+  recordJoin: string;
+  recordDrop: string;
+  recordSize: string;
+  recordAt: string;
+  recordText: string;
+  countSuffix: string;
+  recordParam: string;
+  entryParam: string;
+  storeParam: string;
+  recordNoParam: string;
   /** Room notes: the VAR holding them, the pure EXTERNALs on it, and the wrappers `room_note(room, field)` / `set_room_note(room, field, value)`. */
   notesVar: string;
   noteGet: string;
@@ -410,6 +435,9 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     notesParam: "notes_text", fieldParam: "field", valueParam: "value", kParam2: "nth",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
     partyTitle: "title", partyGear: "gear",
+    recordAdd: "record_add", recordRemove: "record_remove", recordCount: "record_count", recordPick: "record_pick", recordList: "record_list",
+    recordJoin: "record_join", recordDrop: "record_drop", recordSize: "record_size", recordAt: "record_at", recordText: "record_text",
+    countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
     deckParam: "deck", stackParam: "stack", kParam: "k",
   },
@@ -426,6 +454,9 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     notesParam: "记事", fieldParam: "项", valueParam: "值", kParam2: "第几间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
     partyTitle: "称号", partyGear: "装备",
+    recordAdd: "记录_加", recordRemove: "记录_删", recordCount: "记录_数", recordPick: "记录_抽", recordList: "记录_列",
+    recordJoin: "记录_并", recordDrop: "记录_去", recordSize: "记录_长", recordAt: "记录_取", recordText: "记录_文",
+    countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
     deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
@@ -655,6 +686,10 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     if (d.cards.length === 0 && d.from === undefined) bad("deckCards", d.id);
   }
   for (const h of config.hands ?? []) ident(h.id);
+  for (const r of config.records ?? []) {
+    ident(r.id);
+    ident(`${r.id}${inkNames(config).countSuffix}`);
+  }
   if (config.map) {
     // Links and token places are checked once the canvas has filled the places in (resolveMap validates again).
     const deferred = config.map.from !== undefined;
@@ -725,7 +760,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
   const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "dungeonVia", "notesVar", "noteGet", "noteSet", "roomNote", "setRoomNote", "notesParam", "fieldParam", "valueParam", "kParam2", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
-  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames)]);
+  const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
+  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames)]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
@@ -837,6 +873,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("decks", false, (e) => opt(e.name, isText) && (isStr(e.from) ? opt(e.cards, (v) => Array.isArray(v) && v.every(card)) : Array.isArray(e.cards) && e.cards.every(card)));
   if (!opt(fm.attributes, (v) => isObj(v) && Object.values(v).every(isText))) shape("attributes");
   entries("hands", false, (e) => opt(e.name, isText));
+  entries("records", false, (e) => opt(e.name, isText));
   // A map drawn from a canvas gets its positions there, so its places need only an id.
   const fromCanvas = isObj(fm.map) && isStr(fm.map.from);
   const place = (p: unknown) => isObj(p) && isStr(p.id) && (fromCanvas ? opt(p.x, isNum) && opt(p.y, isNum) : isNum(p.x) && isNum(p.y)) && opt(p.name, isText) && opt(p.links, (v) => Array.isArray(v) && v.every(isStr))
@@ -879,6 +916,7 @@ export function readConfig(fm: unknown): LoadedConfig {
       cards: (Array.isArray(d.cards) ? d.cards : []).filter(isObj).map((c) => readCard(c, String(c.id))),
     })),
     hands: (fm.hands ?? []) as HandDef[],
+    ...(Array.isArray(fm.records) && fm.records.length > 0 ? { records: (fm.records as Record<string, unknown>[]).map((e) => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}) })) } : {}),
     map: isObj(fm.map) ? readMap(fm.map) : undefined,
     dungeon: isObj(fm.dungeon) ? readDungeon(fm.dungeon) : undefined,
     party: isObj(fm.party) ? readParty(fm.party) : undefined,

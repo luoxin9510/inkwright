@@ -117,6 +117,8 @@ export interface PlayController {
   rollTray(formula: string, table?: string): void;
   /** Changes a resource marked `manual` by hand. */
   adjustResource(id: string, delta: number, value?: number): void;
+  /** Adds an entry to a record, or takes one out, by hand. */
+  changeRecord(id: string, op: "add" | "remove", entry: string): void;
 }
 
 /** Paragraphs drawn at most; earlier ones wait behind a button, so a long run stays quick to draw. */
@@ -450,6 +452,10 @@ export class PlayView extends ItemView {
   /** One question or roll from the dice tray, as a card in the text. */
   private renderAside(parent: HTMLElement, a: PlacedAside): HTMLElement {
     const t = T();
+    if (a.kind === "record") {
+      const name = this.state?.game?.hud.records?.find((x) => x.id === a.var)?.name ?? a.var ?? "";
+      return parent.createDiv({ cls: "inkwright-manual", text: `📝 ${name} ${a.op === "remove" ? "−" : "+"} ${a.entry ?? ""}` });
+    }
     if (a.kind === "adjust" || a.kind === "set") {
       const r = a.result as { from: unknown; to: unknown } | null;
       const name = this.state?.game?.hud.resources.find((x) => x.id === a.var)?.name ?? a.var ?? "";
@@ -566,13 +572,13 @@ export class PlayView extends ItemView {
   private renderRoll(parent: HTMLElement, r: RollRecord, game: GameView): HTMLElement {
     if (r.kind === "dice") {
       const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free" });
-      card.createSpan({ cls: "inkwright-roll-skill", text: r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
+      card.createSpan({ cls: "inkwright-roll-skill", text: r.deck ? r.deck.name : r.record ? r.record.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
       const dice = card.createSpan({ cls: "inkwright-roll-dice" });
       // Faces that do not count (not kept, or missed in a pool) are faded.
       const out = new Set(r.dropped ?? []);
       r.rolls.forEach((face, i) => dice.createSpan({ cls: `inkwright-die${out.has(i) ? " inkwright-die-dropped" : ""}`, text: String(face) }));
       card.createSpan({ cls: "inkwright-roll-sum", text: r.unknown ? T().badFormula : `= ${r.total}` });
-      const result = r.deck ? r.deck.card : r.table?.text;
+      const result = r.deck ? r.deck.card : r.record ? r.record.entry : r.table?.text;
       if (result !== undefined) card.createSpan({ cls: "inkwright-roll-band", text: result, ...(r.deck?.desc ? { title: r.deck.desc } : {}) });
       return card;
     }
@@ -793,6 +799,20 @@ export class PlayView extends ItemView {
       const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");
       hud.createDiv({ cls: "inkwright-hud-companion", text });
     }
+    // Records: their entries, each with a × to take it out, and a box to add one (the player keeps them too).
+    for (const rec of game.hud.records ?? []) {
+      const box = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items inkwright-record" });
+      box.createSpan({ cls: "inkwright-hud-name", text: rec.name });
+      for (const entry of rec.entries) {
+        const chip = box.createSpan({ cls: "inkwright-item" });
+        chip.createSpan({ text: entry });
+        chip.createEl("button", { cls: "inkwright-record-drop", text: "×", attr: { "aria-label": T().recordDrop(entry), title: T().recordDrop(entry) } }).onclick = () => this.controller.changeRecord(rec.id, "remove", entry);
+      }
+      const add = box.createEl("input", { cls: "inkwright-record-add", type: "text", placeholder: T().recordAddHere });
+      add.onkeydown = (e) => {
+        if (e.key === "Enter" && !e.isComposing && add.value.trim() !== "") this.controller.changeRecord(rec.id, "add", add.value.trim());
+      };
+    }
   }
 
   /** A clock of `segments` slices, `filled` of them filled (Blades-style). */
@@ -859,8 +879,8 @@ export class PlayView extends ItemView {
       const dice = r.kind === "check" && r.token ? tokenText(r.token, { fail: T().autoFail, success: T().autoSuccess }) : r.rolls.length > 0 ? r.rolls.join("+") : "—";
       const tr = t.createEl("tr");
       if (r.kind === "dice") {
-        const result = r.deck ? r.deck.card : r.table?.text;
-        tr.createEl("td", { text: r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
+        const result = r.deck ? r.deck.card : r.record ? r.record.entry : r.table?.text;
+        tr.createEl("td", { text: r.deck ? r.deck.name : r.record ? r.record.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
         tr.createEl("td", { text: r.unknown ? T().badFormula : `${dice} = ${r.total}${result !== undefined ? ` · ${result}` : ""}` });
         continue;
       }

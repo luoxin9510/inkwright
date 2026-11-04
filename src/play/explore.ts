@@ -167,7 +167,10 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   for (const name of engine ? [inkNames(engine.config).inventory, inkNames(engine.config).current] : []) shape.relevant.add(name);
   // The engine's own functions (the preset loader, the check and dice fallbacks, the table lookups) are code, not places.
   const names = engine ? inkNames(engine.config) : null;
-  const engineCode = new Set(names ? [names.select, names.check, names.dice, names.roll, names.table, names.tableRoll, names.tableText, names.tableId, names.draw, names.shuffle, names.deckLeft, names.nthCard] : []);
+  const engineCode = new Set(names ? [names.select, names.check, names.dice, names.roll, names.table, names.tableRoll, names.tableText, names.tableId, names.draw, names.shuffle, names.deckLeft, names.nthCard,
+    // The wrappers of the growing dungeon and of records are engine code a story may well not call.
+    names.beginDungeon, names.addRoom, names.markRoom, names.secretRoom, names.roomNote, names.setRoomNote,
+    names.recordAdd, names.recordRemove, names.recordCount, names.recordPick, names.recordList] : []);
   shape.places = shape.places.filter((p) => !engineCode.has(p.path.split(".")[0]));
   const result: ExploreResult = {
     endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0,

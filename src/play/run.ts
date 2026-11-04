@@ -46,7 +46,7 @@ export type Action = { seq: number; lang: string | null } & (
   | { kind: "roll"; formula: string; table?: string; result: unknown }
   | { kind: "adjust"; var: string; delta: number }
   | { kind: "set"; var: string; value: number | string }
-  | { kind: "record"; record: string; op: "add" | "remove"; entry: string }
+  | { kind: "record"; record: string; count: string; op: "add" | "remove"; entry: string }
 );
 
 /** An old save as the plugin kept it in its data. */
@@ -101,6 +101,7 @@ export function withTaken(run: Run, taken: readonly Taken[], seqNext: number, no
     if (a.kind === "oracle") return { kind: "oracle", seq: a.seq, lang: a.lang, ...(a.question ? { question: a.question } : {}), odds: a.odds ?? "even", result: a.result };
     if (a.kind === "adjust") return { kind: "adjust", seq: a.seq, lang: a.lang, var: a.var ?? "", delta: a.delta ?? 0 };
     if (a.kind === "set") return { kind: "set", seq: a.seq, lang: a.lang, var: a.var ?? "", value: a.value ?? 0 };
+    if (a.kind === "record") return { kind: "record", seq: a.seq, lang: a.lang, record: a.var ?? "", count: a.count ?? "", op: a.op ?? "add", entry: a.entry ?? "" };
     return { kind: "roll", seq: a.seq, lang: a.lang, formula: a.formula ?? "", ...(a.table ? { table: a.table } : {}), result: a.result };
   });
   const actions = [...chosen, ...aside].sort((x, y) => x.seq - y.seq);
@@ -118,6 +119,10 @@ export function replayActions(run: Run): ReplayAction[] {
     }
     if (a.kind === "roll") {
       out.push({ index: -1, text: null, lang: a.lang, seq: a.seq, aside: { kind: "roll", lang: a.lang, formula: a.formula, ...(a.table ? { table: a.table } : {}), result: a.result } });
+      continue;
+    }
+    if (a.kind === "record") {
+      out.push({ index: -1, text: null, lang: a.lang, seq: a.seq, aside: { kind: "record", lang: a.lang, var: a.record, count: a.count, op: a.op, entry: a.entry, result: null } });
       continue;
     }
     if (a.kind === "adjust" || a.kind === "set") {
@@ -236,6 +241,7 @@ function isAction(v: unknown): v is Action {
   if (v.kind === "roll") return isString(v.formula) && (v.table === undefined || isString(v.table)) && isTrayRoll(v.result);
   if (v.kind === "adjust") return isString(v.var) && isNumber(v.delta);
   if (v.kind === "set") return isString(v.var) && (isNumber(v.value) || isString(v.value));
+  if (v.kind === "record") return isString(v.record) && isString(v.count) && (v.op === "add" || v.op === "remove") && isString(v.entry);
   if (v.kind !== "choose") return true;
   return isNumber(v.index) && orNull(v.text, isString)
     && (v.payload === undefined || isPayload(v.payload))
