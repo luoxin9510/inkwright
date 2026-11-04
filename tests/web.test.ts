@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { expect, test, beforeEach } from "vitest";
+import { describe, expect, test, beforeEach } from "vitest";
 import { Compiler } from "inkjs/full";
 import INK_RUNTIME from "virtual:ink-runtime";
 import GAME_ENGINE from "virtual:game-engine";
@@ -101,11 +101,11 @@ test("after a choice the first new paragraph is scrolled to the top; after going
   }
 });
 
-test("a save from a different story version is ignored", () => {
+test("a save from a different story version is replayed as far as it fits, then says where it stopped", () => {
   mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
   (document.querySelector("#choices button") as HTMLElement).click();
   mount(buildWebPage({ title: "T", storyJson: compileJson("Other.\n-> END\n"), runtime: INK_RUNTIME, id: "t" }));
-  expect(texts("#story p")).toEqual(["Other."]);
+  expect(texts("#story p")).toEqual(["Other.", "The story was updated; your progress stops at step 1."]);
 });
 
 const T_END = "— The End —";
@@ -473,4 +473,59 @@ test("a game page fades the faces that do not count: the lowest of 4d6kh3, the m
   const hits = faces(pool);
   expect(hits).toHaveLength(6);
   for (const f of hits) expect(f.out).toBe(f.face < 4);
+});
+
+describe("re-exported pages keep the player's progress", () => {
+  const V1 = "开始。\n{RANDOM(1, 1000)}\n+ [向左] -> k\n+ [向右] -> k\n=== k ===\n第二屏 {~甲|乙|丙}。\n+ [推门] -> m\n+ [敲门] -> m\n=== m ===\n第三屏。\n+ [结束] -> END\n";
+  const page = (src: string, extra: Record<string, unknown> = {}) => buildWebPage({ title: "R", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "r", ...extra });
+  const click = (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("#choices button")).find((b) => b.textContent?.startsWith(text))!.click();
+
+  test("a new version of the story replays the run: a choice moved down is found, ink's RANDOM and shuffles come out the same", () => {
+    mount(page(V1));
+    click("向右");
+    click("敲门");
+    const before = texts("#story p");
+    // The author adds a choice at the top of the first screen and re-exports.
+    mount(page(V1.replace("+ [向左] -> k", "+ [新的选项] -> k\n+ [向左] -> k")));
+    expect(texts("#story p")).toEqual(before);
+    expect(texts("#choices button")).toEqual(["结束"]);
+    expect(document.querySelector("#story p.note")).toBeNull();
+  });
+
+  test("a taken choice that is gone stops the run there, with a note", () => {
+    mount(page(V1));
+    click("向右");
+    click("敲门");
+    mount(page(V1.replace("+ [敲门] -> m\n", "")));
+    expect(texts("#choices button")).toEqual(["推门"]);
+    expect(texts("#story p.note")).toEqual(["The story was updated; your progress stops at step 2."]);
+    // Playing on from there is saved: reloading keeps it.
+    click("推门");
+    mount(page(V1.replace("+ [敲门] -> m\n", "")));
+    expect(texts("#choices button")).toEqual(["结束"]);
+  });
+
+  test("progress saved by an older page (choices by index only) is replayed by index", () => {
+    mount(page(V1));
+    click("向右");
+    const saved = JSON.parse(localStorage.getItem("inkwright:r")!);
+    saved.picks = saved.picks.map((p: { index: number }) => p.index);
+    saved.version = "old";
+    localStorage.setItem("inkwright:r", JSON.stringify(saved));
+    mount(page(V1));
+    expect(texts("#choices button")).toEqual(["推门", "敲门"]);
+  });
+
+  test("a game page re-exported: the run's dice come out the same", () => {
+    setLanguage("zh");
+    const src = `-> main\n${generateInk(CONFIG)}\n=== main ===\n门。\n* [撬 #check:力量:10]\n    { 检定("力量", 10) >= 3: 开了。|断了。 }\n    -> next\n=== next ===\n再来一次 {掷("3d6")}。\n* [走] -> END\n`;
+    const game = { languageVar: "语言", game: CONFIG, engine: GAME_ENGINE };
+    mount(page(src, game));
+    click("撬");
+    const dice = texts("#story .roll");
+    const story = texts("#story p");
+    mount(page(src.replace("门。", "一扇门。"), game));
+    expect(texts("#story .roll")).toEqual(dice);
+    expect(texts("#story p").slice(1)).toEqual(story.slice(1));
+  });
 });
