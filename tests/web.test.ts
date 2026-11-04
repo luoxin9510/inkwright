@@ -566,3 +566,17 @@ test("a #write choice gets a box of several lines; the paragraph goes into the V
   box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
   expect(texts("#story p").at(-1)).toBe("你写下:第一行\n第二行");
 });
+
+test("a game page offers what is carried for a #use choice, and shows the round and the phase", () => {
+  setLanguage("zh");
+  const config = { ...CONFIG, turn: { round: "回合", phase: "阶段", phases: [{ id: "整备", name: { zh: "整备", en: "Upkeep" } }] } };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n~ 背包 += 刀\n门锁着。\n+ [用点什么 #use]\n    { 出牌 == 刀: 撬开了。}\n    -> END\n`;
+  mount(buildWebPage({ title: "U", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "u", languageVar: "语言", game: config, engine: GAME_ENGINE }));
+  expect(document.querySelector("#hud")?.textContent).toContain("第 1 轮 · 整备");
+  const cards = () => Array.from(document.querySelectorAll<HTMLButtonElement>("#hands .card"));
+  expect(cards().map((c) => c.textContent)).toEqual(["手机", "刀"]);
+  expect(document.querySelector("#choices button .need")?.textContent).toBe("先选一件东西");
+  cards()[1].click();
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(texts("#story p").at(-1)).toBe("撬开了。");
+});

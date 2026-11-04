@@ -379,7 +379,10 @@ export class PlayView extends ItemView {
       this.typed.clear();
     }
     this.pickedAt = spot;
-    if (s.game?.hud.hands) this.renderHands(main, s.game.hud.hands, s.game.cardImages);
+    // A #use choice on screen: what is carried shows as a row of cards to pick from, beside the hands.
+    const using = (s.game?.plays ?? []).find((p) => p?.use && p.cards.length > 0);
+    const hands = [...(s.game?.hud.hands ?? []), ...(using ? [{ id: using.hand, name: T().inventory, cards: using.cards }] : [])];
+    if (s.game && hands.length > 0) this.renderHands(main, hands, s.game.cardImages);
 
     // Picking a saved run up: the text grows as it replays; there is nothing to choose until it is done.
     if (s.replay) {
@@ -408,7 +411,7 @@ export class PlayView extends ItemView {
         button.createSpan({ cls: `inkwright-need${need.has ? "" : " inkwright-need-missing"}`, text: `${T().needs} ${need.name}` });
       }
       // A #play choice waits for a card from its hand; with no card to play it is locked like a missing item.
-      if (play && !card) button.createSpan({ cls: "inkwright-choice-pick", text: play.known && play.cards.length > 0 ? T().pickCard : `${play.name} · ${T().nothingCarried}` });
+      if (play && !card) button.createSpan({ cls: "inkwright-choice-pick", text: play.known && play.cards.length > 0 ? (play.use ? T().pickItem : T().pickCard) : `${play.use ? T().inventory : play.name} · ${T().nothingCarried}` });
       const locked = needs.some((n) => !n.has) || (play !== null && !card);
       if (locked) {
         button.disabled = true;
@@ -763,6 +766,7 @@ export class PlayView extends ItemView {
 
   private renderHud(el: HTMLElement, game: GameView): void {
     const hud = el.createDiv({ cls: "inkwright-hud" });
+    if (game.hud.turn) hud.createDiv({ cls: "inkwright-hud-turn", text: T().turnLine(game.hud.turn.round, game.hud.turn.phase) });
     if (game.hud.party) this.renderParty(hud, game.hud.party);
     for (const r of game.hud.resources) {
       const row = hud.createDiv({ cls: "inkwright-hud-row" });

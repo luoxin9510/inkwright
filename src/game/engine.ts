@@ -1,6 +1,6 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText, type PartyDef } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseUseTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText, type PartyDef } from "./config";
 import { boardOf, freeDoors, markRoom, nearestFreeRoom, noteGet, noteSet, parseLayout, placeRoom, placeSecret, startLayout, stepsBetween, wayBetween, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { recordAdd, recordAt, recordDrop, recordEntries } from "./records";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
@@ -112,6 +112,8 @@ export interface ChoicePlay {
   name: string;
   cards: CardView[];
   known: boolean;
+  /** `#use`: the "hand" is what is carried, the cards are items. */
+  use?: boolean;
 }
 
 /** A place as the map draws it: position in map units, whether it is revealed, whether the player is there, and which choice goes there. */
@@ -206,6 +208,8 @@ export interface HudView {
   hands?: HandView[];
   /** The party, absent when the game has none. */
   party?: { name: string; members: PartyMemberView[] };
+  /** The round and the phase, absent when the game has no turn structure. */
+  turn?: { round: number; phase: string };
   /** Each record's entries, absent when the game has no records. */
   records?: { id: string; name: string; entries: string[] }[];
 }
@@ -346,6 +350,13 @@ export class GameEngine {
     }
     this.remember(seed, index, record);
     return result.band;
+  }
+
+  /** The round and the phase now, the phase by its name. */
+  private turn(t: { round: string; phase: string; phases: { id: string; name?: LocalizedText }[] }): { round: number; phase: string } {
+    const id = GameEngine.text(this.read(t.phase)) ?? "";
+    const def = t.phases.find((p) => p.id === id);
+    return { round: Number(this.read(t.round) ?? 0), phase: localize(def?.name, this.language, id) };
   }
 
   /** The records' functions: pure on the store text, so lookahead may call them as often as it likes. */
@@ -522,6 +533,11 @@ export class GameEngine {
 
   /** The hand a choice plays a card from (`#play:<hand>`), with the cards in it now; null for other choices. */
   playOf(choice: { tags: string[] }): ChoicePlay | null {
+    // #use: the inventory is the hand, the items carried its cards.
+    if (choice.tags.some(parseUseTag)) {
+      const inv = inkNames(this.config).inventory;
+      return { hand: inv, name: "", cards: this.cardsIn(inv), known: (this.config.items?.length ?? 0) > 0, use: true };
+    }
     for (const tag of choice.tags) {
       const id = parsePlayTag(tag);
       if (id === null) continue;
@@ -603,6 +619,13 @@ export class GameEngine {
   private cardsIn(hand: string): CardView[] {
     const list = this.read(hand);
     const out: CardView[] = [];
+    // The inventory holds items, not cards: shown as cards for a #use choice.
+    if (hand === inkNames(this.config).inventory && this.config.items?.length) {
+      return this.config.items.filter((i) => carries(list, i.id)).map((i) => {
+        const desc = localize(i.desc, this.language, "");
+        return { id: i.id, name: localize(i.name, this.language, i.id), ...(desc ? { desc } : {}), deck: inkNames(this.config).items, deckName: "" };
+      });
+    }
     for (const d of this.config.decks ?? []) {
       const deckName = localize(d.name, this.language, d.id);
       for (const c of d.cards) {
@@ -641,6 +664,7 @@ export class GameEngine {
       ...(this.config.decks?.length ? { decks: this.config.decks.map((d) => ({ id: d.id, name: name(d), left: this.pile(d.id, d.cards).length, total: d.cards.length })) } : {}),
       ...(this.config.hands?.length ? { hands: this.config.hands.map((h) => ({ id: h.id, name: name(h), cards: this.cardsIn(h.id) })) } : {}),
       ...(this.config.party ? { party: this.party(this.config.party) } : {}),
+      ...(this.config.turn ? { turn: this.turn(this.config.turn) } : {}),
       ...(this.config.records?.length ? { records: this.config.records.map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
     };
   }

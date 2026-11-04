@@ -63,7 +63,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, updatedStop: t.webUpdatedStop("{n}"),
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), updatedStop: t.webUpdatedStop("{n}"),
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -403,7 +403,13 @@ const PLAYER = `(function () {
 
   // Each hand as a row of cards: tap one to pick it (its description shows under the row), tap again to put it back.
   function renderHands() {
-    var hands = engine ? engine.hud().hands : null;
+    var hands = engine ? (engine.hud().hands || []).slice() : null;
+    // A #use choice on screen: what is carried shows as a row to pick from.
+    if (engine) story.currentChoices.forEach(function (c) {
+      var p = engine.playOf({ tags: c.tags || [] });
+      if (p && p.use && p.cards.length && !hands.some(function (h) { return h.id === p.hand; })) hands.push({ id: p.hand, name: str().inventory, cards: p.cards });
+    });
+    if (hands && hands.length === 0) hands = null;
     handsEl.textContent = "";
     handsEl.hidden = !hands;
     if (!hands) return;
@@ -480,6 +486,7 @@ const PLAYER = `(function () {
     }
     hudEl.textContent = "";
     hudEl.hidden = false;
+    if (h.turn) line(s.turnRound.replace("{r}", String(h.turn.round)).replace("{p}", h.turn.phase), "");
     if (h.character) line(h.character.name, h.character.skills.map(function (k) { return k.name + " " + k.level; }).join(" · "));
     // A clock as filled and empty slices, a track as boxes of four ticks; else the number.
     function shown(r) {
@@ -628,7 +635,7 @@ const PLAYER = `(function () {
       if (play && !card) {
         var wait = document.createElement("span");
         wait.className = "need";
-        wait.textContent = play.known && play.cards.length ? str().pickCard : play.name + " · " + str().nothingCarried;
+        wait.textContent = play.known && play.cards.length ? (play.use ? str().pickItem : str().pickCard) : (play.use ? str().inventory : play.name) + " · " + str().nothingCarried;
         b.appendChild(wait);
       }
       var locked = needs.some(function (n) { return !n.has; }) || (play && !card);
