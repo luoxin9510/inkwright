@@ -12,6 +12,18 @@ export interface Files {
   list(path: string): Promise<{ files: string[]; folders: string[] }>;
 }
 
+/** A version of a story a run was played on: the compiled story and the game config it was played with. */
+export interface Build {
+  hash: string;
+  storyJson: string;
+  config: unknown;
+  createdAt: string;
+}
+
+/** Builds kept per story: enough to go back to the version before an edit. */
+const KEEP_BUILDS = 3;
+const BUILDS = "_builds";
+
 /** How the vault is synced: only changes how conflicts are handled. */
 export type SyncMode = "icloud" | "obsidian-sync" | "git" | "local";
 export const SYNC_MODES: readonly SyncMode[] = ["icloud", "obsidian-sync", "git", "local"];
@@ -63,6 +75,7 @@ export class RunStore {
     const runs: Run[] = [];
     for (const f of folders) {
       const id = f.slice(f.lastIndexOf("/") + 1);
+      if (id === BUILDS) continue;
       const read = await this.readRun(story, id);
       if (read) runs.push(read.run, ...read.conflicts);
     }
@@ -129,6 +142,41 @@ export class RunStore {
     await this.ensure(dir);
     await this.files.write(`${dir}/${this.device}.json`, JSON.stringify(written));
     return written;
+  }
+
+  /** Keeps a version of the story (once per hash; the oldest go past KEEP_BUILDS). */
+  async writeBuild(story: string, build: Build): Promise<void> {
+    const dir = `${this.storyDir(story)}/${BUILDS}`;
+    const path = `${dir}/${build.hash}.json`;
+    if (await this.files.exists(path)) return;
+    await this.ensure(dir);
+    await this.files.write(path, JSON.stringify(build));
+    const kept: { path: string; createdAt: string }[] = [];
+    for (const p of (await this.files.list(dir)).files) {
+      try {
+        kept.push({ path: p, createdAt: (JSON.parse(await this.files.read(p)) as Build).createdAt ?? "" });
+      } catch {
+        kept.push({ path: p, createdAt: "" });
+      }
+    }
+    kept.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    for (const old of kept.slice(KEEP_BUILDS)) await this.files.remove(old.path).catch(() => undefined);
+  }
+
+  /** Whether a version of the story is kept. */
+  hasBuild(story: string, hash: string): Promise<boolean> {
+    return this.files.exists(`${this.storyDir(story)}/${BUILDS}/${hash}.json`);
+  }
+
+  /** A kept version of the story; null when it is not (or no longer) kept. */
+  async readBuild(story: string, hash: string): Promise<Build | null> {
+    const path = `${this.storyDir(story)}/${BUILDS}/${hash}.json`;
+    if (!(await this.files.exists(path))) return null;
+    try {
+      return JSON.parse(await this.files.read(path)) as Build;
+    } catch {
+      return null;
+    }
   }
 
   /** Removes a run (every device's copy). */

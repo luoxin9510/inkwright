@@ -29,7 +29,7 @@ class MemoryFiles implements Files {
 
 const STORY = "游戏/雨夜来客/main.ink";
 const NOW = "2026-11-04T10:00:00.000Z";
-const taken = (n: number, alt = ""): Taken[] => Array.from({ length: n }, (_, i) => ({ index: 0, text: `c${i}${alt}`, lang: "zh", seq: i, fp: "f" }));
+const taken = (n: number, alt = ""): Taken[] => Array.from({ length: n }, (_, i) => ({ index: 0, text: `c${i}${alt}`, lang: "zh", seq: i, fp: "f", offered: [] }));
 const draft = (device: string) => newRun({ story: STORY, name: "", draft: true, startPoint: null, character: null, device, now: NOW, random: () => 0.5 });
 const store = (fs: Files, device: string, sync: "icloud" | "obsidian-sync" | "git" | "local" = "icloud") => new RunStore(fs, { folder: "Inkwright/存档", device, sync });
 const dir = `Inkwright/存档/${storyFolder(STORY)}`;
@@ -136,6 +136,19 @@ describe("run store", () => {
     fs.files.set(`${dir}/draft/B.json`, "{ not json");
     expect((await a.read(STORY, "draft"))!.actions).toHaveLength(1);
     expect(await a.read(STORY, "nothing")).toBeNull();
+  });
+
+  test("builds: a version of the story is kept once, read back, and only the newest three stay; runs are not mixed with them", async () => {
+    const fs = new MemoryFiles();
+    const a = store(fs, "A");
+    for (let i = 0; i < 5; i++) await a.writeBuild(STORY, { hash: `h${i}`, storyJson: `{"v":${i}}`, config: null, createdAt: `2026-11-04T10:0${i}:00.000Z` });
+    await a.writeBuild(STORY, { hash: "h4", storyJson: "changed?", config: null, createdAt: "2026-11-04T11:00:00.000Z" });
+    expect((await a.readBuild(STORY, "h4"))?.storyJson).toBe('{"v":4}');
+    expect(await a.readBuild(STORY, "h0")).toBeNull();
+    expect(await a.readBuild(STORY, "h1")).toBeNull();
+    expect((await a.readBuild(STORY, "h2"))?.storyJson).toBe('{"v":2}');
+    await a.write(withTaken(draft("A"), taken(1), 1, NOW));
+    expect((await a.list(STORY)).map((r) => r.id)).toEqual(["draft"]);
   });
 
   test("tells its own files from the others' and from the rest of the vault", () => {

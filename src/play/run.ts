@@ -30,6 +30,8 @@ export interface Run {
   /** Actions a replay could not take (the story changed); kept until the player does something new there. Never written. */
   pending?: Action[];
   journal?: { path: string; writtenSeq: number };
+  /** Hash of the version of the story (compiled story and game config) the run was last played on; kept as a build. */
+  build?: string;
   /** Set on a run kept because two devices went different ways at once: the id of the run it forked from. */
   conflictOf?: string;
   /** An old save (before runs): its actions start from this state instead of the story's start. */
@@ -38,7 +40,7 @@ export interface Run {
 
 /** One thing the player did. Only `choose` exists so far; the other kinds are reserved for the slices that add them. */
 export type Action = { seq: number; lang: string | null } & (
-  | { kind: "choose"; index: number; text: string | null; payload?: Payload; fp: string }
+  | { kind: "choose"; index: number; text: string | null; payload?: Payload; fp: string; offered?: string[] }
   | { kind: "oracle"; question?: string; odds: string; result: unknown }
   | { kind: "roll"; formula: string; table?: string; result: unknown }
   | { kind: "adjust"; var: string; delta: number }
@@ -92,7 +94,7 @@ export function newRun(o: NewRunOptions): Run {
 /** The run with the session's record as its actions (pending dropped: the player has moved on). */
 export function withTaken(run: Run, taken: readonly Taken[], seqNext: number, now: string): Run {
   const actions: Action[] = taken.map((t) => ({
-    kind: "choose", seq: t.seq, lang: t.lang, index: t.index, text: t.text, ...(t.payload ? { payload: t.payload } : {}), fp: t.fp,
+    kind: "choose", seq: t.seq, lang: t.lang, index: t.index, text: t.text, ...(t.payload ? { payload: t.payload } : {}), fp: t.fp, offered: t.offered,
   }));
   const { pending: _pending, ...rest } = run;
   return { ...rest, actions, seqNext: Math.max(seqNext, run.seqNext), updatedAt: now };
@@ -103,7 +105,7 @@ export function replayActions(run: Run): ReplayAction[] {
   const out: ReplayAction[] = [];
   for (const a of run.actions) {
     if (a.kind !== "choose") break;
-    out.push({ index: a.index, text: a.text, lang: a.lang, seq: a.seq, ...(a.payload ? { payload: a.payload } : {}) });
+    out.push({ index: a.index, text: a.text, lang: a.lang, seq: a.seq, ...(a.payload ? { payload: a.payload } : {}), ...(a.fp ? { fp: a.fp } : {}), ...(a.offered ? { offered: a.offered } : {}) });
   }
   return out;
 }

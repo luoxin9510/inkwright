@@ -204,3 +204,86 @@ describe("replay", () => {
     expect((await u.replay(long)).done).toBe(300);
   });
 });
+
+describe("replay that matches changed choices", () => {
+  const record = (src: string, picks: number[]) => {
+    const s = new PlaySession(compile(src));
+    s.start();
+    for (const p of picks) s.choose(p);
+    return s.taken.map((t) => ({ index: t.index, text: t.text, lang: t.lang, seq: t.seq, fp: t.fp, offered: t.offered }));
+  };
+  const ABC = "+ [甲] -> k\n+ [乙] -> k\n+ [丙] -> k\n=== k ===\n到了。\n-> END\n";
+
+  test("each choice also records the texts offered with it", () => {
+    expect(record(ABC, [1])[0].offered).toEqual(["甲", "乙", "丙"]);
+  });
+
+  test("a choice moved to another index is found by its unique text", async () => {
+    const s = new PlaySession(compile("+ [新的] -> k\n" + ABC));
+    s.start();
+    const r = await s.replay(record(ABC, [1]), { mode: "match" });
+    expect(r.stop).toBeNull();
+    expect(s.taken[0]).toMatchObject({ index: 2, text: "乙" });
+    expect(r.guesses).toEqual([]);
+    // Strict mode does not look for it.
+    const t2 = new PlaySession(compile("+ [新的] -> k\n" + ABC));
+    t2.start();
+    expect((await t2.replay(record(ABC, [1]))).stop).toEqual({ at: 0, reason: "mismatch" });
+  });
+
+  test("the same text twice is not unique: it stops", async () => {
+    const s = new PlaySession(compile("+ [乙] -> k\n" + ABC));
+    s.start();
+    expect((await s.replay(record(ABC, [1]), { mode: "match" })).stop).toEqual({ at: 0, reason: "mismatch" });
+  });
+
+  test("a changed number is a guess; a choice reworded while the others stayed is a guess", async () => {
+    const coins = (a: number, b: number) => `+ [付 ${a} 金] -> k\n+ [付 ${b} 金] -> k\n=== k ===\n到了。\n-> END\n`;
+    const s = new PlaySession(compile(coins(5, 10).replace("付 10 金", "走开")));
+    s.start();
+    const r = await s.replay(record(coins(3, 10), [0]), { mode: "match" });
+    expect(r.stop).toBeNull();
+    expect(r.guesses).toEqual([0]);
+    expect(s.taken[0]).toMatchObject({ index: 0, text: "付 5 金" });
+    // Two choices that differ only by a number: not unique, so a reworded check decides (the other one changed): stop.
+    const u = new PlaySession(compile(coins(5, 20)));
+    u.start();
+    expect((await u.replay(record(coins(3, 10), [0]), { mode: "match" })).stop).toEqual({ at: 0, reason: "mismatch" });
+    const w = new PlaySession(compile(ABC.replace("[乙]", "[乙,换了说法]")));
+    w.start();
+    const rw = await w.replay(record(ABC, [1]), { mode: "match" });
+    expect(rw.stop).toBeNull();
+    expect(rw.guesses).toEqual([0]);
+    expect(w.taken[0].text).toBe("乙,换了说法");
+    // A deleted choice: the screen has one fewer, so no guess.
+    const d = new PlaySession(compile(ABC.replace("+ [乙] -> k\n", "")));
+    d.start();
+    expect((await d.replay(record(ABC, [1]), { mode: "match" })).stop).toEqual({ at: 0, reason: "mismatch" });
+  });
+
+  test("index mode takes whatever is at the recorded index", async () => {
+    const s = new PlaySession(compile(ABC.replace("[乙]", "[完全不同]")));
+    s.start();
+    const r = await s.replay(record(ABC, [1]), { mode: "index" });
+    expect(r.stop).toBeNull();
+    expect(s.taken[0].text).toBe("完全不同");
+  });
+
+  test("the first step whose outcome differs from the record is reported, without stopping", async () => {
+    const src = "+ [a] -> k\n=== k ===\n+ [b] -> m\n=== m ===\n+ [c] -> END\n+ [d] -> END\n";
+    const rec = record(src, [0, 0, 0]);
+    // The second step now offers three choices: its fingerprint (choices that came next) changes.
+    const s = new PlaySession(compile(src.replace("+ [d] -> END", "+ [d] -> END\n+ [e] -> END")));
+    s.start();
+    const r = await s.replay(rec, { mode: "match" });
+    expect(r.stop).toBeNull();
+    expect(r.drift).toBe(1);
+    const same = new PlaySession(compile(src));
+    same.start();
+    expect((await same.replay(rec, { mode: "match" })).drift).toBeNull();
+    // A record without fingerprints (an old save) reports nothing.
+    const old = new PlaySession(compile(src.replace("+ [d] -> END", "+ [d] -> END\n+ [e] -> END")));
+    old.start();
+    expect((await old.replay(rec.map((a) => ({ ...a, fp: undefined })), { mode: "match" })).drift).toBeNull();
+  });
+});

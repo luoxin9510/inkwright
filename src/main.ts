@@ -6,9 +6,9 @@ import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphV
 import type { Diagnostic } from "./compile/diagnostics";
 import { inputOf, inputPayload } from "./play/input";
 import { PlaySession, findLanguageVar, type Chosen, type Payload, type ReplayAction, type SaveData, type Step } from "./play/session";
-import { migrateSave, newRun, replayActions, withTaken, type Run } from "./play/run";
+import { hash, migrateSave, newRun, replayActions, withTaken, type Run } from "./play/run";
 import { RunStore, type Files, type SyncMode } from "./play/store";
-import type { Story } from "inkjs/full";
+import { Story } from "inkjs/full";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
@@ -48,6 +48,13 @@ interface Settings {
   migrated?: string[];
 }
 
+/** A compiled story with the engine for its game note, and a hash of both: one version of a story. */
+interface StoryVersion {
+  story: Story;
+  engine: GameEngine | null;
+  hash: string;
+}
+
 /** A saved run as the panel and the API list it. */
 interface SaveInfo {
   id: string;
@@ -57,7 +64,10 @@ interface SaveInfo {
 
 /** Why the panel stopped short of where the run had got to; the run itself is left as it was. */
 export interface Stopped {
-  reason: "mismatch" | "error" | "budget" | "start" | "character";
+  /** "chosen": the player stopped it at the step whose outcome changed. */
+  reason: "mismatch" | "error" | "budget" | "start" | "character" | "chosen";
+  /** The version the run was last played on is kept: "back to before the edit" can play it. */
+  older?: boolean;
   /** The step (1-based) the story stopped at. */
   step: number;
   /** Steps of the run not replayed: kept until the player does something new here. */
@@ -105,6 +115,18 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private savesCache: SaveInfo[] = [];
   /** Another device changed the run: read it again on the next compile. */
   private runDirty = false;
+  /** The latest compiled version of the main story. */
+  private newest: StoryVersion | null = null;
+  /** An older version the player went back to ("back to before the edit"); recompiles leave it alone until the newest is applied. */
+  private frozen: { story: string; hash: string; createdAt: string } | null = null;
+  /** The version being played: written with the run, kept as a build when the player plays on it. */
+  private buildHash: string | null = null;
+  /** Builds known to be kept (this session), so each is written once. */
+  private storedBuilds = new Set<string>();
+  /** What the last replay noticed without stopping: steps found by a guess, the first step whose outcome changed. */
+  private note: { guesses: number; drift: number | null } | null = null;
+  /** The whole run was saved before the pending steps are dropped: once per stop. */
+  private backedUp = false;
   /** Writes of the run, one after another. */
   private writing: Promise<void> = Promise.resolve();
   /** A write is queued and has not started: it will write the latest run, so another is not needed. */
@@ -475,7 +497,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.stopped = null;
     const now = new Date();
     // Moving on from where a replay stopped drops the steps it could not take: keep the whole run as a save first.
-    if (run.pending && run.pending.length > 0) {
+    if (run.pending && run.pending.length > 0 && !this.backedUp) {
+      this.backedUp = true;
       const { pending: _pending, conflictOf: _conflictOf, ...whole } = run;
       const id = newRun({ story: run.story, name: "", draft: false, startPoint: null, character: null, device: "", now: now.toISOString() }).id;
       const backup: Run = { ...whole, id, draft: false, name: T().backupName(stamp(now)), createdAt: now.toISOString(), rev: 0, baseRev: 0 };
@@ -484,8 +507,22 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         await this.refreshSaves();
       });
     }
-    this.run = withTaken(run, session.taken, session.seqNext, now.toISOString());
+    this.run = { ...withTaken(run, session.taken, session.seqNext, now.toISOString()), ...(this.buildHash ? { build: this.buildHash } : {}) };
+    this.keepBuild();
     this.writeRun();
+  }
+
+  /** The version being played is kept (once), so a later edit can go back to it. */
+  private keepBuild(): void {
+    const store = this.store, root = this.root, story = this.compiled, hash = this.buildHash;
+    if (!store || root === null || !story || !hash || this.storedBuilds.has(hash)) return;
+    this.storedBuilds.add(hash);
+    const config = this.game?.config ?? null;
+    this.writing = this.writing.then(() =>
+      store.writeBuild(root, { hash, storyJson: story.ToJson() as string, config, createdAt: new Date().toISOString() }).catch((e: unknown) => {
+        this.storedBuilds.delete(hash);
+        console.error("Inkwright: could not keep this version of the story", e);
+      }));
   }
 
   /** Queues a write of the run as it is now (writes happen one after another, each of the latest run). */
@@ -915,21 +952,38 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     this.files = result.files;
     this.diagnostics = result.diagnostics;
-    this.applyGameNote(game);
+    const engine = this.applyGameNote(game);
     this.flows = result.flows;
     // On a failed compile keep showing the last good graph, marked as stale.
     if (result.graph) this.graph = result.graph;
     this.graphStale = result.graph === null && this.graph !== null;
     if (result.story) {
-      this.compiled = result.story;
+      this.newest = { story: result.story, engine, hash: hash(`${result.story.ToJson() as string}\n${JSON.stringify(engine?.config ?? null)}`) };
+      // Playing an older version on purpose: the edit shows in the diagnostics and the graph, the run is not touched.
+      if (this.frozen && this.frozen.story === root) {
+        this.pushState();
+        return;
+      }
+      this.frozen = null;
+      this.useVersion(this.newest);
       this.playRun();
+    } else if (this.frozen && this.frozen.story === root) {
+      this.pushState();
     } else {
+      this.game = engine;
       this.replayAbort?.abort();
       this.replaying = null;
       this.session = null;
       this.last = null;
       this.pushState();
     }
+  }
+
+  /** Plays this version of the story from now on. */
+  private useVersion(v: StoryVersion): void {
+    this.compiled = v.story;
+    this.game = v.engine;
+    this.buildHash = v.hash;
   }
 
   /** The story's draft run as saved, or a new one (not written until the player does something). */
@@ -954,6 +1008,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.replayAbort?.abort();
     this.replaying = null;
     this.stopped = null;
+    this.note = null;
+    this.backedUp = false;
     const game = this.game;
     let problem: Stopped | null = null;
     if (run.startPoint !== null && !this.flows.some((f) => f.path === run.startPoint)) {
@@ -981,6 +1037,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       this.run = { ...run, pending: run.actions };
       this.stopped = problem;
       this.apply(session.startAt(this.startPoint));
+      void this.offerOlder(problem);
       return;
     }
     const legacy = run.legacy;
@@ -1000,6 +1057,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.pushState();
     let drawn = Date.now();
     const result = await session.replay(actions, {
+      mode: "match",
       signal: abort.signal,
       budgetMs: Platform.isMobile ? 10000 : 5000,
       wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
@@ -1020,8 +1078,100 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       // The rest of the run is kept: written again only when the player does something new here.
       this.run = { ...(this.run ?? run), pending: left };
       this.stopped = { reason: result.stop?.reason ?? "mismatch", step: result.done + 1, pending: left.length };
+      void this.offerOlder(this.stopped);
+    }
+    if (result.guesses.length > 0 || result.drift !== null) this.note = { guesses: result.guesses.length, drift: result.drift === null ? null : result.drift + 1 };
+    this.apply(result.step);
+  }
+
+  /** A stop can go back to the version the run was last played on, when that version is kept and is not this one. */
+  private async offerOlder(stop: Stopped): Promise<void> {
+    const run = this.run, store = this.store;
+    if (!run?.build || !store || run.build === this.buildHash) return;
+    if (!(await store.hasBuild(run.story, run.build))) return;
+    if (this.stopped === stop) {
+      this.stopped = { ...stop, older: true };
+      this.pushState();
+    }
+  }
+
+  /** "Go on by index": the steps a replay could not take are taken by their index, whatever is there now. */
+  continueByIndex(): void {
+    void this.replayPending("index");
+  }
+
+  private async replayPending(mode: "index"): Promise<void> {
+    const session = this.session, run = this.run;
+    if (!session || !run?.pending?.length || this.replaying) return;
+    const pending = run.pending;
+    const actions = replayActions({ ...run, actions: pending });
+    this.replaying = { done: 0, total: actions.length };
+    this.pushState();
+    const result = await session.replay(actions, { mode, wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)) });
+    if (this.session !== session) return;
+    this.replaying = null;
+    // The player asked for it: written like a choice (the whole run is saved first, as on any move past a stop).
+    this.persist();
+    const left = pending.slice(result.done);
+    if (left.length > 0 && this.run) {
+      this.run = { ...this.run, pending: left };
+      this.stopped = { reason: result.stop?.reason ?? "mismatch", step: session.taken.length + 1, pending: left.length };
     }
     this.apply(result.step);
+  }
+
+  /** "Back to before the edit": plays the run on the version it was last played on, until the newest is applied. */
+  useOlder(): void {
+    void this.playOlder();
+  }
+
+  private async playOlder(): Promise<void> {
+    const run = this.run, store = this.store, root = this.root;
+    if (!run?.build || !store || root === null || this.replaying) return;
+    const build = await store.readBuild(root, run.build);
+    if (!build) return;
+    let story: Story;
+    try {
+      story = new Story(build.storyJson);
+    } catch (e) {
+      new Notice(T().runWriteFailed(e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    const config = build.config as GameConfig | null;
+    this.frozen = { story: root, hash: build.hash, createdAt: build.createdAt };
+    this.storedBuilds.add(build.hash);
+    // The run's pending steps are its own again: it is replayed whole on the version it was played on.
+    const { pending: _pending, ...whole } = run;
+    this.run = whole;
+    this.useVersion({ story, engine: config ? new GameEngine(config, { keepRolls: Infinity }) : null, hash: build.hash });
+    this.playRun();
+  }
+
+  /** Leaves the older version for the newest compile (which may stop the run again, where the edit is). */
+  useNewest(): void {
+    if (!this.newest || this.replaying) return;
+    this.frozen = null;
+    this.useVersion(this.newest);
+    this.playRun();
+  }
+
+  /** Stops the run at the step whose outcome changed: the rest is pending, as at any stop. */
+  stopAtDrift(): void {
+    const session = this.session, run = this.run, at = this.note?.drift;
+    if (!session || !run || at === null || at === undefined || this.replaying) return;
+    // Replaying up to the step before it is the same as going back that many times.
+    const keep = at - 1;
+    const left = run.actions.slice(keep);
+    while (session.taken.length > keep && session.canGoBack) session.back();
+    this.run = { ...run, pending: left };
+    this.note = null;
+    this.stopped = { reason: "chosen", step: keep + 1, pending: left.length };
+    this.apply(session.current());
+  }
+
+  dismissNote(): void {
+    this.note = null;
+    this.pushState();
   }
 
   /**
@@ -1048,17 +1198,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { note, config, warnings, files: [...(resolved?.files ?? []), ...images] };
   }
 
-  private applyGameNote(read: GameNoteRead | null): void {
-    this.game = null;
+  /** Installs what readGameNote found (dependencies, warnings, card art) and returns the engine for its config; null when there is none. */
+  private applyGameNote(read: GameNoteRead | null): GameEngine | null {
     this.cardArt = {};
-    if (!read) return;
+    if (!read) return null;
     // Edits to the game note, or to a note a table is read from, recompile like edits to any INCLUDEd file.
     for (const path of [read.note.path, ...read.files]) if (!this.files.includes(path)) this.files.push(path);
     for (const text of read.warnings) this.diagnostics.push({ severity: "warning", file: read.note.path, line: null, message: text, raw: "" });
-    if (!read.config) return;
-    if (this.character !== null && !playableCharacters(read.config).some((c) => c.id === this.character)) this.character = null;
+    if (!read.config) return null;
     // Every roll of the run is kept: the dice cards of a long run, and its fingerprints.
-    this.game = new GameEngine(read.config, { keepRolls: Infinity });
+    const engine = new GameEngine(read.config, { keepRolls: Infinity });
     if (this.root !== null) {
       for (const d of read.config.decks ?? []) {
         for (const c of d.cards) {
@@ -1067,6 +1216,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         }
       }
     }
+    return engine;
   }
 
   private gameView(): GameView | null {
@@ -1119,6 +1269,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       pinned: this.config.pinBar ?? false,
       replay: this.replaying,
       stopped: this.stopped,
+      note: this.note,
+      frozen: this.frozen ? { at: stamp(new Date(this.frozen.createdAt)) } : null,
       storyLanguage: this.session?.language ?? null,
       game: this.gameView(),
       saves: this.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
