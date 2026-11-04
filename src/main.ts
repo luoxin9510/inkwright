@@ -354,7 +354,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const session = this.session;
     if (this.config.playerMode && this.run && session && session.taken.length > 0) {
       const now = new Date();
-      const { conflictOf: _conflictOf, pending: _pending, ...kept } = withTaken(this.run, session.taken, session.seqNext, now.toISOString());
+      // Stopped short of where it had got to: keep the whole run (its actions still hold the steps not replayed).
+      const source = this.run.pending?.length ? { ...this.run, updatedAt: now.toISOString() } : withTaken(this.run, session.taken, session.seqNext, now.toISOString());
+      const { conflictOf: _conflictOf, pending: _pending, ...kept } = source;
       const id = newRun({ story: this.root, name: "", draft: false, startPoint: null, character: null, device: "", now: now.toISOString() }).id;
       const store = this.store;
       const old: Run = { ...kept, id, draft: false, name: T().runName(stamp(now)), rev: 0, baseRev: 0 };
