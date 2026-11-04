@@ -177,3 +177,66 @@ export function migrateSave(save: OldSave, story: string, device: string): Run {
   }
   return { ...run, legacy: { from: "save", state: save.state, log: save.log } };
 }
+
+
+const isString = (v: unknown): v is string => typeof v === "string";
+const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const orNull = (v: unknown, is: (v: unknown) => boolean) => v === null || is(v);
+
+/** A payload as a file may hold it: a card (`item`), cards (`items`) or text, for a named variable. */
+function isPayload(v: unknown): boolean {
+  if (!isObject(v) || !isString(v.var)) return false;
+  return isString(v.item) || isString(v.text) || (Array.isArray(v.items) && v.items.every(isString));
+}
+
+/** An action as a file may hold it; kinds this version cannot replay pass with their seq (the replay stops there). */
+function isAction(v: unknown): v is Action {
+  if (!isObject(v) || !isString(v.kind) || !isNumber(v.seq) || !orNull(v.lang ?? null, isString)) return false;
+  if (v.kind !== "choose") return true;
+  return isNumber(v.index) && orNull(v.text, isString)
+    && (v.payload === undefined || isPayload(v.payload))
+    && (v.fp === undefined || isString(v.fp))
+    && (v.offered === undefined || (Array.isArray(v.offered) && v.offered.every(isString)));
+}
+
+/**
+ * A run read from a file another device wrote, or one the player imports: not trusted. Null unless it has
+ * the shape a replay needs (schema 1, seeds, well-formed actions); the bookkeeping a hand-made or older file
+ * may lack (revisions, seqNext, dates, device) is filled in.
+ */
+export function parseRun(text: string): Run | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isObject(v) || v.schema !== 1 || !isString(v.id) || !isString(v.story) || !Array.isArray(v.actions)) return null;
+  const seeds = v.seeds;
+  if (!isObject(seeds) || !isNumber(seeds.story) || !isNumber(seeds.dice) || !isNumber(seeds.oracle)) return null;
+  if (!orNull(v.startPoint ?? null, isString) || !orNull(v.character ?? null, isString)) return null;
+  if (!v.actions.every(isAction)) return null;
+  const legacy = v.legacy;
+  if (legacy !== undefined) {
+    if (!isObject(legacy) || !isString(legacy.state)) return null;
+    if (legacy.from === "save" ? !Array.isArray(legacy.log) : legacy.from !== "start") return null;
+  }
+  const actions = v.actions;
+  const createdAt = isString(v.createdAt) ? v.createdAt : new Date(0).toISOString();
+  const run = {
+    ...v,
+    name: isString(v.name) ? v.name : "",
+    draft: v.draft === true,
+    createdAt,
+    updatedAt: isString(v.updatedAt) ? v.updatedAt : createdAt,
+    device: isString(v.device) ? v.device : "",
+    rev: isNumber(v.rev) ? v.rev : 0,
+    baseRev: isNumber(v.baseRev) ? v.baseRev : 0,
+    startPoint: (v.startPoint ?? null) as string | null,
+    character: (v.character ?? null) as string | null,
+    seqNext: isNumber(v.seqNext) ? v.seqNext : actions.reduce((n, a) => Math.max(n, a.seq + 1), 0),
+  };
+  return run as unknown as Run;
+}
+

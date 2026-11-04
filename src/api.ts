@@ -158,7 +158,7 @@ Visible play panel (the user sees what you do):
                        (saved in the vault: <save folder>/<story>/<run id>/<device>.json; resumed by replaying actions, see docs/solo-prd.md)
   runs()               every run of the current main story, draft included -> [{ id, name, draft, updatedAt, actions, conflictOf? }]
   panel() also has replay ({done,total} while a saved run is being picked up) and stopped (why it stopped short).
-  exportRun()          write the panel's run to <save folder>/导出/<story> <time>.json -> { path }
+  exportRun()          write the panel's run to <save folder>/_exports/<story> <time>.json -> { path }
   importRun(path)      import an exported run file as a save of the current story -> { id, name } | null
 
 Export:

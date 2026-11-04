@@ -1,4 +1,4 @@
-import { hash, mergeRuns, storyFolder, type Run } from "./run";
+import { hash, mergeRuns, parseRun, storyFolder, type Run } from "./run";
 
 /** The part of Obsidian's DataAdapter the store uses (paths relative to the vault). */
 export interface Files {
@@ -96,12 +96,9 @@ export class RunStore {
     const copies: { path: string; run: Run }[] = [];
     for (const path of (await this.files.list(dir)).files) {
       if (!path.endsWith(".json")) continue;
-      try {
-        const run = JSON.parse(await this.files.read(path)) as Run;
-        if (run && run.schema === 1 && Array.isArray(run.actions)) copies.push({ path, run: { ...run, story } });
-      } catch {
-        // A copy still being synced, or broken: the others are enough.
-      }
+      // A copy still being synced, or broken (or from a newer version in a shape this one cannot read): the others are enough.
+      const run = parseRun(await this.files.read(path).catch(() => ""));
+      if (run) copies.push({ path, run: { ...run, story } });
     }
     if (copies.length === 0) return null;
     const merged = mergeRuns(copies.map((c) => c.run));

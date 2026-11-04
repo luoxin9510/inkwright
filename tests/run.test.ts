@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { mergeRuns, migrateSave, newRun, replayActions, storyFolder, withTaken, type Run } from "../src/play/run";
+import { mergeRuns, migrateSave, newRun, parseRun, replayActions, storyFolder, withTaken, type Run } from "../src/play/run";
 import type { Taken } from "../src/play/session";
 
 const NOW = "2026-11-04T10:00:00.000Z";
@@ -82,5 +82,44 @@ describe("old saves", () => {
   test("a save without replay data keeps its state and text, with no actions", () => {
     const r = migrateSave({ id: "s2", name: "老档", savedAt: NOW, state: "{state}", log: [{ text: "x", tags: [] }], startPoint: null }, "a.ink", "A");
     expect(r).toMatchObject({ id: "legacy-s2", legacy: { from: "save", state: "{state}", log: [{ text: "x", tags: [] }] }, actions: [] });
+  });
+});
+
+describe("reading a run from a file (another device, an import: not trusted)", () => {
+  const good = () => withTaken(base(), taken(2), 2, NOW);
+
+  test("a well-formed run reads back as it was", () => {
+    expect(parseRun(JSON.stringify(good()))).toEqual(good());
+  });
+
+  test("not JSON, not schema 1, or the wrong shape: null", () => {
+    expect(parseRun("{ not json")).toBeNull();
+    expect(parseRun("[]")).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), schema: 2 }))).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), actions: "x" }))).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), seeds: { story: 1 } }))).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), seeds: null }))).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), id: 5 }))).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), startPoint: 3 }))).toBeNull();
+    expect(parseRun(JSON.stringify({ ...good(), legacy: { from: "start" } }))).toBeNull();
+  });
+
+  test("an action that is not a well-formed choice: null", () => {
+    const withAction = (a: unknown) => JSON.stringify({ ...good(), actions: [a] });
+    expect(parseRun(withAction(null))).toBeNull();
+    expect(parseRun(withAction("choose"))).toBeNull();
+    expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: "0", text: "a", fp: "" }))).toBeNull();
+    expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: 3, fp: "" }))).toBeNull();
+    expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "a", fp: "", payload: { var: 1 } }))).toBeNull();
+    expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "a", fp: "", offered: [1] }))).toBeNull();
+    // Kinds this version cannot replay are kept: the replay stops there (replayActions).
+    expect(parseRun(withAction({ kind: "oracle", seq: 0, lang: null, odds: "even", result: {} }))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ seq: 0, lang: null }))).toBeNull();
+  });
+
+  test("missing bookkeeping is filled in: revisions, seqNext, dates, device", () => {
+    const { rev: _r, baseRev: _b, seqNext: _s, device: _d, updatedAt: _u, ...bare } = good();
+    const r = parseRun(JSON.stringify(bare))!;
+    expect(r).toMatchObject({ rev: 0, baseRev: 0, seqNext: 2, device: "", updatedAt: NOW });
   });
 });

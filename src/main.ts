@@ -6,7 +6,7 @@ import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphV
 import type { Diagnostic } from "./compile/diagnostics";
 import { inputOf, inputPayload } from "./play/input";
 import { PlaySession, findLanguageVar, type Chosen, type Payload, type ReplayAction, type SaveData, type Step } from "./play/session";
-import { hash, migrateSave, newRun, replayActions, withTaken, type Run } from "./play/run";
+import { hash, migrateSave, newRun, parseRun, replayActions, withTaken, type Run } from "./play/run";
 import { RunStore, type Files, type SyncMode } from "./play/store";
 import { Story } from "inkjs/full";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
@@ -494,7 +494,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.pushState();
   }
 
-  /** Writes the run so far as a file (a backup, or to move it elsewhere): <save folder>/导出/<story> <time>.json. */
+  /** Writes the run so far as a file (a backup, or to move it elsewhere): <save folder>/_exports/<story> <time>.json. */
   async exportRun(): Promise<{ path: string | null }> {
     const session = this.session, run = this.run, root = this.root;
     if (!session || !run || root === null) {
@@ -503,7 +503,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     const now = new Date();
     const { pending: _pending, ...whole } = withTaken(run, session.taken, session.seqNext, now.toISOString());
-    const folder = normalizePath(`${this.config.saveFolder ?? "Inkwright"}/${getLanguage() === "en" ? "Exported" : "导出"}`);
+    // One fixed name whatever the UI language, so exports do not end up in two folders.
+    const folder = normalizePath(`${this.config.saveFolder ?? "Inkwright"}/_exports`);
     // Named like the story's save folder: its file name, or its folder's for a main.ink.
     const parts = root.replace(/\.ink$/, "").split("/");
     const name = (parts.at(-1) === "main" && parts.length > 1 ? parts[parts.length - 2] : parts.at(-1) ?? "story").replace(/[\\/:*?"<>|]/g, "-");
@@ -524,14 +525,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const store = this.store, root = this.root;
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!store || root === null || !(file instanceof TFile)) return null;
-    let run: Run;
-    try {
-      run = JSON.parse(await this.app.vault.read(file)) as Run;
-    } catch {
-      new Notice(T().notARun(path));
-      return null;
-    }
-    if (!run || run.schema !== 1 || !Array.isArray(run.actions) || !run.seeds) {
+    // The file may come from anywhere: only a run a replay can take is imported.
+    const run = parseRun(await this.app.vault.read(file));
+    if (!run) {
       new Notice(T().notARun(path));
       return null;
     }
@@ -1109,6 +1105,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.stopped = null;
     this.note = null;
     this.backedUp = false;
+    // Whether this play picks the run up from the folder: taken now, so no later replay shows a stale recap.
+    const resuming = this.resuming;
+    this.resuming = false;
+    this.recap = null;
     const game = this.game;
     let problem: Stopped | null = null;
     if (run.startPoint !== null && !this.flows.some((f) => f.path === run.startPoint)) {
@@ -1145,11 +1145,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       : legacy?.from === "start" ? session.startFrom(legacy.state) : session.startAt(run.startPoint);
     this.apply(step);
     const actions = replayActions(run);
-    if (actions.length > 0) void this.replayRun(session, run, actions);
+    if (actions.length > 0) void this.replayRun(session, run, actions, resuming);
   }
 
   /** Replays a run's actions on the session, drawing progress; stops short (and says so) when the story no longer fits. */
-  private async replayRun(session: PlaySession, run: Run, actions: ReplayAction[]): Promise<void> {
+  private async replayRun(session: PlaySession, run: Run, actions: ReplayAction[], resuming: boolean): Promise<void> {
     const abort = new AbortController();
     this.replayAbort = abort;
     this.replaying = { done: 0, total: actions.length };
@@ -1181,8 +1181,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     if (result.guesses.length > 0 || result.drift !== null) this.note = { guesses: result.guesses.length, drift: result.drift === null ? null : result.drift + 1 };
     // Picked up after more than an hour: a line where the player left off.
-    if (this.resuming && Date.now() - Date.parse(run.updatedAt) > 60 * 60 * 1000) this.recap = { at: session.log.length, when: stamp(new Date(run.updatedAt)) };
-    this.resuming = false;
+    if (resuming && Date.now() - Date.parse(run.updatedAt) > 60 * 60 * 1000) this.recap = { at: session.log.length, when: stamp(new Date(run.updatedAt)) };
     this.apply(result.step);
   }
 
