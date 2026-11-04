@@ -131,6 +131,7 @@
 .inkwright-chip { border-radius: 999px; padding: 0 0.6em; }
 .inkwright-chip-fail { border-color: var(--color-red); color: var(--color-red); }
 .inkwright-chip-success { border-color: var(--color-cyan); color: var(--color-cyan); }
+.inkwright-die-dropped { opacity: 0.4; text-decoration: line-through; }
 .inkwright-rolling .inkwright-die { animation: inkwright-tumble 0.14s linear infinite alternate; }
 .inkwright-rolling .inkwright-roll-band { visibility: hidden; }
 @keyframes inkwright-tumble { from { transform: rotate(-8deg) scale(1.05); } to { transform: rotate(8deg) scale(0.95); } }

@@ -203,6 +203,7 @@ nav button:disabled { opacity: 0.4; cursor: default; }
   border-radius: 5px; text-align: center; color: var(--fg); font-variant-numeric: tabular-nums; }
 #story .roll .band { font-weight: 600; color: var(--band, var(--fg)); }
 #story .roll .die.token { border-radius: 999px; padding: 0 0.6em; }
+#story .roll .die.dropped { opacity: 0.4; text-decoration: line-through; }
 #story .roll .die.fail { border-color: #c33; color: #c33; }
 #story .roll .die.success { border-color: #2a9; color: #2a9; }
 #story .roll.rolling .die { animation: tumble 0.14s linear infinite alternate; }
@@ -655,11 +656,12 @@ const PLAYER = `(function () {
     shown = log.length;
   }
 
-  function faces(rolls) {
+  // Faces that do not count (not kept, or missed in a pool) are faded.
+  function faces(rolls, dropped) {
     var dice = document.createElement("span");
-    rolls.forEach(function (face) {
+    rolls.forEach(function (face, i) {
       var die = document.createElement("span");
-      die.className = "die";
+      die.className = "die" + (dropped && dropped.indexOf(i) >= 0 ? " dropped" : "");
       die.textContent = face;
       dice.appendChild(die);
     });
@@ -675,7 +677,7 @@ const PLAYER = `(function () {
       card.className = "roll free";
       skill.textContent = r.deck ? r.deck.name : r.table ? r.table.name + " " + r.formula : r.formula;
       card.appendChild(skill);
-      card.appendChild(faces(r.rolls));
+      card.appendChild(faces(r.rolls, r.dropped));
       var total = document.createElement("span");
       total.textContent = r.unknown ? "?" : "= " + r.total;
       card.appendChild(total);

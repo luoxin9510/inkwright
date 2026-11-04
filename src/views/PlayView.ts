@@ -334,7 +334,9 @@ export class PlayView extends ItemView {
       const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free" });
       card.createSpan({ cls: "inkwright-roll-skill", text: r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
       const dice = card.createSpan({ cls: "inkwright-roll-dice" });
-      for (const face of r.rolls) dice.createSpan({ cls: "inkwright-die", text: String(face) });
+      // Faces that do not count (not kept, or missed in a pool) are faded.
+      const out = new Set(r.dropped ?? []);
+      r.rolls.forEach((face, i) => dice.createSpan({ cls: `inkwright-die${out.has(i) ? " inkwright-die-dropped" : ""}`, text: String(face) }));
       card.createSpan({ cls: "inkwright-roll-sum", text: r.unknown ? T().badFormula : `= ${r.total}` });
       const result = r.deck ? r.deck.card : r.table?.text;
       if (result !== undefined) card.createSpan({ cls: "inkwright-roll-band", text: result, ...(r.deck?.desc ? { title: r.deck.desc } : {}) });

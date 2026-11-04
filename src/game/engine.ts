@@ -34,6 +34,8 @@ export interface DiceRecord {
   formula: string;
   rolls: number[];
   total: number;
+  /** Indices of faces that do not count: not kept (`4d6kh3`) or missed (`5d6>=5`); absent when every face counts. */
+  dropped?: number[];
   /** Position in the run's roll counter, shared with the checks. */
   index: number;
   turn: number;
@@ -374,8 +376,8 @@ export class GameEngine {
       return 0;
     }
     const rng = this.rng ?? (run ? seededDice(seed, index) : Math.random);
-    const { rolls, total } = rollFormula(formula, rng);
-    const record: DiceRecord = { kind: "dice", formula: formatFormula(formula), rolls, total, index, turn };
+    const { rolls, total, dropped } = rollFormula(formula, rng);
+    const record: DiceRecord = { kind: "dice", formula: formatFormula(formula), rolls, total, index, turn, ...(dropped && dropped.length > 0 ? { dropped } : {}) };
     if (table) {
       const hit = rowAt(table, total);
       record.table = {
