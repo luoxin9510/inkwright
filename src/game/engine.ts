@@ -40,7 +40,7 @@ export interface DiceRecord {
   /** Set when the formula could not be read: nothing rolled, total 0. */
   unknown?: true;
   /** For a table roll: the table and the row the total landed on (text in the engine's language). */
-  table?: { id: string; name: string; text: string; rowId?: string };
+  table?: { id: string; name: string; text: string; rowId?: string; row?: number };
   /** For a draw: the deck and the card that came out (named in the engine's language). */
   deck?: { id: string; name: string; card: string; cardId: string; desc?: string };
 }
@@ -381,6 +381,7 @@ export class GameEngine {
       record.table = {
         id: table.id, name: localize(table.name, this.language, table.id), text: hit ? localize(hit.row.text, this.language, "") : "",
         ...(hit?.row.id !== undefined ? { rowId: hit.row.id } : {}),
+        ...(hit ? { row: hit.index } : {}),
       };
     }
     if (deck) {

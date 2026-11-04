@@ -117,9 +117,12 @@ Headless (does not touch the visible panel):
      failed checks after which no variable and no choice changed, and resources that left their min..max;
      character picks the PC (default: the first)
   simulate(path, { runs?, seed?, maxSteps?, language?, character? })
-                       -> { ok, diagnostics, runs, endings[{lastText, count, steps}], truncated, stuck, errors[{message,count,choices[]}], steps{min,mean,max}, resources?[{resource, end{min,mean,max}, outOfRange}] }
+                       -> { ok, diagnostics, runs, endings[{lastText, count, steps}], truncated, stuck, errors[{message,count,choices[]}], steps{min,mean,max}, resources?[{resource, end{min,mean,max}, percentiles{p10,p50,p90}, atMin, atMax, outOfRange}],
+                          tables?[{table, name, rolls, perRun, rows[{range, id?, text, count}], none}], decks?[{deck, name, draws, perRun, cards[{id, name, count}]}],
+                          checks?[{skill, difficulty, count, success}] }
      plays the story runs times (default 100) choosing at random, with real dice in game mode (the same seed
-     repeats the runs): the odds of each ending and where the resources end up, for balancing.
+     repeats the runs): the odds of each ending and where the resources end up, for balancing; in game mode also how often
+     each table row and each card came up (0 = never) and each check's success rate.
 
 Visible play panel (the user sees what you do):
   open(path?)          open a file (optional) and the play panel, recompile, return the panel

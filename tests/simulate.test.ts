@@ -64,3 +64,70 @@ test("a run that meets a spot where every choice is locked is counted as stuck",
   expect(r.stuck).toBe(2);
   expect(r.endings).toEqual([]);
 });
+
+test("game mode counts each table's rows, each deck's cards and each check, and gives the spread of the resources", async () => {
+  const config = {
+    ...CONFIG,
+    tables: [{
+      id: "encounter", name: { zh: "遭遇", en: "Encounter" }, dice: "1d6",
+      rows: [
+        { range: "1-3", text: { zh: "狼", en: "Wolf" }, id: "wolf" },
+        { range: "4-6", text: { zh: "熊", en: "Bear" } },
+        { range: "7+", text: { zh: "龙", en: "Dragon" } },
+      ],
+    }],
+    decks: [{ id: "线索", name: { zh: "线索", en: "Clues" }, cards: [{ id: "血手印", name: { zh: "血手印", en: "Bloody handprint" } }, { id: "半张票", name: { zh: "半张票", en: "Half a ticket" } }, { id: "钥匙扣", name: { zh: "钥匙扣", en: "Key ring" } }] }],
+  };
+  const s = await story([
+    "-> main",
+    generateInk(config),
+    "=== main ===",
+    "~ temp e = 查表(\"encounter\")",
+    "~ temp c = 抽牌(\"线索\")",
+    "遇到{e}。",
+    "* [撬 #check:力量:10]",
+    '    { 检定("力量", 10) >= 3:',
+    "        开了。",
+    "    - else:",
+    "        ~ 恐惧 += 100",
+    "        断了。",
+    "    }",
+    "    -> END",
+  ].join("\n"));
+  const r = simulateStory(s, { game: config, character: "昕", runs: 200, seed: 4 });
+  expect(r).toEqual(simulateStory(s, { game: config, character: "昕", runs: 200, seed: 4 }));
+  expect(r.errors).toEqual([]);
+
+  const [table] = r.tables ?? [];
+  expect(table).toMatchObject({ table: "encounter", name: "遭遇", rolls: 200, perRun: 1, none: 0 });
+  expect(table.rows.map((x) => [x.range, x.id, x.text])).toEqual([["1-3", "wolf", "狼"], ["4-6", undefined, "熊"], ["7+", undefined, "龙"]]);
+  expect(table.rows.reduce((n, x) => n + x.count, 0)).toBe(200);
+  expect(table.rows[0].count).toBeGreaterThan(60);
+  expect(table.rows[1].count).toBeGreaterThan(60);
+  expect(table.rows[2].count).toBe(0); // a d6 never reaches 7: the row is never read
+
+  const [deck] = r.decks ?? [];
+  expect(deck).toMatchObject({ deck: "线索", name: "线索", draws: 200, perRun: 1 });
+  expect(deck.cards.map((c) => c.id)).toEqual(["血手印", "半张票", "钥匙扣"]);
+  expect(deck.cards.reduce((n, c) => n + c.count, 0)).toBe(200);
+  for (const c of deck.cards) expect(c.count).toBeGreaterThan(30);
+
+  const [check] = r.checks ?? [];
+  expect(check).toMatchObject({ skill: "力量", difficulty: 10, count: 200 });
+  expect(check.success).toBeGreaterThan(0);
+  expect(check.success).toBeLessThan(1);
+
+  const fear = r.resources?.find((x) => x.resource === "恐惧");
+  const failed = Math.round(200 * (1 - check.success));
+  expect(fear).toMatchObject({ atMin: 200 - failed, atMax: failed });
+  expect(fear?.percentiles).toEqual({ p10: 0, p50: failed > 100 ? 100 : 0, p90: 100 });
+});
+
+test("in English, names in the counts follow the story's language; drawing from an empty pile rolls nothing", async () => {
+  const config = { ...CONFIG, decks: [{ id: "线索", name: { zh: "线索", en: "Clues" }, cards: [{ id: "血手印", name: { zh: "血手印", en: "Bloody handprint" } }] }] };
+  const s = await story(["-> main", generateInk(config), "=== main ===", "~ temp a = 抽牌(\"线索\")", "~ temp b = 抽牌(\"线索\")", "完。", "-> END"].join("\n"));
+  const r = simulateStory(s, { game: config, runs: 5, language: "en" });
+  // The generated draw returns an empty list without rolling once the pile is empty: one draw per run.
+  expect(r.decks).toEqual([{ deck: "线索", name: "Clues", draws: 5, perRun: 1, cards: [{ id: "血手印", name: "Bloody handprint", count: 5 }] }]);
+  expect(r.tables).toEqual([]);
+});
