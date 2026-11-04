@@ -112,6 +112,8 @@ INCLUDE _engine.ink
     }
 ```
 
+With `languages: [zh, en]` the generated ink declares the language variable and its own `t(zh, en)` helper, so a game does not write a text function of its own.
+
 The player picks a character, sees the odds of each check on the choice, and each roll shows up as a card in the text and in the dice log. The generated ink falls back to plain rules, so the story still runs in Inky.
 
 What a game note can declare:
