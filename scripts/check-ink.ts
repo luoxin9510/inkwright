@@ -7,7 +7,8 @@
 // when something about it is new at its spot (long games stay finite without losing the counting paths);
 // --novelty 2 also plays on from a pair of values first seen together there (slower, finds branches
 // that need two things to agree); --random N also plays N runs at random with real dice and reports
-// the odds of each ending.
+// the odds of each ending and, in game mode, the spread of each resource at the end, how often each
+// table row and each card came up (and which never did) and the success rate of each check.
 // Usage: npm run check-ink -- <folder> [--quiet] [--all] [--novelty [N]] [--random N] [--seed S] [--lang zh|en] [--max-steps N] [--states-per-spot N]
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -139,9 +140,25 @@ for (const file of files) {
       const extra = [x.truncated > 0 ? `${x.truncated} ran out of steps` : "", x.stuck > 0 ? `${x.stuck} got stuck` : ""].filter(Boolean);
       notes.push(`${tag}${x.runs} random runs (seed ${seed}): ${range(x.steps)} choices each${extra.length ? "; " + extra.join("; ") : ""}`);
       for (const e of x.endings) notes.push(`${tag}  ${Math.round((100 * e.count) / x.runs)}% (${e.count}) ${e.lastText}  after ~${Math.round(e.steps)} choices`);
+      const pct = (n: number, of: number) => `${of > 0 ? Math.round((100 * n) / of) : 0}%`;
+      const per = (n: number) => `${Math.round(n * 10) / 10} per run`;
       for (const res of x.resources ?? []) {
-        notes.push(`${tag}  ${res.resource} at the end: ${range(res.end)}${res.outOfRange > 0 ? `; pushed out of range in ${res.outOfRange} run(s)` : ""}`);
+        const p = res.percentiles;
+        const bounds = [res.atMin > 0 ? `${res.atMin} run(s) end at the lowest` : "", res.atMax > 0 ? `${res.atMax} at the highest` : ""].filter(Boolean);
+        notes.push(`${tag}  ${res.resource} at the end: ${range(res.end)}${res.end.min === res.end.max ? "" : `; p10 ${p.p10}, median ${p.p50}, p90 ${p.p90}`}${bounds.length ? `; ${bounds.join(", ")}` : ""}${res.outOfRange > 0 ? `; pushed out of range in ${res.outOfRange} run(s)` : ""}`);
       }
+      for (const t of x.tables ?? []) {
+        // A row is named by its id, else by the start of its text.
+        const short = (s: string) => ([...s].length > 10 ? `${[...s].slice(0, 10).join("")}…` : s);
+        const rows = t.rows.map((r) => `${r.range} ${r.id ?? short(r.text)} ${r.count > 0 ? pct(r.count, t.rolls) : "never"}`.replace(/\s+/g, " "));
+        notes.push(`${tag}  table ${t.table}${t.name !== t.table ? ` (${t.name})` : ""}: ${t.rolls} roll(s), ${per(t.perRun)}${t.rolls > 0 ? ` — ${list(rows, 20)}` : ""}${t.none > 0 ? `; ${t.none} total(s) on no row` : ""}`);
+      }
+      for (const d of x.decks ?? []) {
+        const drawn = d.cards.filter((c) => c.count > 0).map((c) => `${c.name} ${pct(c.count, d.draws)}`);
+        const never = d.cards.filter((c) => c.count === 0).map((c) => c.name);
+        notes.push(`${tag}  deck ${d.deck}${d.name !== d.deck ? ` (${d.name})` : ""}: ${d.draws} draw(s), ${per(d.perRun)}${drawn.length ? ` — ${list(drawn, 20)}` : ""}${never.length && d.draws > 0 ? `; never drawn: ${list(never)}` : ""}`);
+      }
+      for (const c of x.checks ?? []) notes.push(`${tag}  check ${c.skill} ${c.difficulty}: ${c.count} roll(s), ${pct(c.success * c.count, c.count)} success`);
     }
   }
   const bad = problems.some((d) => d.severity === "error") || runtime.length > 0;
