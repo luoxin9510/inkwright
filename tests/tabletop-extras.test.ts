@@ -19,6 +19,7 @@ describe("rounds and phases", () => {
     expect(readConfig({ ...fm, turn: { round: "round" } }).problems).toEqual([{ code: "shape", args: ["turn"] }]);
     expect(validateConfig({ ...TURN, turn: { ...TURN.turn!, round: "力量" } })).toContainEqual({ code: "duplicate", args: ["力量"] });
     expect(validateConfig({ ...TURN, turn: { ...TURN.turn!, phases: [] } })).toContainEqual({ code: "list", args: ["turn.phases"] });
+    expect(validateConfig({ ...TURN, turn: { ...TURN.turn!, phases: [{ id: 'a"b' }] } })).toContainEqual({ code: "ident", args: ['a"b'] });
   });
 
   test("the generated ink declares them; the HUD reads the round and names the phase", () => {

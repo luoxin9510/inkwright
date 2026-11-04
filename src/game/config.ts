@@ -710,6 +710,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     if (config.turn.phases.length === 0) bad("list", "turn.phases");
     const phases = new Set<string>();
     for (const p of config.turn.phases) {
+      // Written into the generated ink as a string: an identifier, so nothing in it can break the file.
+      if (!IDENT.test(p.id)) bad("ident", p.id);
       if (phases.has(p.id)) bad("duplicate", p.id);
       phases.add(p.id);
     }
