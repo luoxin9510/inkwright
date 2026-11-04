@@ -377,7 +377,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.stopped = null;
   }
 
-  choose(index: number, value?: string): void {
+  choose(index: number, value?: string | string[]): void {
     if (!this.session || this.replaying) return;
     // A choice that needs an item not carried is shown locked; it cannot be taken.
     const choice = this.last?.choices.find((c) => c.index === index);
@@ -386,14 +386,17 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     let payload: Payload | undefined;
     const play = choice && this.game ? this.game.playOf(choice) : null;
     if (play && this.game) {
-      const p = value === undefined ? null : this.game.playPayload(play.hand, value);
+      // Several cards (#play:hand:1-3) come as a list; one card as its id (a list for a choice that takes several).
+      const p = value === undefined ? null
+        : Array.isArray(value) ? this.game.playPayload(play.hand, value, play)
+        : play.max > 1 ? this.game.playPayload(play.hand, [value], play) : this.game.playPayload(play.hand, value);
       if (!p) return;
       payload = p;
     } else {
       // An #input choice is taken with the line typed: it is written into its VAR first.
       const variable = choice ? inputOf(choice) : null;
       if (variable !== null) {
-        const p = inputPayload(variable, value ?? "");
+        const p = inputPayload(variable, typeof value === "string" ? value : "");
         if (!p) return;
         payload = p;
       }
@@ -405,7 +408,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   /** A choice made, its text carrying the name of the card it was played with or the line typed. */
   private withCard(c: Chosen): { text: string; at: number } {
     const p = c.payload;
-    const extra = !p ? null : "item" in p ? (this.game ? this.game.cardName(p.item) : null) : p.text;
+    const extra = !p ? null : "item" in p ? (this.game ? this.game.cardName(p.item) : null)
+      : "items" in p ? p.items.map((i) => this.game?.cardName(i) ?? i).join(" + ") : p.text;
     return { text: extra ? `${c.text} · ${extra}` : c.text, at: c.at };
   }
 
@@ -690,7 +694,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         taken: session.taken.map((t, i) => ({ seq: t.seq, text: t.text, at: session.choicesMade[i]?.at ?? session.log.length, payload: t.payload, write: t.write === true })),
         asides: session.asides, writtenSeq: run.journal?.writtenSeq ?? -1, writtenTop: run.journal?.writtenTop ?? -1,
       } as const;
-      const blocks = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })) });
+      const blocks = liveBlocks(input);
       try {
         let path = run.journal?.path;
         let file = path ? this.app.vault.getAbstractFileByPath(path) : null;
@@ -706,7 +710,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
             this.journalRefused = root;
             return;
           }
-          const fresh = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })), writtenSeq: -1, writtenTop: -1 });
+          const fresh = liveBlocks({ ...input, writtenSeq: -1, writtenTop: -1 });
           file = await this.app.vault.create(path, liveHeader({ title: story, date: new Date(), language, character }, input) + fresh.text);
           this.run = this.run ? { ...this.run, journal: { path, writtenSeq: fresh.writtenSeq, writtenTop: fresh.writtenTop } } : this.run;
           // The run must know the note and how far it was written before anything else happens: write it again.

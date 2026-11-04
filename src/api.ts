@@ -22,7 +22,7 @@ export interface ApiHost {
   refresh(): Promise<void>;
   openPlay(): Promise<void>;
   /** Takes a choice; `value` is the card id for a `#play` choice or the text typed for an `#input` one. */
-  choose(index: number, value?: string): void;
+  choose(index: number, value?: string | string[]): void;
   restart(): void;
   startAt(path: string | null): void;
   back(): void;
@@ -143,7 +143,8 @@ Visible play panel (the user sees what you do):
                          needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice],
                          plays[per choice: the hand a #play choice takes a card from, { hand, name, cards[{ id, name, desc, deck }], known }],
                          hud (resources, companions, items carried, decks, hands, party: members with title, stats, gear, down), map (places with here/revealed/counter/go, tokens), dungeon (the growing dungeon: rooms with squares, doors and marks, walls, free doors left), rolls }
-  choose(indexOrText, value?)  make a choice in the panel; a #play choice needs the id of a card in its hand,
+  choose(indexOrText, value?)  make a choice in the panel; a #play choice needs the id of a card in its hand
+                       (a list of ids for #play:hand:1-3), a #use choice the id of an item carried,
                        an #input choice the text to type
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
@@ -278,7 +279,7 @@ export class InkwrightApi {
     };
   }
 
-  choose(choice: number | string, value?: string): PanelReport {
+  choose(choice: number | string, value?: string | string[]): PanelReport {
     const target = pick(this.host.snapshot().choices, choice);
     if (!target) {
       const report = this.panel();
@@ -286,7 +287,7 @@ export class InkwrightApi {
     }
     // An #input choice cannot be taken without a line typed, as in the panel.
     const variable = inputOf(target);
-    if (variable !== null && (value ?? "").trim() === "") {
+    if (variable !== null && (typeof value === "string" ? value : "").trim() === "") {
       const report = this.panel();
       return { ...report, errors: [...report.errors, T().inputNeeded(target.text)] };
     }

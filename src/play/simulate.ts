@@ -1,6 +1,6 @@
 import { Story } from "inkjs/full";
 import { localize, type GameConfig } from "../game/config";
-import { GameEngine, type RollRecord } from "../game/engine";
+import { GameEngine, type CardView, type RollRecord } from "../game/engine";
 import { inputOf, inputPlaceholder } from "./input";
 import { PlaySession } from "./session";
 
@@ -145,12 +145,22 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
       const pick = open[Math.floor(random() * open.length)];
       // A choice that plays from a hand is taken with a random card in it.
       const play = engine?.playOf(pick);
-      const card = play && play.cards.length > 0 ? play.cards[Math.floor(random() * play.cards.length)] : null;
-      const cardPayload = engine && play && card ? engine.playPayload(play.hand, card.id) ?? undefined : undefined;
+      // A random number of cards the choice takes (one, for most), picked at random from the hand.
+      const picks: CardView[] = [];
+      if (play && play.cards.length >= play.min) {
+        const top = Math.min(play.max, play.cards.length);
+        const k = play.min + Math.floor(random() * (top - play.min + 1));
+        const pool = [...play.cards];
+        for (let i = 0; i < k; i++) picks.push(...pool.splice(Math.floor(random() * pool.length), 1));
+      }
+      const card = picks.length === 1 ? picks[0] : null;
+      const cardPayload = engine && play && picks.length > 0
+        ? (play.max === 1 && card ? engine.playPayload(play.hand, card.id) : engine.playPayload(play.hand, picks.map((c) => c.id), play)) ?? undefined
+        : undefined;
       // A choice that asks for a line of text gets the placeholder.
       const variable = play ? null : inputOf(pick);
       const payload = cardPayload ?? (variable === null ? undefined : { var: variable, text: inputPlaceholder(variable) });
-      path.push(card ? `${pick.text} ▸ ${card.name}` : variable !== null ? `${pick.text} ▸ ${inputPlaceholder(variable)}` : pick.text);
+      path.push(picks.length > 0 ? `${pick.text} ▸ ${picks.map((c) => c.name).join(" + ")}` : variable !== null ? `${pick.text} ▸ ${inputPlaceholder(variable)}` : pick.text);
       step = session.choose(pick.index, payload);
       steps++;
     }

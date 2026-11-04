@@ -580,3 +580,24 @@ test("a game page offers what is carried for a #use choice, and shows the round 
   (document.querySelector("#choices button") as HTMLElement).click();
   expect(texts("#story p").at(-1)).toBe("撬开了。");
 });
+
+test("a game page lets several cards be picked for a #play:hand:1-2 choice and plays them together", () => {
+  setLanguage("zh");
+  const config = {
+    ...CONFIG,
+    decks: [{ id: "线索", name: { zh: "线索", en: "Clues" }, cards: [{ id: "甲", name: { zh: "甲", en: "A" } }, { id: "乙", name: { zh: "乙", en: "B" } }, { id: "丙", name: { zh: "丙", en: "C" } }] }],
+    hands: [{ id: "手牌", name: { zh: "手牌", en: "Hand" } }],
+  };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n~ 手牌 += 抽牌("线索")\n~ 手牌 += 抽牌("线索")\n~ 手牌 += 抽牌("线索")\n桌上。\n+ [投入 #play:手牌:1-2]\n    投入了 {LIST_COUNT(出牌)} 张。\n    -> END\n`;
+  mount(buildWebPage({ title: "M", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "m", languageVar: "语言", game: config, engine: GAME_ENGINE }));
+  const cards = () => Array.from(document.querySelectorAll<HTMLButtonElement>("#hands .card"));
+  const play = () => document.querySelector<HTMLButtonElement>("#choices button")!;
+  expect(play().querySelector(".need")?.textContent).toBe("选 1–2 张牌");
+  cards()[0].click();
+  cards()[1].click();
+  cards()[2].click(); // full: the oldest goes
+  expect(cards().map((c) => c.className.includes("on"))).toEqual([false, true, true]);
+  expect(play().disabled).toBe(false);
+  play().click();
+  expect(texts("#story p").slice(-2)).toEqual(["投入 · 乙 + 丙", "投入了 2 张。"]);
+});

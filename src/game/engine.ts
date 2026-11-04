@@ -114,6 +114,9 @@ export interface ChoicePlay {
   known: boolean;
   /** `#use`: the "hand" is what is carried, the cards are items. */
   use?: boolean;
+  /** How many cards go with the choice (`#play:hand:1-3`); one when not said. */
+  min: number;
+  max: number;
 }
 
 /** A place as the map draws it: position in map units, whether it is revealed, whether the player is there, and which choice goes there. */
@@ -536,21 +539,27 @@ export class GameEngine {
     // #use: the inventory is the hand, the items carried its cards.
     if (choice.tags.some(parseUseTag)) {
       const inv = inkNames(this.config).inventory;
-      return { hand: inv, name: "", cards: this.cardsIn(inv), known: (this.config.items?.length ?? 0) > 0, use: true };
+      return { hand: inv, name: "", cards: this.cardsIn(inv), known: (this.config.items?.length ?? 0) > 0, use: true, min: 1, max: 1 };
     }
     for (const tag of choice.tags) {
-      const id = parsePlayTag(tag);
-      if (id === null) continue;
+      const tagged = parsePlayTag(tag);
+      if (tagged === null) continue;
+      const id = tagged.hand;
       const hand = this.config.hands?.find((h) => h.id === id);
-      return { hand: id, name: localize(hand?.name, this.language, id), cards: hand ? this.cardsIn(id) : [], known: hand !== undefined };
+      return { hand: id, name: localize(hand?.name, this.language, id), cards: hand ? this.cardsIn(id) : [], known: hand !== undefined, min: tagged.min, max: tagged.max };
     }
     return null;
   }
 
   /** What a `#play` choice is taken with: the card written into the played VAR. Null when the hand does not hold that card. */
-  playPayload(hand: string, card: string): Payload | null {
-    if (!this.cardsIn(hand).some((c) => c.id === card)) return null;
-    return { var: inkNames(this.config).played, item: card };
+  playPayload(hand: string, card: string | readonly string[], play?: { min: number; max: number }): Payload | null {
+    const cards = typeof card === "string" ? [card] : [...card];
+    const held = new Set(this.cardsIn(hand).map((c) => c.id));
+    // Each card in the hand, none twice, as many as the choice takes.
+    if (cards.length === 0 || new Set(cards).size !== cards.length || !cards.every((c) => held.has(c))) return null;
+    if (play && (cards.length < play.min || cards.length > play.max)) return null;
+    const played = inkNames(this.config).played;
+    return typeof card === "string" ? { var: played, item: card } : { var: played, items: cards };
   }
 
   /** The place a choice goes to (`#go:<place>`), or null. */
@@ -605,7 +614,7 @@ export class GameEngine {
   /** False when the choice needs an item that is not carried (or does not exist), or plays from a hand with no card in it. */
   canChoose(choice: { tags: string[] }): boolean {
     const play = this.playOf(choice);
-    return this.needsOf(choice).every((n) => n.has) && (play === null || (play.known && play.cards.length > 0));
+    return this.needsOf(choice).every((n) => n.has) && (play === null || (play.known && play.cards.length >= play.min));
   }
 
   /** A card as the panel shows it: localized name and description, art, and its numbers named. */

@@ -161,20 +161,22 @@ export function generateInk(config: GameConfig): string {
     lines.push(
       "", "// The k-th card of a list, lowest first.",
       `=== function ${n.nthCard}(${n.stackParam}, ${n.kParam}) ===`,
-      `~ temp c = LIST_MIN(${n.stackParam})`,
-      `{ ${n.kParam} <= 1 or LIST_COUNT(${n.stackParam}) <= 1:`, "    ~ return c", "}",
-      `~ return ${n.nthCard}(${n.stackParam} - c, ${n.kParam} - 1)`,
+      `~ temp ${n.tempCard} = LIST_MIN(${n.stackParam})`,
+      `{ ${n.kParam} <= 1 or LIST_COUNT(${n.stackParam}) <= 1:`, `    ~ return ${n.tempCard}`, "}",
+      `~ return ${n.nthCard}(${n.stackParam} - ${n.tempCard}, ${n.kParam} - 1)`,
       "", `=== function ${n.draw}(${n.deckParam}) ===`,
+      // One temp for every deck's branch (ink allows a temp to be declared once in a function): empty when nothing is drawn.
+      `~ temp ${n.tempCard} = ()`,
     );
     for (const d of decks) {
       const pile = `${d.id}${n.pileSuffix}`;
       lines.push(
         `{ ${n.deckParam} == "${d.id}" and LIST_COUNT(${pile}) > 0:`,
-        `    ~ temp c = ${n.nthCard}(${pile}, ${n.dice}(LIST_COUNT(${pile}), "${d.id}"))`,
-        `    ~ ${pile} -= c`, "    ~ return c", "}",
+        `    ~ ${n.tempCard} = ${n.nthCard}(${pile}, ${n.dice}(LIST_COUNT(${pile}), "${d.id}"))`,
+        `    ~ ${pile} -= ${n.tempCard}`, `    ~ return ${n.tempCard}`, "}",
       );
     }
-    lines.push("~ temp none = ()", "~ return none", "", `=== function ${n.shuffle}(${n.deckParam}) ===`);
+    lines.push(`~ return ${n.tempCard}`, "", `=== function ${n.shuffle}(${n.deckParam}) ===`);
     for (const d of decks) lines.push(`{ ${n.deckParam} == "${d.id}":`, `    ~ ${d.id}${n.pileSuffix} = LIST_ALL(${d.id})`, "}");
     lines.push("", `=== function ${n.deckLeft}(${n.deckParam}) ===`);
     for (const d of decks) lines.push(`{ ${n.deckParam} == "${d.id}":`, `    ~ return LIST_COUNT(${d.id}${n.pileSuffix})`, "}");
@@ -273,9 +275,9 @@ export function generateInk(config: GameConfig): string {
       `~ return ${n.dungeonRoom}`,
       "",
       `=== function ${n.addRoom}(${n.shapeParam}, ${n.roomParam}, ${n.doorParam}) ===`,
-      `~ temp before = ${n.dungeonRooms}(${n.dungeonVar})`,
+      `~ temp ${n.tempBefore} = ${n.dungeonRooms}(${n.dungeonVar})`,
       `~ ${n.dungeonVar} = ${n.dungeonAdd}(${n.dungeonVar}, ${n.shapeParam}, ${n.roomParam}, ${n.doorParam})`,
-      `{ ${n.dungeonRooms}(${n.dungeonVar}) > before:`, `    ~ return ${n.dungeonRooms}(${n.dungeonVar})`, "}",
+      `{ ${n.dungeonRooms}(${n.dungeonVar}) > ${n.tempBefore}:`, `    ~ return ${n.dungeonRooms}(${n.dungeonVar})`, "}",
       "~ return 0",
       "",
       `=== function ${n.markRoom}(${n.roomParam}, ${n.markParam}) ===`,
@@ -288,9 +290,9 @@ export function generateInk(config: GameConfig): string {
       `~ ${n.notesVar} = ${n.noteSet}(${n.notesVar}, ${n.roomParam}, ${n.fieldParam}, ${n.valueParam})`,
       "",
       `=== function ${n.secretRoom}(${n.shapeParam}, ${n.roomParam}) ===`,
-      `~ temp before = ${n.dungeonRooms}(${n.dungeonVar})`,
+      `~ temp ${n.tempBefore} = ${n.dungeonRooms}(${n.dungeonVar})`,
       `~ ${n.dungeonVar} = ${n.dungeonSecret}(${n.dungeonVar}, ${n.shapeParam}, ${n.roomParam})`,
-      `{ ${n.dungeonRooms}(${n.dungeonVar}) > before:`, `    ~ return ${n.dungeonRooms}(${n.dungeonVar})`, "}",
+      `{ ${n.dungeonRooms}(${n.dungeonVar}) > ${n.tempBefore}:`, `    ~ return ${n.dungeonRooms}(${n.dungeonVar})`, "}",
       "~ return 0",
     );
   }

@@ -393,6 +393,9 @@ export interface InkNames {
   entryParam: string;
   storeParam: string;
   recordNoParam: string;
+  /** Temps in the generated functions: named here, reserved, so no card, item or place id can clash with them. */
+  tempCard: string;
+  tempBefore: string;
   /** Room notes: the VAR holding them, the pure EXTERNALs on it, and the wrappers `room_note(room, field)` / `set_room_note(room, field, value)`. */
   notesVar: string;
   noteGet: string;
@@ -446,7 +449,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     partyTitle: "title", partyGear: "gear",
     recordAdd: "record_add", recordRemove: "record_remove", recordCount: "record_count", recordPick: "record_pick", recordList: "record_list",
     recordJoin: "record_join", recordDrop: "record_drop", recordSize: "record_size", recordAt: "record_at", recordText: "record_text",
-    countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no",
+    countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no", tempCard: "drawn_card", tempBefore: "rooms_before",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
     deckParam: "deck", stackParam: "stack", kParam: "k",
   },
@@ -465,7 +468,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     partyTitle: "称号", partyGear: "装备",
     recordAdd: "记录_加", recordRemove: "记录_删", recordCount: "记录_数", recordPick: "记录_抽", recordList: "记录_列",
     recordJoin: "记录_并", recordDrop: "记录_去", recordSize: "记录_长", recordAt: "记录_取", recordText: "记录_文",
-    countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条",
+    countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条", tempCard: "抽出的牌", tempBefore: "原房数",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
     deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
@@ -524,11 +527,18 @@ export function parseNeedsTag(tag: string): string | null {
   return parts[1];
 }
 
-/** `play:<hand>` on a choice → the hand id; the engine decides whether it exists and holds a card. */
-export function parsePlayTag(tag: string): string | null {
+/**
+ * `play:<hand>` on a choice → the hand id and how many cards go (one); `play:<hand>:2` exactly two,
+ * `play:<hand>:1-3` one to three. The engine decides whether the hand exists and holds enough.
+ */
+export function parsePlayTag(tag: string): { hand: string; min: number; max: number } | null {
   const parts = tag.trim().split(":").map((p) => p.trim());
-  if (parts[0] !== "play" || parts.length !== 2 || parts[1] === "") return null;
-  return parts[1];
+  if (parts[0] !== "play" || parts[1] === undefined || parts[1] === "" || parts.length > 3) return null;
+  if (parts.length === 2) return { hand: parts[1], min: 1, max: 1 };
+  const m = /^(\d+)(?:-(\d+))?$/.exec(parts[2]);
+  if (!m) return null;
+  const min = Number(m[1]), max = m[2] === undefined ? min : Number(m[2]);
+  return min >= 1 && max >= min ? { hand: parts[1], min, max } : null;
 }
 
 /** `use` on a choice: the player picks something carried (an item), written into the played VAR like a card. */
@@ -786,8 +796,10 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
   const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "dungeonVia", "notesVar", "noteGet", "noteSet", "roomNote", "setRoomNote", "notesParam", "fieldParam", "valueParam", "kParam2", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
+  // Temps of the deck and dungeon functions are reserved with those.
+  const tempNames = [...(config.decks?.length ? [] : ["tempCard"]), ...(config.dungeon ? [] : ["tempBefore"])];
   const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
-  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames)]);
+  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");

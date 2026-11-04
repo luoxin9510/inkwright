@@ -208,10 +208,20 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
         const text = inputPlaceholder(variable);
         return [{ ...base, payload: { var: variable, text }, label: `${choice.text} ▸ ${text}` }];
       }
-      return play.cards.flatMap((card) => {
-        const payload = engine.playPayload(play.hand, card.id);
-        return payload ? [{ ...base, payload, label: `${choice.text} ▸ ${card.name}` }] : [];
-      });
+      // One card alone (when one may go), and the most that may go at once (when that is several): a sample of the
+      // ways to play several cards, not every combination.
+      const moves: Move[] = play.min <= 1
+        ? play.cards.flatMap((card) => {
+          const payload = engine.playPayload(play.hand, card.id);
+          return payload ? [{ ...base, payload, label: `${choice.text} ▸ ${card.name}` }] : [];
+        })
+        : [];
+      const many = play.cards.slice(0, play.max);
+      if (many.length >= Math.max(2, play.min)) {
+        const payload = engine.playPayload(play.hand, many.map((c) => c.id), play);
+        if (payload) moves.push({ ...base, payload, label: `${choice.text} ▸ ${many.map((c) => c.name).join(" + ")}` });
+      }
+      return moves;
     });
   const seenRange = new Set<string>();
   /** Reports the resources the story pushed out of range on the way here; true when it pushed any. */
