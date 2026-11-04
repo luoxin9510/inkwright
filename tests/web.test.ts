@@ -415,3 +415,46 @@ test("a game page draws the map: places, a question mark until revealed, counter
   expect(places()[2].textContent).toBe("?");
   expect(document.querySelector("#map .token")).not.toBeNull();
 });
+
+test("an #input choice gets a text field; the button waits for a line, which goes into the VAR and is kept through back, reload and the language replay", () => {
+  setLanguage("zh");
+  const src = [
+    'VAR 语言 = "zh"',
+    'VAR cat = "猫"',
+    '你捡到一只猫。',
+    '+ [{语言 == "en": Name it|给它起名} #input:cat]',
+    '    { 语言 == "en": You call it {cat}.|你叫它{cat}。 }',
+    '    -> END',
+    '+ [{语言 == "en": Leave it|不起名}]',
+    '    它走了。',
+    '    -> END',
+  ].join("\n");
+  const html = buildWebPage({ title: "I", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "i", languageVar: "语言" });
+  mount(html);
+  const field = () => document.querySelector<HTMLInputElement>("#choices input");
+  const name = () => document.querySelector<HTMLButtonElement>("#choices button")!;
+  expect(field()?.placeholder).toBe("写在这里…");
+  expect(name().disabled).toBe(true);
+  field()!.value = "   ";
+  field()!.dispatchEvent(new Event("input"));
+  expect(name().disabled).toBe(true);
+  field()!.value = " 煤球 ";
+  field()!.dispatchEvent(new Event("input"));
+  expect(name().disabled).toBe(false);
+  name().click();
+  expect(texts("#story p").slice(-2)).toEqual(["给它起名 · 煤球", "你叫它煤球。"]);
+  expect(field()).toBeNull();
+  // Back: the field is empty again; type another name.
+  (document.querySelector("#back") as HTMLElement).click();
+  expect(field()?.value).toBe("");
+  field()!.value = "雪团";
+  field()!.dispatchEvent(new Event("input"));
+  field()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  expect(texts("#story p").at(-1)).toBe("你叫它雪团。");
+  const lang = document.querySelector("#language") as HTMLSelectElement;
+  lang.value = "en";
+  lang.dispatchEvent(new Event("change"));
+  expect(texts("#story p").slice(-2)).toEqual(["Name it · 雪团", "You call it 雪团."]);
+  mount(html);
+  expect(texts("#story p").at(-1)).toBe("You call it 雪团.");
+});

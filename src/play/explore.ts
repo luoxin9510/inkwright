@@ -4,6 +4,7 @@ import type { Band } from "../game/dice";
 import { GameEngine } from "../game/engine";
 import { formatValue } from "./inspect";
 import { placeName, storyShape, type StoryShape } from "./relevance";
+import { inputOf, inputPlaceholder } from "./input";
 import { PlaySession, type Payload, type SaveData } from "./session";
 import { seededRandom } from "./simulate";
 
@@ -197,7 +198,13 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     choices.flatMap((choice) => {
       const base: Move = { save, path, choices, choice, point: info.points[choice.index]?.path ?? "", vars: info.vars, plan: [], fromFresh };
       const play = engine?.playOf(choice);
-      if (!play || !engine) return [base];
+      if (!play || !engine) {
+        // A choice that asks for a line of text is taken with a placeholder naming its variable.
+        const variable = inputOf(choice);
+        if (variable === null) return [base];
+        const text = inputPlaceholder(variable);
+        return [{ ...base, payload: { var: variable, text }, label: `${choice.text} ▸ ${text}` }];
+      }
       return play.cards.flatMap((card) => {
         const payload = engine.playPayload(play.hand, card.id);
         return payload ? [{ ...base, payload, label: `${choice.text} ▸ ${card.name}` }] : [];

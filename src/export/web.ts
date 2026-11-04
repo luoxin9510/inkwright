@@ -62,7 +62,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess,
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere,
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -145,6 +145,9 @@ nav button:disabled { opacity: 0.4; cursor: default; }
 #choices button .need.missing { color: #c33; }
 #choices button:disabled { opacity: 0.55; cursor: default; }
 #choices button:disabled:hover { border-color: var(--line); }
+#choices input { font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 14px; margin-bottom: -4px; }
+#choices input:focus { outline: none; border-color: var(--accent); }
 #map { position: relative; width: 100%; margin: 0 0 1.2em; border-radius: 8px; overflow: hidden; background: var(--line); }
 #map img { display: block; width: 100%; height: 100%; }
 #map svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -245,6 +248,16 @@ const PLAYER = `(function () {
   var start = null;  // state at the beginning, to replay picks in another language
   var picks = [];    // choices since start: an index, or { index, payload } for one taken with a card
   var picked = null; // { hand, card }: the card tapped in a hand, for the next #play choice
+  var typed = {};    // text typed into #input choices by choice index, until the next choice
+
+  // #input:<var> on a choice: the line typed goes into that VAR.
+  function inputOf(tags) {
+    for (var i = 0; i < (tags || []).length; i++) {
+      var p = tags[i].split(":").map(function (x) { return x.trim(); });
+      if (p.length === 2 && p[0] === "input" && p[1] !== "") return p[1];
+    }
+    return null;
+  }
   var replaying = false;
   var halted = false;  // the last step was stopped (loop or error); its state is not saved
   story.onError = function (msg) { log.push({ text: msg, kind: "error" }); };
@@ -599,8 +612,30 @@ const PLAYER = `(function () {
         wait.textContent = play.known && play.cards.length ? str().pickCard : play.name + " · " + str().nothingCarried;
         b.appendChild(wait);
       }
-      if (needs.some(function (n) { return !n.has; }) || (play && !card)) b.disabled = true;
-      b.onclick = function () { choose(c.index, label, card ? engine.playPayload(play.hand, card.id) : null); };
+      var locked = needs.some(function (n) { return !n.has; }) || (play && !card);
+      if (locked) b.disabled = true;
+      // An #input choice (not a #play one) gets a text field above it; the button waits for a line.
+      var v = play ? null : inputOf(c.tags);
+      var field = null;
+      if (v !== null) {
+        field = document.createElement("input");
+        field.type = "text";
+        field.placeholder = str().typeHere;
+        field.value = typed[c.index] || "";
+        field.disabled = !!locked;
+        b.disabled = !!locked || !field.value.trim();
+        field.oninput = function () { typed[c.index] = field.value; b.disabled = !!locked || !field.value.trim(); };
+        field.onkeydown = function (e) { if (e.key === "Enter" && !e.isComposing && !b.disabled) b.click(); };
+        choicesEl.appendChild(field);
+      }
+      b.onclick = function () {
+        if (field) {
+          var text = field.value.trim();
+          if (text) choose(c.index, c.text + " · " + text, { var: v, text: text });
+          return;
+        }
+        choose(c.index, label, card ? engine.playPayload(play.hand, card.id) : null);
+      };
       choicesEl.appendChild(b);
     });
     endEl.hidden = halted || story.currentChoices.length > 0;
@@ -770,6 +805,7 @@ const PLAYER = `(function () {
     history.push({ state: before, n: log.length });
     picks.push(payload ? { index: index, payload: payload } : index);
     picked = null;
+    typed = {};
     log.push({ text: text, kind: "chosen", turn: story.state.currentTurnIndex });
     advance();
   }
@@ -782,6 +818,7 @@ const PLAYER = `(function () {
     log = [];
     history = [];
     picks = [];
+    typed = {};
     advance();
   }
 
@@ -806,7 +843,8 @@ const PLAYER = `(function () {
     old.forEach(function (p) {
       var i = typeof p === "number" ? p : p.index, payload = typeof p === "number" ? null : p.payload;
       var c = story.currentChoices.filter(function (c) { return c.index === i; })[0];
-      if (c) choose(i, payload && payload.item !== undefined && engine ? c.text + " · " + engine.cardName(payload.item) : c.text, payload);
+      var label = !payload ? c && c.text : payload.item !== undefined ? (engine ? c && c.text + " · " + engine.cardName(payload.item) : c && c.text) : c && c.text + " · " + payload.text;
+      if (c) choose(i, label, payload);
     });
     replaying = false;
     if (!halted) persist();
@@ -841,6 +879,7 @@ const PLAYER = `(function () {
     log.length = h.n;
     picks.pop();
     picked = null;
+    typed = {};
     halted = false;
     persist();
     render();

@@ -5,6 +5,7 @@ import type { Diagnostic } from "./compile/diagnostics";
 import type { ReadFile } from "./compile/include";
 import { T } from "./i18n";
 import type { Inspection } from "./play/inspect";
+import { inputOf } from "./play/input";
 import { pick, playScript, type ScriptOptions, type ScriptResult } from "./play/script";
 import { exploreStory, type ExploreOptions, type ExploreResult } from "./play/explore";
 import { simulateStory, type SimulateOptions, type SimulateResult } from "./play/simulate";
@@ -19,7 +20,8 @@ export interface ApiHost {
   snapshot(): PlayState;
   refresh(): Promise<void>;
   openPlay(): Promise<void>;
-  choose(index: number, card?: string): void;
+  /** Takes a choice; `value` is the card id for a `#play` choice or the text typed for an `#input` one. */
+  choose(index: number, value?: string): void;
   restart(): void;
   startAt(path: string | null): void;
   back(): void;
@@ -91,10 +93,12 @@ Headless (does not touch the visible panel):
   compile(path)                    -> { ok, diagnostics[{severity,file,line,message}], flows[{path,kind,file,line}], files }
   graph(path)                      -> { ok, diagnostics, nodes[{id,kind,file,line,reachable}], edges[{from,to,kind,count}], unreachable[] }
      node ids: knot / "knot.stitch", plus "@start" and "@end"; edge kind: divert | tunnel | thread | fall
-  play(path, { from?, choices?, language? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text}],
+  play(path, { from?, choices?, language? })  -> { ok, diagnostics, transcript[{type:"text",text,tags}|{type:"choice",index,text,input?}],
                                         choices, ended, errors, variables[{name,value}], visits[{path,count}], turns }
      from:    knot or "knot.stitch" to start at (default: the beginning)
      choices: list of choice indexes or texts (exact text first, then substring); stops at the first problem.
+              An #input:var choice (the player types a line into a string VAR) takes { choice, text };
+              given as a plain index or text it types the placeholder "[var]".
               Any choice can be picked, including one the panel shows locked (#needs: item not carried).
      language: "zh" | "en" for a bilingual story (VAR 语言 or VAR lang); default: the story's own value
   explore(path, { language?, maxSteps?, statesPerSpot?, novelty?, character?, bands? })
@@ -125,7 +129,8 @@ Visible play panel (the user sees what you do):
                          needs[per choice: items it needs, each { id, name, has, known }; a missing one locks the choice],
                          plays[per choice: the hand a #play choice takes a card from, { hand, name, cards[{ id, name, desc, deck }], known }],
                          hud (resources, companions, items carried, decks, hands, party: members with title, stats, gear, down), map (places with here/revealed/counter/go, tokens), dungeon (the growing dungeon: rooms with squares, doors and marks, walls, free doors left), rolls }
-  choose(indexOrText, card?)  make a choice in the panel; a #play choice needs the id of a card in its hand
+  choose(indexOrText, value?)  make a choice in the panel; a #play choice needs the id of a card in its hand,
+                       an #input choice the text to type
   restart()            restart from the current start point
   startAt(path|null)   start the panel from a knot/stitch (null = beginning)
   back()               undo the last choice in the panel
@@ -251,13 +256,19 @@ export class InkwrightApi {
     };
   }
 
-  choose(choice: number | string, card?: string): PanelReport {
+  choose(choice: number | string, value?: string): PanelReport {
     const target = pick(this.host.snapshot().choices, choice);
     if (!target) {
       const report = this.panel();
       return { ...report, errors: [...report.errors, T().choiceNotFound(String(choice), report.choices.map((c) => c.text))] };
     }
-    this.host.choose(target.index, card);
+    // An #input choice cannot be taken without a line typed, as in the panel.
+    const variable = inputOf(target);
+    if (variable !== null && (value ?? "").trim() === "") {
+      const report = this.panel();
+      return { ...report, errors: [...report.errors, T().inputNeeded(target.text)] };
+    }
+    this.host.choose(target.index, value);
     return this.panel();
   }
 

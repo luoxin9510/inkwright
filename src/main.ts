@@ -4,6 +4,7 @@ import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
 import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphView";
 import type { Diagnostic } from "./compile/diagnostics";
+import { inputOf, inputPayload } from "./play/input";
 import { PlaySession, findLanguageVar, type Chosen, type Payload, type SaveData, type Step } from "./play/session";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
@@ -137,7 +138,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.apply(this.session.restart());
   }
 
-  choose(index: number, card?: string): void {
+  choose(index: number, value?: string): void {
     if (!this.session) return;
     // A choice that needs an item not carried is shown locked; it cannot be taken.
     const choice = this.last?.choices.find((c) => c.index === index);
@@ -146,17 +147,26 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     let payload: Payload | undefined;
     const play = choice && this.game ? this.game.playOf(choice) : null;
     if (play && this.game) {
-      const p = card === undefined ? null : this.game.playPayload(play.hand, card);
+      const p = value === undefined ? null : this.game.playPayload(play.hand, value);
       if (!p) return;
       payload = p;
+    } else {
+      // An #input choice is taken with the line typed: it is written into its VAR first.
+      const variable = choice ? inputOf(choice) : null;
+      if (variable !== null) {
+        const p = inputPayload(variable, value ?? "");
+        if (!p) return;
+        payload = p;
+      }
     }
     this.apply(this.session.choose(index, payload));
   }
 
-  /** A choice made, its text carrying the name of the card it was played with. */
+  /** A choice made, its text carrying the name of the card it was played with or the line typed. */
   private withCard(c: Chosen): { text: string; at: number } {
-    const card = c.payload && "item" in c.payload && this.game ? this.game.cardName(c.payload.item) : null;
-    return { text: card ? `${c.text} · ${card}` : c.text, at: c.at };
+    const p = c.payload;
+    const extra = !p ? null : "item" in p ? (this.game ? this.game.cardName(p.item) : null) : p.text;
+    return { text: extra ? `${c.text} · ${extra}` : c.text, at: c.at };
   }
 
   back(): void {

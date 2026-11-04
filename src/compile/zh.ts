@@ -14,6 +14,7 @@ export const zhTable: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/^Constant strings cannot contain any logic\.$/, () => "常量字符串里不能包含逻辑"],
   [/^Divert target not found: '(.+)'$/, (m) => `找不到跳转目标 '${m[1]}',检查 knot 或 stitch 的名字是否拼错`],
   [/^Unresolved variable: (.+)$/, (m) => `找不到名称 '${m[1]}':变量需要先用 VAR 声明,或检查拼写`],
+  [/^Cannot assign to a variable \((.+)\) that hasn't been declared in the story$/, (m) => `无法给 '${m[1]}' 赋值:剧本里没有用 VAR 声明这个变量`],
   [/^Variable could not be found to assign to: '(.+)'$/, (m) => `无法给 '${m[1]}' 赋值:它还没有声明(全局变量用 VAR,临时变量用 ~ temp)`],
   [/^Expected initial value for .* but saw (.+)$/, (m) => `缺少初始值:VAR / CONST 必须给出一个常量初始值(实际是:${saw(m[1])})`],
   [/^found declaration variable '(.+)' that was already declared \(line (\d+) of ([^"]+)"?\)$/, (m) => `变量 '${m[1]}' 重复声明(之前已在 ${m[3]} 第 ${m[2]} 行声明)`],
