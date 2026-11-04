@@ -1,4 +1,4 @@
-import type { Paragraph, Payload, ReplayAction, SaveData, Taken } from "./session";
+import type { Paragraph, Payload, PlacedAside, ReplayAction, SaveData, Taken } from "./session";
 
 /**
  * A run (one playthrough) as it is saved: not the story's state but everything the player did since the
@@ -91,19 +91,31 @@ export function newRun(o: NewRunOptions): Run {
   };
 }
 
-/** The run with the session's record as its actions (pending dropped: the player has moved on). */
-export function withTaken(run: Run, taken: readonly Taken[], seqNext: number, now: string): Run {
-  const actions: Action[] = taken.map((t) => ({
+/** The run with the session's record as its actions, in the order they were done (pending dropped: the player has moved on). */
+export function withTaken(run: Run, taken: readonly Taken[], seqNext: number, now: string, asides: readonly PlacedAside[] = []): Run {
+  const chosen: Action[] = taken.map((t) => ({
     kind: "choose", seq: t.seq, lang: t.lang, index: t.index, text: t.text, ...(t.payload ? { payload: t.payload } : {}), fp: t.fp, offered: t.offered,
   }));
+  const aside: Action[] = asides.map((a): Action => a.kind === "oracle"
+    ? { kind: "oracle", seq: a.seq, lang: a.lang, ...(a.question ? { question: a.question } : {}), odds: a.odds ?? "even", result: a.result }
+    : { kind: "roll", seq: a.seq, lang: a.lang, formula: a.formula ?? "", ...(a.table ? { table: a.table } : {}), result: a.result });
+  const actions = [...chosen, ...aside].sort((x, y) => x.seq - y.seq);
   const { pending: _pending, ...rest } = run;
   return { ...rest, actions, seqNext: Math.max(seqNext, run.seqNext), updatedAt: now };
 }
 
-/** The run's choices to replay, up to the first action of a kind this version cannot replay. */
+/** The run's actions to replay (choices, and the tray's asides as recorded), up to the first of a kind this version cannot replay. */
 export function replayActions(run: Run): ReplayAction[] {
   const out: ReplayAction[] = [];
   for (const a of run.actions) {
+    if (a.kind === "oracle") {
+      out.push({ index: -1, text: null, lang: a.lang, seq: a.seq, aside: { kind: "oracle", lang: a.lang, ...(a.question ? { question: a.question } : {}), odds: a.odds, result: a.result } });
+      continue;
+    }
+    if (a.kind === "roll") {
+      out.push({ index: -1, text: null, lang: a.lang, seq: a.seq, aside: { kind: "roll", lang: a.lang, formula: a.formula, ...(a.table ? { table: a.table } : {}), result: a.result } });
+      continue;
+    }
     if (a.kind !== "choose") break;
     out.push({ index: a.index, text: a.text, lang: a.lang, seq: a.seq, ...(a.payload ? { payload: a.payload } : {}), ...(a.fp ? { fp: a.fp } : {}), ...(a.offered ? { offered: a.offered } : {}) });
   }

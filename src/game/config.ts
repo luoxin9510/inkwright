@@ -2,6 +2,20 @@ import { tokenId, type Modifier, type RulesConfig } from "./dice";
 import { shapeProblem, type DungeonDef, type ShapeDef } from "./dungeon";
 import { tableProblems } from "./tables";
 
+/** How likely a "yes" from the dice tray's oracle is, most likely first (see src/play/oracle.ts). */
+export const ODDS = ["certain", "likely", "even", "unlikely", "remote"] as const;
+export type Odds = (typeof ODDS)[number];
+
+/** `oracle:` in the game note. */
+export interface OracleConfig {
+  /** Thresholds that differ from the defaults. */
+  odds?: Partial<Record<Odds, number>>;
+  /** A resource whose value moves every threshold: above its middle more yeses, below fewer. */
+  chaos?: string;
+  /** Points a threshold moves per point of chaos away from its middle (default 5). */
+  chaosStep?: number;
+}
+
 /**
  * A game's rules as data. Nothing here names a particular game: skills,
  * resources, characters and modifier rules all come from the author's notes.
@@ -83,6 +97,8 @@ export interface TableDef {
   dice?: string;
   rows?: TableRow[];
   from?: string;
+  /** Offered on the player's dice tray (an inspiration table: "action × theme"). */
+  oracle?: boolean;
 }
 
 /** A card: an item of its deck's LIST, so a hand is a list the story keeps (`~ hand += draw("clues")`). */
@@ -258,6 +274,8 @@ export interface GameConfig {
   modifiers?: ModifierRule[];
   /** Where the play log is written as a note. */
   journal?: JournalConfig;
+  /** The dice tray's oracle: thresholds and a chaos resource (solo PRD §4.3). */
+  oracle?: OracleConfig;
   /**
    * Languages the story is written in, e.g. ["zh", "en"] (the first is the default). The
    * generated ink then declares the language variable and the text function (`{t("中文", "English")}`).
@@ -571,7 +589,7 @@ export function readCard(c: Record<string, unknown>, id: string): CardDef {
 }
 
 export const CONFIG_PROBLEM_CODES = [
-  "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters",
+  "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters", "oracleChaos", "oracleOdds",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
@@ -590,6 +608,9 @@ export interface ConfigProblem {
 export function validateConfig(config: GameConfig): ConfigProblem[] {
   const problems: ConfigProblem[] = [];
   const bad = (code: ConfigProblemCode, ...args: (string | number)[]) => problems.push({ code, args: args.map(String) });
+  // The tray's oracle: a chaos value is one of the character's resources; a threshold leaves a chance either way.
+  if (config.oracle?.chaos !== undefined && !config.resources.some((r) => r.id === config.oracle?.chaos)) bad("oracleChaos", config.oracle.chaos);
+  for (const [k, n] of Object.entries(config.oracle?.odds ?? {})) if (typeof n === "number" && (n < 1 || n > 99)) bad("oracleOdds", k, n);
   if (config.rules.kind === "sum") {
     if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) bad("dice");
   } else if (config.rules.kind === "rollUnder") {
@@ -820,6 +841,8 @@ export function readConfig(fm: unknown): LoadedConfig {
   const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
   if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr) && opt(v.present, isStr))) shape("party");
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr))) shape("journal");
+  const oddsMap = (v: unknown) => isObj(v) && Object.entries(v).every(([k, n]) => (ODDS as readonly string[]).includes(k) && isNum(n));
+  if (!opt(fm.oracle, (v) => isObj(v) && opt(v.odds, oddsMap) && opt(v.chaos, isStr) && opt(v.chaosStep, isNum))) shape("oracle");
   entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
@@ -853,6 +876,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     attributes: isObj(fm.attributes) ? (fm.attributes as Record<string, LocalizedText>) : undefined,
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}) } : undefined,
+    oracle: isObj(fm.oracle) ? fm.oracle : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,
     engineFile: (fm.engineFile ?? undefined) as string | undefined,
     ink: fm.ink ?? undefined,
@@ -914,6 +938,7 @@ function readTable(e: Record<string, unknown>): TableDef {
   const dice = scalarText(e.dice);
   if (dice !== undefined) t.dice = dice;
   if (isStr(e.from)) t.from = e.from;
+  if (e.oracle === true) t.oracle = true;
   if (Array.isArray(e.rows)) {
     t.rows = (e.rows as Record<string, unknown>[]).map((r) => {
       const row: TableRow = { text: isText(r.text) ? r.text : Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== "range" && k !== "id" && isStr(v))) as Record<string, string> };

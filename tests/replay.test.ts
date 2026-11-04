@@ -287,3 +287,68 @@ describe("replay that matches changed choices", () => {
     expect((await old.replay(rec.map((a) => ({ ...a, fp: undefined })), { mode: "match" })).drift).toBeNull();
   });
 });
+
+describe("asides (the dice tray)", () => {
+  const SRC = "VAR lang = \"zh\"\n开始。\n+ [{lang == \"en\": Go|走}] -> k\n=== k ===\n到了。\n+ [{lang == \"en\": Again|再走}] -> k\n";
+  const oracle = (q: string) => ({ kind: "oracle" as const, lang: "zh", question: q, odds: "even", result: { roll: 30, threshold: 50, answer: "yes", extreme: false } });
+
+  test("an aside is placed after the text so far and the choices so far; it gets a seq like a choice", () => {
+    const s = new PlaySession(compile(SRC));
+    s.start();
+    s.addAside(oracle("门后有人吗"));
+    s.choose(0);
+    s.addAside(oracle("灯亮着吗"));
+    expect(s.asides.map((a) => [a.question, a.at, a.after, a.seq])).toEqual([["门后有人吗", 1, 0, 0], ["灯亮着吗", 2, 1, 2]]);
+    expect(s.taken[0].seq).toBe(1);
+  });
+
+  test("undo takes back the latest thing done, an aside or a choice (and the asides after it)", () => {
+    const s = new PlaySession(compile(SRC));
+    s.start();
+    s.addAside(oracle("一"));
+    s.choose(0);
+    s.addAside(oracle("二"));
+    s.undo();
+    expect(s.asides.map((a) => a.question)).toEqual(["一"]);
+    expect(s.taken).toHaveLength(1);
+    s.addAside(oracle("三"));
+    s.back();
+    expect(s.asides.map((a) => a.question)).toEqual(["一"]);
+    expect(s.taken).toHaveLength(0);
+    s.undo();
+    expect(s.asides).toEqual([]);
+    expect(s.undo()).toBeNull();
+  });
+
+  test("switching language keeps the asides where they were; restart clears them", () => {
+    const s = new PlaySession(compile(SRC));
+    s.start();
+    s.addAside(oracle("一"));
+    s.choose(0);
+    s.choose(0);
+    s.addAside(oracle("二"));
+    s.setLanguage("en");
+    expect(s.asides.map((a) => [a.question, a.at, a.after])).toEqual([["一", 1, 0], ["二", 3, 2]]);
+    s.restart();
+    expect(s.asides).toEqual([]);
+  });
+
+  test("a replay puts the recorded asides back, with their results, between the choices", async () => {
+    const s = new PlaySession(compile(SRC));
+    s.start();
+    s.addAside(oracle("一"));
+    s.choose(0);
+    s.addAside(oracle("二"));
+    const actions = [
+      { index: -1, text: null, lang: "zh", seq: 0, aside: s.asides[0] },
+      { ...s.taken[0] },
+      { index: -1, text: null, lang: "zh", seq: 2, aside: s.asides[1] },
+    ];
+    const t2 = new PlaySession(compile(SRC));
+    t2.start();
+    const r = await t2.replay(actions, { mode: "match" });
+    expect(r.stop).toBeNull();
+    expect(t2.asides.map((a) => [a.question, a.at, a.after, a.seq, a.result])).toEqual(s.asides.map((a) => [a.question, a.at, a.after, a.seq, a.result]));
+    expect(t2.seqNext).toBe(3);
+  });
+});

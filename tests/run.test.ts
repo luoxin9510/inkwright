@@ -34,6 +34,24 @@ describe("runs", () => {
   });
 });
 
+describe("asides in the run", () => {
+  test("the tray's asides are kept among the choices in the order done, and replay as recorded", () => {
+    const asides = [
+      { kind: "oracle" as const, lang: "zh", question: "门后有人吗", odds: "likely", result: { roll: 3 }, seq: 1, at: 1, after: 1 },
+      { kind: "roll" as const, lang: "zh", formula: "1d6", table: "action", result: { total: 4 }, seq: 3, at: 2, after: 2 },
+    ];
+    const r = withTaken(base(), [...taken(1), { ...taken(1)[0], seq: 2, text: "c1" }], 4, NOW, asides);
+    expect(r.actions.map((a) => [a.kind, a.seq])).toEqual([["choose", 0], ["oracle", 1], ["choose", 2], ["roll", 3]]);
+    expect(r.actions[1]).toEqual({ kind: "oracle", seq: 1, lang: "zh", question: "门后有人吗", odds: "likely", result: { roll: 3 } });
+    const replay = replayActions(r);
+    expect(replay.map((a) => [a.seq, a.aside?.kind ?? "choose"])).toEqual([[0, "choose"], [1, "oracle"], [2, "choose"], [3, "roll"]]);
+    expect(replay[3].aside).toEqual({ kind: "roll", lang: "zh", formula: "1d6", table: "action", result: { total: 4 } });
+    // A kind this version cannot replay stops the replay there.
+    const later = { ...r, actions: [...r.actions, { kind: "adjust" as const, seq: 4, lang: null, var: "hp", delta: -1 }, ...r.actions.slice(0, 1).map((a) => ({ ...a, seq: 5 }))] };
+    expect(replayActions(later)).toHaveLength(4);
+  });
+});
+
 describe("merging what each device wrote", () => {
   const file = (device: string, rev: number, baseRev: number, n: number): Run => ({ ...withTaken(base(), taken(n), n, NOW), device, rev, baseRev });
 

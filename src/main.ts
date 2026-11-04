@@ -7,6 +7,8 @@ import type { Diagnostic } from "./compile/diagnostics";
 import { inputOf, inputPayload } from "./play/input";
 import { PlaySession, findLanguageVar, type Chosen, type Payload, type ReplayAction, type SaveData, type Step } from "./play/session";
 import { hash, migrateSave, newRun, parseRun, replayActions, withTaken, type Run } from "./play/run";
+import { askOracle, oracleRules, rollTray, type Odds } from "./play/oracle";
+import { seededDice, type Rng } from "./game/dice";
 import { RunStore, type Files, type SyncMode } from "./play/store";
 import { Story } from "inkjs/full";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
@@ -355,7 +357,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (this.config.playerMode && this.run && session && session.taken.length > 0) {
       const now = new Date();
       // Stopped short of where it had got to: keep the whole run (its actions still hold the steps not replayed).
-      const source = this.run.pending?.length ? { ...this.run, updatedAt: now.toISOString() } : withTaken(this.run, session.taken, session.seqNext, now.toISOString());
+      const source = this.run.pending?.length ? { ...this.run, updatedAt: now.toISOString() } : withTaken(this.run, session.taken, session.seqNext, now.toISOString(), session.asides);
       const { conflictOf: _conflictOf, pending: _pending, ...kept } = source;
       const id = newRun({ story: this.root, name: "", draft: false, startPoint: null, character: null, device: "", now: now.toISOString() }).id;
       const store = this.store;
@@ -403,9 +405,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { text: extra ? `${c.text} · ${extra}` : c.text, at: c.at };
   }
 
+  /** Takes back the latest thing done: a choice, or a question or roll on the dice tray. */
   back(): void {
     if (this.replaying) return;
-    const step = this.session?.back();
+    const step = this.session?.undo();
     if (!step) return;
     this.apply(step);
     this.persist();
@@ -436,7 +439,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       return null;
     }
     const now = new Date().toISOString();
-    const { conflictOf: _conflictOf, ...current } = withTaken(run, session.taken, session.seqNext, now);
+    const { conflictOf: _conflictOf, ...current } = withTaken(run, session.taken, session.seqNext, now, session.asides);
     const id = newRun({ story: this.root, name: "", draft: false, startPoint: null, character: null, device: "", now }).id;
     const snapshot: Run = { ...current, id, draft: false, name: name?.trim() || T().saveName(this.savesCache.length + 1), createdAt: now, rev: 0, baseRev: 0 };
     try {
@@ -486,6 +489,43 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return this.root === null || !this.store ? [] : this.store.list(this.root);
   }
 
+  /** The dice tray's dice for its next use: the run's own seed and how many times the tray was used (so back, then the same question, gets the same answer). */
+  private trayDice(): Rng | null {
+    const session = this.session, run = this.run;
+    if (!session || !run || this.replaying) return null;
+    return seededDice(run.seeds.oracle, session.asides.length);
+  }
+
+  /** Asks the oracle a yes/no question (the question is optional); the answer is kept in the run. */
+  askOracle(question: string, odds: Odds): void {
+    const session = this.session, rng = this.trayDice();
+    if (!session || !rng) return;
+    const config = this.game?.config;
+    const chaos = config?.resources.find((r) => r.id === config.oracle?.chaos);
+    const rules = oracleRules(config?.oracle, (id) => session.read(id), chaos ? { min: chaos.min, max: chaos.max } : undefined);
+    const result = askOracle(odds, rules, rng);
+    const q = question.trim();
+    session.addAside({ kind: "oracle", lang: session.language, ...(q ? { question: q } : {}), odds, result });
+    this.apply(session.current());
+    this.persist();
+  }
+
+  /** Rolls a formula on the tray (as `roll()` reads it), or one of the game's tables marked for it. */
+  rollTray(formula: string, table?: string): void {
+    const session = this.session, rng = this.trayDice();
+    if (!session || !rng) return;
+    const def = table === undefined ? undefined : this.game?.config.tables?.find((t) => t.id === table);
+    if (table !== undefined && !def) return;
+    const result = rollTray(formula, def ? { table: def, language: session.language ?? getLanguage() } : undefined, rng);
+    if (!result) {
+      new Notice(T().badFormulaNamed(formula));
+      return;
+    }
+    session.addAside({ kind: "roll", lang: session.language, formula: result.formula, ...(def ? { table: def.id } : {}), result });
+    this.apply(session.current());
+    this.persist();
+  }
+
   /** Player mode on or off; turning it on locks the main story (so opening a chapter does not switch away from it). */
   togglePlayerMode(): void {
     this.config.playerMode = !(this.config.playerMode ?? false);
@@ -504,7 +544,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       return { path: null };
     }
     const now = new Date();
-    const { pending: _pending, ...whole } = withTaken(run, session.taken, session.seqNext, now.toISOString());
+    const { pending: _pending, ...whole } = withTaken(run, session.taken, session.seqNext, now.toISOString(), session.asides);
     // One fixed name whatever the UI language, so exports do not end up in two folders.
     const folder = normalizePath(`${this.config.saveFolder ?? "Inkwright"}/_exports`);
     // Named like the story's save folder: its file name, or its folder's for a main.ink.
@@ -596,7 +636,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         await this.refreshSaves();
       });
     }
-    this.run = { ...withTaken(run, session.taken, session.seqNext, now.toISOString()), ...(this.buildHash ? { build: this.buildHash } : {}) };
+    this.run = { ...withTaken(run, session.taken, session.seqNext, now.toISOString(), session.asides), ...(this.buildHash ? { build: this.buildHash } : {}) };
     this.keepBuild();
     this.writeRun();
   }
@@ -863,7 +903,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const language = (session.language ?? getLanguage()) === "en" ? "en" : "zh";
     const text = renderJournal({
       title: story, date: now, language, character, log: session.log, turns: session.turns, choices: session.choicesMade.map((c) => this.withCard(c)),
-      rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills,
+      rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills, asides: session.asides,
     });
     const pad = (n: number) => String(n).padStart(2, "0");
     // A name goes into a file name: no separators, nothing a file system rejects, no "..".
@@ -1375,6 +1415,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       stopped: this.stopped,
       note: this.note,
       playerMode: this.config.playerMode ?? false,
+      asides: this.session ? [...this.session.asides] : [],
+      trayTables: (this.game?.config.tables ?? []).filter((t) => t.oracle).map((t) => ({ id: t.id, name: localize(t.name, this.session?.language ?? getLanguage(), t.id) })),
       update: this.update,
       recap: this.recap,
       frozen: this.frozen ? { at: stamp(new Date(this.frozen.createdAt)) } : null,
