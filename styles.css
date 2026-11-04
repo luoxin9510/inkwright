@@ -17,6 +17,9 @@
 .inkwright-ended { color: var(--text-faint); text-align: center; }
 .inkwright-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .inkwright-choice { min-height: 44px; text-align: left; white-space: normal; justify-content: flex-start; }
+.inkwright-run-note { margin-top: 12px; padding: 8px 10px; border-radius: 6px; background: var(--background-secondary); color: var(--text-muted); font-size: var(--font-smaller); }
+.inkwright-stopped { display: flex; gap: 8px; align-items: center; justify-content: space-between; border-left: 3px solid var(--text-warning); }
+.inkwright-run-note-ok { flex: none; }
 .inkwright-input { width: 100%; min-height: 44px; margin-bottom: -4px; }
 .inkwright-diagnostics { margin-bottom: 12px; }
 .inkwright-diag { padding: 8px; margin-bottom: 6px; border-left: 3px solid var(--text-faint); cursor: pointer; }

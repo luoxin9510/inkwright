@@ -61,6 +61,10 @@ export interface PlayState {
   chosen: { text: string; at: number } | null;
   /** Whether the top bar stays put while the text scrolls. */
   pinned: boolean;
+  /** A saved run being replayed (the panel takes no input meanwhile); null when none is. */
+  replay?: { done: number; total: number } | null;
+  /** Why the panel stopped short of where the run had got to; null when it did not. */
+  stopped?: { reason: "mismatch" | "error" | "budget" | "start" | "character"; step: number; pending: number; detail?: string } | null;
 }
 
 export interface PlayController {
@@ -80,6 +84,8 @@ export interface PlayController {
   movePlay(view: PlayView): void;
   inMainArea(view: PlayView): boolean;
   openDiagnostic(d: Diagnostic): Promise<void>;
+  /** Hides the note that the run stopped short. */
+  dismissStop(): void;
 }
 
 export class PlayView extends ItemView {
@@ -281,6 +287,12 @@ export class PlayView extends ItemView {
     this.pickedAt = spot;
     if (s.game?.hud.hands) this.renderHands(main, s.game.hud.hands, s.game.cardImages);
 
+    // Picking a saved run up: the text grows as it replays; there is nothing to choose until it is done.
+    if (s.replay) {
+      main.createDiv({ cls: "inkwright-run-note inkwright-replaying", text: T().replaying(s.replay.done, s.replay.total) });
+      return;
+    }
+    if (s.stopped) this.renderStopped(main, s.stopped);
     const choices = main.createDiv({ cls: "inkwright-choices" });
     s.choices.forEach((c, i) => {
       const play = s.game?.plays[i] ?? null;
@@ -326,6 +338,21 @@ export class PlayView extends ItemView {
     } else if (changed) {
       choices.scrollIntoView({ block: "end" });
     }
+  }
+
+  /** Says where and why a saved run stopped short of where it had got to, and that the rest is kept. */
+  private renderStopped(el: HTMLElement, st: NonNullable<PlayState["stopped"]>): void {
+    const note = el.createDiv({ cls: "inkwright-run-note inkwright-stopped" });
+    const t = T();
+    const text =
+      st.reason === "start" ? t.stoppedStart(st.detail ?? "")
+      : st.reason === "character" ? t.stoppedCharacter(st.detail ?? "")
+      : st.reason === "budget" ? t.stoppedBudget(st.step, st.pending)
+      : st.reason === "error" ? t.stoppedError(st.step, st.pending)
+      : t.stoppedMismatch(st.step, st.pending);
+    note.createSpan({ text });
+    const ok = note.createEl("button", { text: t.dismiss, cls: "inkwright-run-note-ok" });
+    ok.onclick = () => this.controller.dismissStop();
   }
 
   /** One roll as a card in the text: a check (skill and difficulty, faces, sum, outcome) or free dice (formula or table, faces, total, the row). */

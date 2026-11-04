@@ -1,11 +1,14 @@
-import { Notice, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type WorkspaceLeaf } from "obsidian";
+import { Notice, Platform, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
 import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphView";
 import type { Diagnostic } from "./compile/diagnostics";
 import { inputOf, inputPayload } from "./play/input";
-import { PlaySession, findLanguageVar, type Chosen, type Payload, type SaveData, type Step } from "./play/session";
+import { PlaySession, findLanguageVar, type Chosen, type Payload, type ReplayAction, type SaveData, type Step } from "./play/session";
+import { migrateSave, newRun, replayActions, withTaken, type Run } from "./play/run";
+import { RunStore, type Files, type SyncMode } from "./play/store";
+import type { Story } from "inkjs/full";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
 import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
@@ -37,6 +40,30 @@ interface Settings {
   storyLanguage: string | null;
   /** Keep the play panel's top bar in view while the text scrolls. */
   pinBar?: boolean;
+  /** Vault folder runs are saved in (set on first use from the UI language). */
+  saveFolder?: string;
+  /** How the vault is synced: how run conflicts are handled. */
+  syncMode?: SyncMode;
+  /** Ids of old saves (in `saves`) already moved into the run folder. */
+  migrated?: string[];
+}
+
+/** A saved run as the panel and the API list it. */
+interface SaveInfo {
+  id: string;
+  name: string;
+  savedAt: string;
+}
+
+/** Why the panel stopped short of where the run had got to; the run itself is left as it was. */
+export interface Stopped {
+  reason: "mismatch" | "error" | "budget" | "start" | "character";
+  /** The step (1-based) the story stopped at. */
+  step: number;
+  /** Steps of the run not replayed: kept until the player does something new here. */
+  pending: number;
+  /** The missing start point or character. */
+  detail?: string;
 }
 
 /** What readGameNote found: the note, its config (null when unusable), the warnings to show, and the other notes it reads (tables). */
@@ -64,6 +91,24 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private game: GameEngine | null = null;
   /** Chosen playable character; null = the game's first. */
   private character: string | null = null;
+  /** Where runs are saved; null until loaded. */
+  private store: RunStore | null = null;
+  /** The run being played: the story's draft (see docs/solo-prd.md §4.0–4.1). */
+  private run: Run | null = null;
+  /** The compiled story the session plays, so a run can be restarted or loaded without compiling again. */
+  private compiled: Story | null = null;
+  private replayAbort: AbortController | null = null;
+  /** Progress of a replay under way; null when none is. While it runs, the panel takes no input. */
+  private replaying: { done: number; total: number } | null = null;
+  private stopped: Stopped | null = null;
+  /** Saved runs of the current story (not the draft), for the panel's saves list. */
+  private savesCache: SaveInfo[] = [];
+  /** Another device changed the run: read it again on the next compile. */
+  private runDirty = false;
+  /** Writes of the run, one after another. */
+  private writing: Promise<void> = Promise.resolve();
+  /** A write is queued and has not started: it will write the latest run, so another is not needed. */
+  private writeQueued = false;
   /** Scriptable API for agents, e.g. via `obsidian eval`. See src/api.ts. */
   readonly api = new InkwrightApi(this);
 
@@ -72,6 +117,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.config = { locked: null, language: "auto", saves: {}, storyLanguage: null, ...((await this.loadData()) as Partial<Settings> | null) };
     // Obsidian sets moment's locale to its interface language.
     setLanguage(resolveLanguage(this.config.language, moment.locale()));
+    this.store = this.makeStore();
     this.addSettingTab(new InkwrightSettingTab(this.app, this));
 
     this.registerView(INK_VIEW_TYPE, (leaf) => new InkView(leaf));
@@ -96,6 +142,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (this.targetRoot() !== this.root) this.schedule();
     }));
     const touch = (path: string) => {
+      // A run file written by another device (synced in): the run may have moved on there.
+      if (this.store?.isRunFile(path)) {
+        if (!this.store.isOwnFile(path)) void this.runFileChanged();
+        return;
+      }
       // A note added to or removed from a deck's folder changes the deck: the folder itself is a dependency.
       if (isDependency(path, this.files) || this.files.includes(path.slice(0, path.lastIndexOf("/")))) this.schedule();
     };
@@ -109,6 +160,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }));
     this.registerEvent(this.app.vault.on("rename", (f, oldPath) => {
       void this.updateLock(applyVaultEvent(this.config.locked, { type: "rename", path: oldPath, newPath: f.path }));
+      // A story's runs go with it.
+      if (f instanceof TFile && f.extension === "ink") void this.store?.move(oldPath, f.path);
       touch(oldPath);
     }));
 
@@ -117,8 +170,77 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (locked !== null && !(this.app.vault.getAbstractFileByPath(locked) instanceof TFile)) {
         void this.updateLock(null);
       }
-      this.schedule();
+      void this.migrateSaves().finally(() => this.schedule());
     });
+  }
+
+  /** Another device changed data.json (an older version may still save there): pick the settings up, move old saves over. */
+  async onExternalSettingsChange(): Promise<void> {
+    this.config = { ...this.config, ...((await this.loadData()) as Partial<Settings> | null) };
+    await this.migrateSaves();
+    await this.refreshSaves();
+  }
+
+  /** The run store for the current settings; the save folder is fixed on first use. */
+  private makeStore(): RunStore {
+    if (!this.config.saveFolder) {
+      this.config.saveFolder = getLanguage() === "en" ? "Inkwright/Saves" : "Inkwright/存档";
+      void this.saveData(this.config);
+    }
+    let device = this.app.loadLocalStorage("inkwright-device") as string | null;
+    if (typeof device !== "string" || device === "") {
+      device = `${Platform.isMobile ? "mobile" : "desktop"}-${Math.random().toString(36).slice(2, 8)}`;
+      this.app.saveLocalStorage("inkwright-device", device);
+    }
+    const a = this.app.vault.adapter;
+    const files: Files = {
+      exists: (p) => a.exists(p), read: (p) => a.read(p), write: (p, d) => a.write(p, d), mkdir: (p) => a.mkdir(p),
+      remove: (p) => a.remove(p), rmdir: (p, r) => a.rmdir(p, r), rename: (f, t) => a.rename(f, t), list: (p) => a.list(p),
+    };
+    return new RunStore(files, { folder: normalizePath(this.config.saveFolder), device, sync: this.config.syncMode ?? "icloud" });
+  }
+
+  /** Moves old saves (kept in data.json) into the run folder; runs again harmlessly. The old data stays for now. */
+  private async migrateSaves(): Promise<void> {
+    const store = this.store;
+    if (!store) return;
+    const migrated = new Set(this.config.migrated ?? []);
+    let moved = false;
+    for (const [story, slots] of Object.entries(this.config.saves)) {
+      for (const slot of slots) {
+        if (migrated.has(slot.id)) continue;
+        const run = migrateSave(slot, story, "");
+        try {
+          if (!(await store.read(story, run.id))) await store.write(run);
+          migrated.add(slot.id);
+          moved = true;
+        } catch (e) {
+          console.error("Inkwright: could not move an old save", e);
+        }
+      }
+    }
+    if (moved) {
+      this.config.migrated = [...migrated];
+      await this.saveData(this.config);
+    }
+  }
+
+  /** A run file changed on another device: replay when the run there is not the one here. */
+  private async runFileChanged(): Promise<void> {
+    const root = this.root, store = this.store;
+    if (root === null || !store) return;
+    await this.refreshSaves();
+    const there = await store.read(root, "draft");
+    const here = this.run;
+    if (!there || !here || there.story !== root) return;
+    const same = (r: Run) => JSON.stringify([r.actions, r.startPoint, r.character, r.seeds, r.legacy ?? null]);
+    if (same(there) === same(here)) {
+      // Nothing to replay; just remember the newer revision so the next write is based on it.
+      if (there.rev > here.rev) this.run = { ...here, rev: there.rev };
+      return;
+    }
+    this.runDirty = true;
+    this.schedule();
   }
 
   onunload(): void {
@@ -129,17 +251,31 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   startAt(path: string | null): void {
     this.startPoint = path;
-    if (!this.session) return;
+    if (!this.session || this.replaying) return;
+    this.freshDraft();
     this.apply(this.session.startAt(path));
+    this.persist();
   }
 
+  /** In the author's working run, "restart" starts the draft over (new seeds), from the same start point and character. */
   restart(): void {
-    if (!this.session) return;
-    this.apply(this.session.restart());
+    if (!this.session || this.replaying) return;
+    this.freshDraft();
+    this.apply(this.session.startAt(this.startPoint));
+    this.persist();
+  }
+
+  /** Replaces the draft with a new one (new seeds) from the current start point and character; written by the next persist. */
+  private freshDraft(): void {
+    if (this.root === null || !this.store) return;
+    const fresh = newRun({ story: this.root, name: "", draft: true, startPoint: this.startPoint, character: this.character, device: "", now: new Date().toISOString() });
+    // The revision carries on, so this write supersedes every copy of the old draft.
+    this.run = { ...fresh, rev: this.run?.rev ?? 0 };
+    this.stopped = null;
   }
 
   choose(index: number, value?: string): void {
-    if (!this.session) return;
+    if (!this.session || this.replaying) return;
     // A choice that needs an item not carried is shown locked; it cannot be taken.
     const choice = this.last?.choices.find((c) => c.index === index);
     if (choice && this.game && !this.game.canChoose(choice)) return;
@@ -160,6 +296,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       }
     }
     this.apply(this.session.choose(index, payload));
+    this.persist();
   }
 
   /** A choice made, its text carrying the name of the card it was played with or the line typed. */
@@ -170,62 +307,154 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   }
 
   back(): void {
+    if (this.replaying) return;
     const step = this.session?.back();
-    if (step) this.apply(step);
+    if (!step) return;
+    this.apply(step);
+    this.persist();
   }
 
   selectCharacter(id: string): void {
-    if (!this.game || !playableCharacters(this.game.config).some((c) => c.id === id)) return;
+    if (this.replaying || !this.game || !playableCharacters(this.game.config).some((c) => c.id === id)) return;
     this.character = id;
     // A new character means a new run from the current start point.
     this.startAt(this.startPoint);
   }
 
   setStoryLanguage(lang: string): void {
+    if (this.replaying) return;
     this.config.storyLanguage = lang;
     void this.saveData(this.config);
-    if (this.session) this.apply(this.session.setLanguage(lang));
+    if (!this.session) return;
+    // The record of the run is rewritten in the new language as the run replays in it.
+    this.apply(this.session.setLanguage(lang));
+    this.persist();
   }
 
-  /** Saves the current play state of the current main story; null when there is nothing to save. */
-  async saveGame(name?: string): Promise<SaveSlot | null> {
-    const data = this.session?.save();
-    if (!data || this.root === null) {
+  /** Saves the run so far as a run of its own (a snapshot: playing on changes the draft, not it); null when there is nothing to save. */
+  async saveGame(name?: string): Promise<SaveInfo | null> {
+    const session = this.session, store = this.store, run = this.run;
+    if (!session || !store || !run || this.root === null || this.replaying || session.save() === null) {
       new Notice(T().nothingToSave);
       return null;
     }
-    const list = (this.config.saves[this.root] ??= []);
-    const slot: SaveSlot = {
-      ...data,
-      id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-      name: name?.trim() || T().saveName(list.length + 1),
-      savedAt: new Date().toISOString(),
-    };
-    list.unshift(slot);
-    await this.saveData(this.config);
-    new Notice(T().saved + slot.name);
-    this.pushState();
-    return slot;
+    const now = new Date().toISOString();
+    const { conflictOf: _conflictOf, ...current } = withTaken(run, session.taken, session.seqNext, now);
+    const id = newRun({ story: this.root, name: "", draft: false, startPoint: null, character: null, device: "", now }).id;
+    const snapshot: Run = { ...current, id, draft: false, name: name?.trim() || T().saveName(this.savesCache.length + 1), createdAt: now, rev: 0, baseRev: 0 };
+    try {
+      await store.write(snapshot);
+    } catch (e) {
+      new Notice(T().runWriteFailed(e instanceof Error ? e.message : String(e)));
+      return null;
+    }
+    await this.refreshSaves();
+    new Notice(T().saved + snapshot.name);
+    return { id, name: snapshot.name, savedAt: now };
   }
 
+  /** Loads a saved run into the draft (the save itself stays as it was) and replays it. */
   loadGame(id: string): void {
-    const slot = this.savesForRoot().find((s) => s.id === id);
-    if (!slot || !this.session) return;
-    const step = this.session.load(slot);
-    this.startPoint = this.session.startPoint;
-    this.apply(step);
+    void this.loadRun(id);
+  }
+
+  private async loadRun(id: string): Promise<void> {
+    const store = this.store, root = this.root;
+    if (!store || root === null || this.replaying) return;
+    const saved = await store.read(root, id);
+    if (!saved) return;
+    const { conflictOf: _conflictOf, ...rest } = saved;
+    this.run = { ...rest, id: "draft", draft: true, name: "", story: root, rev: this.run?.rev ?? 0, baseRev: 0, updatedAt: new Date().toISOString() };
+    this.stopped = null;
+    // Loading is the player's doing: the draft is now the save's run (not what the session played before).
+    this.writeRun();
+    this.playRun();
   }
 
   async deleteSave(id: string): Promise<void> {
-    if (this.root === null) return;
-    this.config.saves[this.root] = this.savesForRoot().filter((s) => s.id !== id);
-    if (this.config.saves[this.root].length === 0) delete this.config.saves[this.root];
-    await this.saveData(this.config);
+    if (this.root === null || !this.store) return;
+    await this.store.remove(this.root, id);
+    await this.refreshSaves();
+  }
+
+  savesForRoot(): SaveInfo[] {
+    return this.savesCache;
+  }
+
+  currentRun(): Run | null {
+    return this.run;
+  }
+
+  async runsForRoot(): Promise<Run[]> {
+    return this.root === null || !this.store ? [] : this.store.list(this.root);
+  }
+
+  /** Hides the note that the panel stopped short; the steps not replayed stay until the player does something new. */
+  dismissStop(): void {
+    this.stopped = null;
     this.pushState();
   }
 
-  savesForRoot(): SaveSlot[] {
-    return this.root === null ? [] : this.config.saves[this.root] ?? [];
+  /** Reads the saved runs of the current story for the saves list. */
+  private async refreshSaves(): Promise<void> {
+    const root = this.root, store = this.store;
+    if (root === null || !store) {
+      this.savesCache = [];
+      return;
+    }
+    try {
+      const runs = await store.list(root);
+      if (this.root !== root) return;
+      this.savesCache = runs.filter((r) => !r.draft).map((r) => ({
+        id: r.id,
+        name: r.conflictOf !== undefined ? T().conflictCopy(r.name || T().draftName) : r.name,
+        savedAt: r.updatedAt,
+      }));
+    } catch (e) {
+      console.error("Inkwright: could not list saved runs", e);
+    }
+    this.pushState();
+  }
+
+  /**
+   * Writes the run as the session has it now. Called after each thing the player does, and only then:
+   * a replay, a stop or a recompile never writes, so they cannot overwrite a run with less than it had.
+   */
+  private persist(): void {
+    const session = this.session, store = this.store, run = this.run;
+    if (!session || !store || !run || this.replaying) return;
+    this.stopped = null;
+    const now = new Date();
+    // Moving on from where a replay stopped drops the steps it could not take: keep the whole run as a save first.
+    if (run.pending && run.pending.length > 0) {
+      const { pending: _pending, conflictOf: _conflictOf, ...whole } = run;
+      const id = newRun({ story: run.story, name: "", draft: false, startPoint: null, character: null, device: "", now: now.toISOString() }).id;
+      const backup: Run = { ...whole, id, draft: false, name: T().backupName(stamp(now)), createdAt: now.toISOString(), rev: 0, baseRev: 0 };
+      this.writing = this.writing.then(async () => {
+        await store.write(backup).catch((e: unknown) => new Notice(T().runWriteFailed(e instanceof Error ? e.message : String(e))));
+        await this.refreshSaves();
+      });
+    }
+    this.run = withTaken(run, session.taken, session.seqNext, now.toISOString());
+    this.writeRun();
+  }
+
+  /** Queues a write of the run as it is now (writes happen one after another, each of the latest run). */
+  private writeRun(): void {
+    const store = this.store;
+    if (!store || this.writeQueued) return;
+    this.writeQueued = true;
+    this.writing = this.writing.then(async () => {
+      this.writeQueued = false;
+      const current = this.run;
+      if (!current) return;
+      try {
+        const written = await store.write(current);
+        if (this.run && this.run.id === written.id && this.run.story === written.story) this.run = { ...this.run, rev: written.rev, baseRev: written.baseRev, device: written.device };
+      } catch (e) {
+        new Notice(T().runWriteFailed(e instanceof Error ? e.message : String(e)));
+      }
+    });
   }
 
   toggleLock(): void {
@@ -245,6 +474,33 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.config.pinBar = value;
     await this.saveData(this.config);
     this.pushState();
+  }
+
+  getSaveFolder(): string {
+    return this.config.saveFolder ?? "";
+  }
+
+  /** A new save folder: runs are read from it from now on (the old folder's are not moved). */
+  async setSaveFolder(value: string): Promise<void> {
+    const folder = normalizePath(value.trim());
+    if (folder === "" || folder === "/" || folder === this.config.saveFolder) return;
+    this.config.saveFolder = folder;
+    await this.saveData(this.config);
+    this.store = this.makeStore();
+    this.runDirty = true;
+    this.schedule();
+  }
+
+  getSyncMode(): SyncMode {
+    return this.config.syncMode ?? "icloud";
+  }
+
+  async setSyncMode(value: SyncMode): Promise<void> {
+    this.config.syncMode = value;
+    await this.saveData(this.config);
+    this.store = this.makeStore();
+    this.runDirty = true;
+    this.schedule();
   }
 
   async openDiagnostic(d: Diagnostic): Promise<void> {
@@ -565,6 +821,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.root = root;
     if (root === null) {
       this.latest.invalidate();
+      this.replayAbort?.abort();
+      this.replaying = null;
       this.session = null;
       this.game = null;
       this.diagnostics = [];
@@ -577,10 +835,18 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     // Everything that awaits happens inside the guarded run, so a stale run never touches state.
     const latest = await this.latest.run(async () => {
       const result = await compileStory(root, this.readFile);
-      return { result, game: await this.readGameNote(root, result.files) };
+      const game = await this.readGameNote(root, result.files);
+      // The story's run: read when the story changed or another device moved it on; else the one in memory.
+      const run = this.run?.story !== root || this.runDirty ? await this.readDraft(root) : null;
+      return { result, game, run };
     });
     if (latest === null) return;
     const { result, game } = latest;
+    if (latest.run) {
+      this.run = latest.run;
+      this.runDirty = false;
+      void this.refreshSaves();
+    }
     this.files = result.files;
     this.diagnostics = result.diagnostics;
     this.applyGameNote(game);
@@ -589,19 +855,107 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (result.graph) this.graph = result.graph;
     this.graphStale = result.graph === null && this.graph !== null;
     if (result.story) {
-      // Keep the chosen start point across recompiles while it still exists.
-      if (this.startPoint !== null && !this.flows.some((f) => f.path === this.startPoint)) this.startPoint = null;
-      const game = this.game;
-      this.session = new PlaySession(result.story, {
-        language: this.config.storyLanguage ?? undefined,
-        setup: game ? (story) => game.setup(story, this.character ?? undefined) : undefined,
-      });
-      this.apply(this.session.startAt(this.startPoint));
+      this.compiled = result.story;
+      this.playRun();
     } else {
+      this.replayAbort?.abort();
+      this.replaying = null;
       this.session = null;
       this.last = null;
       this.pushState();
     }
+  }
+
+  /** The story's draft run as saved, or a new one (not written until the player does something). */
+  private async readDraft(root: string): Promise<Run> {
+    try {
+      const saved = await this.store?.read(root, "draft");
+      if (saved) return saved;
+    } catch (e) {
+      console.error("Inkwright: could not read the saved run", e);
+    }
+    return newRun({ story: root, name: "", draft: true, startPoint: null, character: null, device: "", now: new Date().toISOString() });
+  }
+
+  /**
+   * Plays the run on the compiled story: a fresh session seeded from the run, started where the run
+   * starts, then the run's actions replayed (asynchronously, strictly). A start point or character the
+   * story no longer has stops it before anything is replayed; the run is left as it was either way.
+   */
+  private playRun(): void {
+    const story = this.compiled, run = this.run;
+    if (!story || !run) return;
+    this.replayAbort?.abort();
+    this.replaying = null;
+    this.stopped = null;
+    const game = this.game;
+    let problem: Stopped | null = null;
+    if (run.startPoint !== null && !this.flows.some((f) => f.path === run.startPoint)) {
+      problem = { reason: "start", step: 1, pending: run.actions.length, detail: run.startPoint };
+    } else if (game && run.character !== null && !playableCharacters(game.config).some((c) => c.id === run.character)) {
+      problem = { reason: "character", step: 1, pending: run.actions.length, detail: run.character };
+    }
+    this.startPoint = problem?.reason === "start" ? null : run.startPoint;
+    this.character = problem?.reason === "character" ? null : run.character;
+    const session = new PlaySession(story, {
+      language: this.config.storyLanguage ?? undefined,
+      setup: game ? (s) => game.setup(s, this.character ?? undefined) : undefined,
+      // The run's seeds, so its RANDOMs, shuffles and dice come out as they did.
+      prepare: (s) => {
+        const seeds = this.run?.seeds ?? run.seeds;
+        s.state.storySeed = seeds.story;
+        s.state.previousRandom = 0;
+        game?.seed(s, seeds.dice);
+      },
+      outcome: game ? () => game.signatures() : undefined,
+    });
+    session.seqNext = run.seqNext;
+    this.session = session;
+    if (problem) {
+      this.run = { ...run, pending: run.actions };
+      this.stopped = problem;
+      this.apply(session.startAt(this.startPoint));
+      return;
+    }
+    const legacy = run.legacy;
+    const step = legacy?.from === "save"
+      ? session.load({ state: legacy.state, log: legacy.log, startPoint: run.startPoint })
+      : legacy?.from === "start" ? session.startFrom(legacy.state) : session.startAt(run.startPoint);
+    this.apply(step);
+    const actions = replayActions(run);
+    if (actions.length > 0) void this.replayRun(session, run, actions);
+  }
+
+  /** Replays a run's actions on the session, drawing progress; stops short (and says so) when the story no longer fits. */
+  private async replayRun(session: PlaySession, run: Run, actions: ReplayAction[]): Promise<void> {
+    const abort = new AbortController();
+    this.replayAbort = abort;
+    this.replaying = { done: 0, total: actions.length };
+    this.pushState();
+    let drawn = Date.now();
+    const result = await session.replay(actions, {
+      signal: abort.signal,
+      budgetMs: Platform.isMobile ? 10000 : 5000,
+      wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
+      onProgress: (done, total) => {
+        this.replaying = { done, total };
+        if (Date.now() - drawn > 250) {
+          drawn = Date.now();
+          this.pushState();
+        }
+      },
+    });
+    // A newer compile, a load or a restart took over.
+    if (abort.signal.aborted || this.session !== session) return;
+    this.replayAbort = null;
+    this.replaying = null;
+    const left = run.actions.slice(result.done);
+    if (left.length > 0) {
+      // The rest of the run is kept: written again only when the player does something new here.
+      this.run = { ...(this.run ?? run), pending: left };
+      this.stopped = { reason: result.stop?.reason ?? "mismatch", step: result.done + 1, pending: left.length };
+    }
+    this.apply(result.step);
   }
 
   /**
@@ -637,7 +991,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     for (const text of read.warnings) this.diagnostics.push({ severity: "warning", file: read.note.path, line: null, message: text, raw: "" });
     if (!read.config) return;
     if (this.character !== null && !playableCharacters(read.config).some((c) => c.id === this.character)) this.character = null;
-    this.game = new GameEngine(read.config);
+    // Every roll of the run is kept: the dice cards of a long run, and its fingerprints.
+    this.game = new GameEngine(read.config, { keepRolls: Infinity });
     if (this.root !== null) {
       for (const d of read.config.decks ?? []) {
         for (const c of d.cards) {
@@ -696,6 +1051,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       canGoBack: this.session?.canGoBack ?? false,
       chosen: this.session?.lastChoice ? this.withCard(this.session.lastChoice) : null,
       pinned: this.config.pinBar ?? false,
+      replay: this.replaying,
+      stopped: this.stopped,
       storyLanguage: this.session?.language ?? null,
       game: this.gameView(),
       saves: this.savesForRoot().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
@@ -720,4 +1077,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       }
     }
   }
+}
+
+/** `2026-11-04 10:05`, local time. */
+function stamp(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

@@ -40,6 +40,7 @@ Requires Obsidian 1.13 or later; older versions get the previous release automat
 ## Features
 
 - **Edit `.ink` files** in your vault with syntax highlighting.
+- **Pick up where you left off**: the player keeps your run across edits, restarts and devices (saved in a vault folder, one file per device), and stops where the story changed under you instead of starting over.
 - **Play panel**: the story recompiles a moment after you save, so you can play while you write. Undo the last choice, restart, or start from any knot or stitch.
 - **Errors you can click**: compile errors and warnings are listed with file and line; click to jump there.
 - **Multi-file stories**: `INCLUDE` paths resolve relative to the main story's folder, as in Inky and inklecate. Lock a main story so the panel keeps playing it while you edit its chapters.
