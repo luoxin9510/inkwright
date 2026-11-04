@@ -1,5 +1,6 @@
 import { FX, type GameConfig } from "../game/config";
 import { getLanguage, stringsFor, type Language } from "../i18n";
+import { findChoice } from "../play/match";
 import { STORY_LANGUAGES } from "../play/session";
 
 export interface WebPageOptions {
@@ -62,7 +63,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere,
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, updatedStop: t.webUpdatedStop("{n}"),
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -104,6 +105,7 @@ export function buildWebPage(o: WebPageOptions): string {
 <script type="application/json" id="ink-story">${story}</script>
 <script>${scriptSafe(o.runtime)}</script>
 ${o.game && o.engine ? `<script>${scriptSafe(o.engine)}</script>\n` : ""}<script>var INKWRIGHT = ${config};
+var findChoice = ${scriptSafe(findChoice.toString())};
 ${PLAYER}</script>
 </body>
 </html>
@@ -124,6 +126,7 @@ h1 { font-size: 1.5em; margin: 0 0 1.2em; }
 #story p { margin: 0 0 0.9em; white-space: pre-wrap; }
 #story p.chosen { color: var(--muted); font-style: italic; margin-top: 1.4em; }
 #story p.error { color: #c33; }
+#story p.note { color: var(--muted); font-size: 0.85em; border-left: 3px solid var(--accent); padding-left: 10px; }
 #choices { margin-top: 1.2em; display: flex; flex-direction: column; gap: 8px; }
 #choices button { text-align: left; font: inherit; color: var(--accent); background: none;
   border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; cursor: pointer; }
@@ -795,6 +798,8 @@ const PLAYER = `(function () {
   function choose(index, text, payload) {
     if (!replaying) afterChoice = true;
     var before = story.state.ToJson();
+    var offered = story.currentChoices.map(function (c) { return c.text; });
+    var shownIn = language();
     try {
       if (payload) story.variablesState[payload.var] = payload.item !== undefined ? inkjs.InkList.FromString(payload.item, story) : payload.text;
       story.ChooseChoiceIndex(index);
@@ -805,7 +810,10 @@ const PLAYER = `(function () {
       return;
     }
     history.push({ state: before, n: log.length });
-    picks.push(payload ? { index: index, payload: payload } : index);
+    // The choice is kept with its text, the screen's texts and the language: a re-exported page can find it again.
+    var pick = { index: index, text: offered[index], offered: offered, lang: shownIn };
+    if (payload) pick.payload = payload;
+    picks.push(pick);
     picked = null;
     typed = {};
     log.push({ text: text, kind: "chosen", turn: story.state.currentTurnIndex });
@@ -858,11 +866,49 @@ const PLAYER = `(function () {
       history: history.slice(-50), start: start, picks: picks })]);
   }
 
+  // Progress saved by an earlier export of the story: replayed from the start on this one, with the run's
+  // seeds, each choice found again the way the Obsidian panel finds it (findChoice); stops where one is gone.
+  function replayUpdated(saved) {
+    if (!saved.start || !saved.picks) return false;
+    var old = JSON.parse(saved.start);
+    story.ResetState();
+    applyLanguage();
+    if (engine) engine.start(story, storage(true, CHAR_KEY) || undefined);
+    story.state.storySeed = parseInt(old.storySeed, 10) || 0;
+    story.state.previousRandom = 0;
+    if (engine && G.inkNames) {
+      var seedVar = G.inkNames(cfg.game).seed, vars = old.variablesState || {};
+      if (typeof vars[seedVar] === "number") engine.seed(story, vars[seedVar]);
+    }
+    start = story.state.ToJson();
+    log = [];
+    history = [];
+    picks = [];
+    replaying = true;
+    advance();
+    var stoppedAt = -1;
+    for (var i = 0; i < saved.picks.length && !halted; i++) {
+      var p = saved.picks[i];
+      var a = typeof p === "number" ? { index: p, text: null } : { index: p.index, text: p.text === undefined ? null : p.text, offered: p.offered };
+      var payload = typeof p === "number" ? null : p.payload || null;
+      var texts = story.currentChoices.map(function (c) { return c.text; });
+      var found = findChoice(texts, a, "match", typeof p === "number" || !p.lang || p.lang === language());
+      if (!found) { stoppedAt = i; break; }
+      var c = story.currentChoices[found.index];
+      var label = !payload ? c.text : payload.item !== undefined ? (engine ? c.text + " · " + engine.cardName(payload.item) : c.text) : c.text + " · " + payload.text;
+      choose(found.index, label, payload);
+    }
+    replaying = false;
+    if (stoppedAt >= 0) log.push({ text: str().updatedStop.replace("{n}", String(stoppedAt + 1)), kind: "note" });
+    if (!halted) persist();
+    return true;
+  }
+
   function resume() {
     try {
       var saved = JSON.parse(storage(true, KEY) || "null");
-      // Progress from an earlier export of the story may not fit this one.
-      if (!saved || saved.version !== cfg.version) return false;
+      if (!saved) return false;
+      if (saved.version !== cfg.version) return replayUpdated(saved);
       story.state.LoadJson(saved.state);
       log = saved.log;
       history = saved.history;

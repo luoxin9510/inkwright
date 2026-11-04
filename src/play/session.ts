@@ -2,6 +2,7 @@ import { InkList, Story } from "inkjs/full";
 import { translateRuntime } from "../compile/diagnostics";
 import { T } from "../i18n";
 import { inspect, type Inspection } from "./inspect";
+import { findChoice, type ReplayMode } from "./match";
 
 export interface Paragraph {
   text: string;
@@ -72,7 +73,7 @@ export interface ReplayAction {
  * text being unique on the screen, or (a guess) by its text with the numbers left out being unique, or by it
  * being the one choice reworded on a screen that otherwise did not change; "index" whatever is at its index.
  */
-export type ReplayMode = "strict" | "match" | "index";
+export type { ReplayMode } from "./match";
 
 export interface ReplayOptions {
   mode?: ReplayMode;
@@ -547,30 +548,3 @@ function fingerprint(parts: readonly string[]): string {
   return (h >>> 0).toString(16);
 }
 
-/** Numbers left out, so "付 3 金" and "付 5 金" read the same. */
-function withoutNumbers(text: string): string {
-  return text.replace(/\d+/g, "#");
-}
-
-/** Where a recorded choice is on the screen now, by the replay mode's rules; null when it is not there. */
-function findChoice(texts: readonly string[], a: ReplayAction, mode: ReplayMode, sameLanguage: boolean): { index: number; guess: boolean } | null {
-  if (a.index < 0) return null;
-  const atIndex = a.index < texts.length;
-  // Recorded without text, in another language, or told to: the index is all there is.
-  if (mode === "index" || a.text === null || !sameLanguage) return atIndex ? { index: a.index, guess: false } : null;
-  if (atIndex && texts[a.index] === a.text) return { index: a.index, guess: false };
-  if (mode === "strict") return null;
-  const only = (pred: (t: string) => boolean) => {
-    const hits = texts.flatMap((t, i) => (pred(t) ? [i] : []));
-    return hits.length === 1 ? hits[0] : null;
-  };
-  const text = a.text;
-  const same = only((t) => t === text);
-  if (same !== null) return { index: same, guess: false };
-  const numbers = only((t) => withoutNumbers(t) === withoutNumbers(text));
-  if (numbers !== null) return { index: numbers, guess: true };
-  // Reworded: the screen has as many choices, every other one as it was.
-  const before = a.offered;
-  if (atIndex && before && before.length === texts.length && before.every((t, i) => i === a.index || t === texts[i])) return { index: a.index, guess: true };
-  return null;
-}
