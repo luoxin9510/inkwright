@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { mergeRuns, migrateSave, newRun, parseRun, replayActions, storyFolder, withTaken, type Run } from "../src/play/run";
+import { mergeRuns, migrateSave, newRun, parseRun, replayActions, stepAt, storyFolder, withTaken, type Run } from "../src/play/run";
 import type { Taken } from "../src/play/session";
 
 const NOW = "2026-11-04T10:00:00.000Z";
@@ -46,6 +46,8 @@ describe("asides in the run", () => {
     const replay = replayActions(r);
     expect(replay.map((a) => [a.seq, a.aside?.kind ?? "choose"])).toEqual([[0, "choose"], [1, "oracle"], [2, "choose"], [3, "roll"]]);
     expect(replay[3].aside).toEqual({ kind: "roll", lang: "zh", formula: "1d6", table: "action", result: { total: 4 } });
+    // The player's "step N" counts choices only: the oracle at position 1 is in step 2's place, the roll at 3 after step 2.
+    expect([0, 1, 2, 3, 4].map((pos) => stepAt(r.actions, pos))).toEqual([1, 2, 2, 3, 3]);
     // A kind this version cannot replay stops the replay there.
     const later = { ...r, actions: [...r.actions, { kind: "adjust" as const, seq: 4, lang: null, var: "hp", delta: -1 }, ...r.actions.slice(0, 1).map((a) => ({ ...a, seq: 5 }))] };
     expect(replayActions(later)).toHaveLength(4);

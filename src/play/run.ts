@@ -122,6 +122,11 @@ export function replayActions(run: Run): ReplayAction[] {
   return out;
 }
 
+/** The step the player sees for the action at `pos` (1-based, counting choices only): where a stop or a change is said to be. */
+export function stepAt(actions: readonly Action[], pos: number): number {
+  return actions.slice(0, pos).filter((a) => a.kind === "choose").length + 1;
+}
+
 /** The folder a story's runs live in: its name (or its folder's, for `main.ink`) and a hash of its path. */
 export function storyFolder(path: string): string {
   const parts = path.split("/");

@@ -6,7 +6,7 @@ import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphV
 import type { Diagnostic } from "./compile/diagnostics";
 import { inputOf, inputPayload } from "./play/input";
 import { PlaySession, findLanguageVar, type Chosen, type Payload, type ReplayAction, type SaveData, type Step } from "./play/session";
-import { hash, migrateSave, newRun, parseRun, replayActions, withTaken, type Run } from "./play/run";
+import { hash, migrateSave, newRun, parseRun, replayActions, stepAt, withTaken, type Run } from "./play/run";
 import { askOracle, oracleRules, rollTray, type Odds } from "./play/oracle";
 import { seededDice, type Rng } from "./game/dice";
 import { RunStore, type Files, type SyncMode } from "./play/store";
@@ -128,7 +128,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   /** Builds known to be kept (this session), so each is written once. */
   private storedBuilds = new Set<string>();
   /** What the last replay noticed without stopping: steps found by a guess, the first step whose outcome changed. */
-  private note: { guesses: number; drift: number | null } | null = null;
+  private note: { guesses: number; drift: number | null; driftAt: number | null } | null = null;
   /** The whole run was saved before the pending steps are dropped: once per stop. */
   private backedUp = false;
   /** Player mode: a newer version of the story is waiting to be applied. */
@@ -1218,10 +1218,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (left.length > 0) {
       // The rest of the run is kept: written again only when the player does something new here.
       this.run = { ...(this.run ?? run), pending: left };
-      this.stopped = { reason: result.stop?.reason ?? "mismatch", step: result.done + 1, pending: left.length };
+      this.stopped = { reason: result.stop?.reason ?? "mismatch", step: stepAt(run.actions, result.done), pending: left.length };
       void this.offerOlder(this.stopped);
     }
-    if (result.guesses.length > 0 || result.drift !== null) this.note = { guesses: result.guesses.length, drift: result.drift === null ? null : result.drift + 1 };
+    // The drift is kept as the action's position (to stop there) and shown as the player's step (choices only).
+    if (result.guesses.length > 0 || result.drift !== null) {
+      this.note = { guesses: result.guesses.length, drift: result.drift === null ? null : stepAt(run.actions, result.drift), driftAt: result.drift };
+    }
     // Picked up after more than an hour: a line where the player left off.
     if (resuming && Date.now() - Date.parse(run.updatedAt) > 60 * 60 * 1000) this.recap = { at: session.log.length, when: stamp(new Date(run.updatedAt)) };
     this.apply(result.step);
@@ -1301,15 +1304,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   /** Stops the run at the step whose outcome changed: the rest is pending, as at any stop. */
   stopAtDrift(): void {
-    const session = this.session, run = this.run, at = this.note?.drift;
+    const session = this.session, run = this.run, at = this.note?.driftAt;
     if (!session || !run || at === null || at === undefined || this.replaying) return;
-    // Replaying up to the step before it is the same as going back that many times.
-    const keep = at - 1;
-    const left = run.actions.slice(keep);
-    while (session.taken.length > keep && session.canGoBack) session.back();
+    const drifting = run.actions[at];
+    if (!drifting) return;
+    // Everything done from the drifting action on is taken back (choices and tray asides alike) and kept as pending.
+    session.undoUntil(drifting.seq);
+    const left = run.actions.slice(at);
     this.run = { ...run, pending: left };
     this.note = null;
-    this.stopped = { reason: "chosen", step: keep + 1, pending: left.length };
+    this.stopped = { reason: "chosen", step: stepAt(run.actions, at), pending: left.length };
     this.apply(session.current());
   }
 

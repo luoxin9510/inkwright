@@ -333,6 +333,22 @@ describe("asides (the dice tray)", () => {
     expect(s.asides).toEqual([]);
   });
 
+  test("undoUntil takes back everything done from a seq on, asides and choices alike", () => {
+    const s = new PlaySession(compile(SRC));
+    s.start();
+    s.choose(0);            // seq 0
+    s.addAside(oracle("一")); // seq 1
+    s.choose(0);            // seq 2
+    s.addAside(oracle("二")); // seq 3
+    s.choose(0);            // seq 4
+    s.undoUntil(2);
+    expect(s.taken.map((x) => x.seq)).toEqual([0]);
+    expect(s.asides.map((a) => a.seq)).toEqual([1]);
+    s.undoUntil(0);
+    expect(s.taken).toEqual([]);
+    expect(s.asides).toEqual([]);
+  });
+
   test("a replay puts the recorded asides back, with their results, between the choices", async () => {
     const s = new PlaySession(compile(SRC));
     s.start();

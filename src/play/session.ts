@@ -298,6 +298,14 @@ export class PlaySession {
     return placed;
   }
 
+  /** Takes back everything done from `seq` on (choices and asides alike), latest first. */
+  undoUntil(seq: number): void {
+    for (;;) {
+      const latest = Math.max(this.takenList.at(-1)?.seq ?? -1, this.asideList.at(-1)?.seq ?? -1);
+      if (latest < seq || this.undo() === null) return;
+    }
+  }
+
   /** Takes back the latest thing done: an aside, or a choice (see back). Null when there is nothing to take back. */
   undo(): Step | null {
     const aside = this.asideList.at(-1);
