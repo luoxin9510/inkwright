@@ -275,6 +275,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private async runFileChanged(): Promise<void> {
     const root = this.root, store = this.store;
     if (root === null || !store) return;
+    // A local write still queued would make the disk look older than the run here: let it land first.
+    await this.writing;
     await this.refreshSaves();
     const there = await store.read(root, "draft");
     const here = this.run;
@@ -291,6 +293,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   onunload(): void {
     if (this.timer !== null) window.clearTimeout(this.timer);
+    if (this.folderTimer !== null) window.clearTimeout(this.folderTimer);
   }
 
   // --- PlayController ---
@@ -526,27 +529,44 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return this.config.saveFolder ?? "";
   }
 
-  /** A new save folder: runs are read from it from now on (the old folder's are not moved). */
-  async setSaveFolder(value: string): Promise<void> {
+  /**
+   * A new save folder, applied a moment after the typing stops (the setting reports every keystroke, and each
+   * prefix must not become a folder). The run in progress is kept and written to the new folder; the old
+   * folder's saves are not moved.
+   */
+  setSaveFolder(value: string): Promise<void> {
+    if (this.folderTimer !== null) window.clearTimeout(this.folderTimer);
+    this.folderTimer = window.setTimeout(() => {
+      this.folderTimer = null;
+      void this.applySaveFolder(value);
+    }, 1000);
+    return Promise.resolve();
+  }
+
+  private folderTimer: number | null = null;
+
+  private async applySaveFolder(value: string): Promise<void> {
     const folder = normalizePath(value.trim());
     if (folder === "" || folder === "/" || folder === this.config.saveFolder) return;
     this.config.saveFolder = folder;
     await this.saveData(this.config);
+    await this.writing;
     this.store = this.makeStore();
-    this.runDirty = true;
-    this.schedule();
+    if (this.run) this.writeRun();
+    await this.refreshSaves();
   }
 
   getSyncMode(): SyncMode {
     return this.config.syncMode ?? "icloud";
   }
 
+  /** The same folder read another way: every device's copy is still there, so the run in progress stays as it is. */
   async setSyncMode(value: SyncMode): Promise<void> {
     this.config.syncMode = value;
     await this.saveData(this.config);
+    await this.writing;
     this.store = this.makeStore();
-    this.runDirty = true;
-    this.schedule();
+    await this.refreshSaves();
   }
 
   async openDiagnostic(d: Diagnostic): Promise<void> {
