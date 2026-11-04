@@ -96,6 +96,11 @@
 .inkwright-turn::before, .inkwright-turn::after { content: ""; flex: 1; border-top: 1px solid var(--text-accent); opacity: 0.6; }
 .inkwright-turn-text { font-style: italic; white-space: pre-wrap; }
 .inkwright-turn-text::before { content: "› "; }
+.inkwright-recap { display: flex; align-items: center; gap: 0.6em; margin: 1.2em 0 0.8em; color: var(--text-muted); font-size: var(--font-smaller); }
+.inkwright-recap::before, .inkwright-recap::after { content: ""; flex: 1; border-top: 1px dashed var(--text-muted); }
+.inkwright-earlier { display: block; margin: 0 auto 1em; font-size: var(--font-smaller); }
+.inkwright-problems { margin-bottom: 8px; font-size: var(--font-smaller); color: var(--text-warning); }
+.inkwright-mode-on { color: var(--text-accent); }
 
 /* inkwright: game mode */
 .inkwright-hud { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: var(--font-smaller); }
