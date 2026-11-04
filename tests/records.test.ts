@@ -66,6 +66,14 @@ ${generateInk(RECORDS)}
     expect(s.start().paragraphs[0].text).toBe("0 1");
   });
 
+  test("an empty entry adds nothing and is not counted; a record may be called like the wrappers' temps", () => {
+    const odd: GameConfig = { ...CONFIG, records: [{ id: "before" }] };
+    const src = `-> main\n${generateInk(odd)}\n=== main ===\n~ 记录_加("before", "")\n~ 记录_加("before", "  ")\n~ 记录_加("before", "甲")\n{记录_数("before")} {记录_抽("before")}\n-> END\n`;
+    const engine = new GameEngine(odd);
+    const s = new PlaySession(new Compiler(src).Compile(), { setup: (st) => engine.setup(st, "昕") });
+    expect(s.start().paragraphs[0].text).toBe("1 甲");
+  });
+
   test("without the engine (Inky): add and count work, the list is the raw text", () => {
     const s = new PlaySession(new Compiler(STORY).Compile());
     const text = s.start().paragraphs.map((p) => p.text);

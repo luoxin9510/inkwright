@@ -141,6 +141,8 @@ export class PlayView extends ItemView {
   private showAllFor: string | null = null;
   /** Player mode: the problems the story has, shown when its badge is clicked. */
   private problemsOpen = false;
+  /** A record an entry was just added to: its add box is focused again after the redraw. */
+  private focusRecord: string | null = null;
   /** The dice tray is unfolded; what was typed in it is kept across redraws. */
   private trayOpen = false;
   private trayQuestion = "";
@@ -810,8 +812,15 @@ export class PlayView extends ItemView {
       }
       const add = box.createEl("input", { cls: "inkwright-record-add", type: "text", placeholder: T().recordAddHere });
       add.onkeydown = (e) => {
-        if (e.key === "Enter" && !e.isComposing && add.value.trim() !== "") this.controller.changeRecord(rec.id, "add", add.value.trim());
+        if (e.key !== "Enter" || e.isComposing || add.value.trim() === "") return;
+        // The HUD is drawn again after the change: the box of this record gets the focus back, for the next entry.
+        this.focusRecord = rec.id;
+        this.controller.changeRecord(rec.id, "add", add.value.trim());
       };
+      if (this.focusRecord === rec.id) {
+        this.focusRecord = null;
+        window.setTimeout(() => add.focus(), 0);
+      }
     }
   }
 

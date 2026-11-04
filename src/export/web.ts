@@ -497,7 +497,7 @@ const PLAYER = `(function () {
     if (h.resources.length) line(s.status, h.resources.map(shown).join(" · "));
     if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
     if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
-    (h.records || []).forEach(function (r) { line(r.name, r.entries.length ? r.entries.join("、") : "—"); });
+    (h.records || []).forEach(function (r) { line(r.name, r.entries.length ? r.entries.join(language() === "en" ? ", " : "、") : "—"); });
     h.companions.forEach(function (c) {
       if (c.resources.length) line(c.name, c.resources.map(function (r) { return r.name + " " + r.value; }).join(" · "));
     });
