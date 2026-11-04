@@ -192,10 +192,46 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       device = `${Platform.isMobile ? "mobile" : "desktop"}-${Math.random().toString(36).slice(2, 8)}`;
       this.app.saveLocalStorage("inkwright-device", device);
     }
-    const a = this.app.vault.adapter;
+    // Runs are ordinary vault files: read and written through the Vault API like every other file the plugin touches.
+    const vault = this.app.vault;
+    const at = (p: string) => vault.getAbstractFileByPath(normalizePath(p));
+    const file = (p: string) => {
+      const f = at(p);
+      if (!(f instanceof TFile)) throw new Error("not a file: " + p);
+      return f;
+    };
     const files: Files = {
-      exists: (p) => a.exists(p), read: (p) => a.read(p), write: (p, d) => a.write(p, d), mkdir: (p) => a.mkdir(p),
-      remove: (p) => a.remove(p), rmdir: (p, r) => a.rmdir(p, r), rename: (f, t) => a.rename(f, t), list: (p) => a.list(p),
+      exists: (p) => Promise.resolve(at(p) !== null),
+      read: (p) => vault.read(file(p)),
+      write: async (p, d) => {
+        const f = at(p);
+        if (f instanceof TFile) await vault.modify(f, d);
+        else await vault.create(normalizePath(p), d);
+      },
+      mkdir: async (p) => {
+        if (!at(p)) await vault.createFolder(normalizePath(p));
+      },
+      // A deleted save goes where the user's deleted files go (the trash, by default).
+      remove: async (p) => {
+        const f = at(p);
+        if (f) await this.app.fileManager.trashFile(f);
+      },
+      rmdir: async (p) => {
+        const f = at(p);
+        if (f) await this.app.fileManager.trashFile(f);
+      },
+      rename: async (from, to) => {
+        const f = at(from);
+        if (f) await vault.rename(f, normalizePath(to));
+      },
+      list: (p) => {
+        const f = at(p);
+        const children = f instanceof TFolder ? f.children : [];
+        return Promise.resolve({
+          files: children.filter((c) => c instanceof TFile).map((c) => c.path),
+          folders: children.filter((c) => c instanceof TFolder).map((c) => c.path),
+        });
+      },
     };
     return new RunStore(files, { folder: normalizePath(this.config.saveFolder), device, sync: this.config.syncMode ?? "icloud" });
   }
