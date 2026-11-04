@@ -47,6 +47,7 @@ export function mergeAsides(asides: readonly PlacedAside[]): PlacedAside[] {
 /** One question or roll from the dice tray as a line: `🔮 门后有人吗(很可能)d100 34 / 75 → 是`, `🎲 动作 1d6: 4 = 4 · 寻找`. */
 export function asideLine(a: PlacedAside, language: Language): string {
   const s = stringsFor(language);
+  if (a.kind === "record") return `📝 ${a.var ?? ""} ${a.op === "remove" ? "−" : "+"} ${a.entry ?? ""}`;
   if (a.kind === "adjust" || a.kind === "set") {
     const r = a.result as { from: unknown; to: unknown } | null;
     const change = a.kind === "adjust" ? `${(a.delta ?? 0) > 0 ? "+" : ""}${a.delta ?? 0}` : `= ${String(a.value)}`;
@@ -78,8 +79,8 @@ export function rollLine(r: RollRecord, language: Language, skills: readonly { i
   const faces = r.rolls.length > 0 ? r.rolls.map((f, i) => (out.has(i) ? `~~${f}~~` : String(f))).join("+") : "—";
   if (r.kind === "dice") {
     if (r.unknown) return `🎲 ${r.formula} ${s.badFormula}`;
-    const head = r.deck ? r.deck.name : r.table ? `${r.table.name} ${r.formula}` : r.formula;
-    const result = r.deck ? r.deck.card : r.table?.text;
+    const head = r.deck ? r.deck.name : r.record ? r.record.name : r.table ? `${r.table.name} ${r.formula}` : r.formula;
+    const result = r.deck ? r.deck.card : r.record ? r.record.entry : r.table?.text;
     return `🎲 ${head}: ${faces} = ${r.total}${result !== undefined ? ` · ${result}` : ""}`;
   }
   const name = r.unknown ? `${r.skill} ${s.unknownSkill}` : skills.find((k) => k.id === r.skill)?.name ?? r.skill;

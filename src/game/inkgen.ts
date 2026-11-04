@@ -287,5 +287,61 @@ export function generateInk(config: GameConfig): string {
       "~ return 0",
     );
   }
+  if (config.records?.length) lines.push(...recordInk(config));
   return lines.join("\n") + "\n";
+}
+
+/**
+ * Records (solo PRD §4.5): one string VAR per record holding its entries and a counter VAR; the pure
+ * EXTERNALs on a store (the engine escapes; the fallback joins with a plain ";"), and wrappers that take the
+ * record's id as a string. A pick rolls through the dice EXTERNAL with the label "record:<id>", so it follows the
+ * run's seed and shows as a roll; without the engine it reads the whole store.
+ */
+function recordInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const records = config.records ?? [];
+  const r = n.recordParam, e = n.entryParam, st = n.storeParam;
+  const per = (body: (id: string, count: string) => string[]) => records.flatMap((rec) => [`{ ${r} == "${rec.id}":`, ...body(rec.id, `${rec.id}${n.countSuffix}`).map((l) => `    ${l}`), "}"]);
+  return [
+    "",
+    `// Records: ${n.recordAdd}("${records[0].id}", "text"), ${n.recordRemove}("${records[0].id}", "text"), ${n.recordCount}("${records[0].id}"),`,
+    `// ${n.recordPick}("${records[0].id}") (a random entry, rolled), ${n.recordList}("${records[0].id}") (every entry as text).`,
+    ...records.flatMap((rec) => [`VAR ${rec.id} = ""`, `VAR ${rec.id}${n.countSuffix} = 0`]),
+    `EXTERNAL ${n.recordJoin}(${st}, ${e})`,
+    `EXTERNAL ${n.recordDrop}(${st}, ${e})`,
+    `EXTERNAL ${n.recordSize}(${st})`,
+    `EXTERNAL ${n.recordAt}(${st}, ${n.recordNoParam})`,
+    `EXTERNAL ${n.recordText}(${st})`,
+    "",
+    "// Without the engine: entries joined with a plain ;, nothing taken out, the whole store read.",
+    `=== function ${n.recordJoin}(${st}, ${e}) ===`, `{ ${e} == "":`, `    ~ return ${st}`, "}", `{ ${st} == "":`, `    ~ return ${e}`, "}", `~ return ${st} + ";" + ${e}`,
+    `=== function ${n.recordDrop}(${st}, ${e}) ===`, `~ return ${st}`,
+    `=== function ${n.recordSize}(${st}) ===`, "~ return 0",
+    `=== function ${n.recordAt}(${st}, ${n.recordNoParam}) ===`, `~ return ${st}`,
+    `=== function ${n.recordText}(${st}) ===`, `~ return ${st}`,
+    "",
+    // The counter follows only a store that changed (an empty entry adds nothing). The temp is named like a
+    // parameter, a name reserved for records, so no record id can clash with it.
+    `=== function ${n.recordAdd}(${r}, ${e}) ===`,
+    `~ temp ${st} = ""`,
+    ...per((id, count) => [`~ ${st} = ${id}`, `~ ${id} = ${n.recordJoin}(${id}, ${e})`, `{ ${id} != ${st}:`, `    ~ ${count} = ${count} + 1`, "}"]),
+    "",
+    `=== function ${n.recordRemove}(${r}, ${e}) ===`,
+    // One temp for every branch: ink allows a temp to be declared only once in a function.
+    `~ temp ${st} = ""`,
+    ...per((id, count) => [`~ ${st} = ${id}`, `~ ${id} = ${n.recordDrop}(${id}, ${e})`, `{ ${id} != ${st}:`, `    ~ ${count} = ${count} - 1`, "}"]),
+    "",
+    `=== function ${n.recordCount}(${r}) ===`,
+    ...per((_id, count) => [`~ return ${count}`]),
+    "~ return 0",
+    "",
+    `=== function ${n.recordPick}(${r}) ===`,
+    // One entry is no choice (and "1d1" is no die): it is the pick, nothing rolled.
+    ...per((id, count) => [`{ ${count} <= 0:`, `    ~ return ""`, "}", `{ ${count} == 1:`, `    ~ return ${n.recordAt}(${id}, 1)`, "}", `~ return ${n.recordAt}(${id}, ${n.dice}("1d" + ${count}, "record:${id}"))`]),
+    `~ return ""`,
+    "",
+    `=== function ${n.recordList}(${r}) ===`,
+    ...per((id) => [`~ return ${n.recordText}(${id})`]),
+    `~ return ""`,
+  ];
 }

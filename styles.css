@@ -29,6 +29,9 @@
 .inkwright-track-box { display: inline-flex; width: 1.4em; height: 1.4em; align-items: center; justify-content: center; border: 1px solid var(--background-modifier-border); border-radius: 3px; font-size: 0.8em; color: var(--text-accent); }
 .inkwright-track-full { background: var(--background-modifier-hover); }
 .inkwright-hud-adjust { padding: 0 6px; min-height: 0; height: 1.6em; }
+.inkwright-record .inkwright-item { display: inline-flex; align-items: center; gap: 2px; }
+.inkwright-record-drop { padding: 0 4px; min-height: 0; height: 1.4em; background: none; box-shadow: none; color: var(--text-muted); }
+.inkwright-record-add { width: 9em; font-size: var(--font-smaller); }
 .inkwright-manual { margin: 6px 0; color: var(--text-muted); font-size: var(--font-smaller); }
 .inkwright-tray { margin-top: 12px; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 8px; }
 .inkwright-tray summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-smaller); }

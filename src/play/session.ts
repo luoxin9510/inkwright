@@ -4,6 +4,7 @@ import { T } from "../i18n";
 import { inspect, type Inspection } from "./inspect";
 import { findChoice, type ReplayMode } from "./match";
 import { isWrite } from "./input";
+import { recordAdd, recordDrop, recordEntries } from "../game/records";
 
 export interface Paragraph {
   text: string;
@@ -66,15 +67,19 @@ export interface Aside {
   seq?: number;
   lang: string | null;
   /** "adjust" / "set": the player changed a variable by hand (the only asides that change the story). */
-  kind: "oracle" | "roll" | "adjust" | "set";
+  kind: "oracle" | "roll" | "adjust" | "set" | "record";
   question?: string;
   odds?: string;
   formula?: string;
   table?: string;
-  /** adjust / set: the variable, what was added, or the value set. */
+  /** adjust / set: the variable, what was added, or the value set. record: the record's store variable. */
   var?: string;
   delta?: number;
   value?: number | string;
+  /** record: its counter variable, whether an entry is added or taken out, and the entry. */
+  count?: string;
+  op?: "add" | "remove";
+  entry?: string;
   result: unknown;
 }
 
@@ -316,7 +321,7 @@ export class PlaySession {
 
   /** Puts an aside here: a hand change is made again, anything else is kept as it was. */
   private placeAside(a: Aside): PlacedAside | null {
-    return a.kind === "adjust" || a.kind === "set" ? this.applyManual(a) : this.addAside(a);
+    return a.kind === "adjust" || a.kind === "set" || a.kind === "record" ? this.applyManual(a) : this.addAside(a);
   }
 
   /**
@@ -328,6 +333,19 @@ export class PlaySession {
     const name = a.var;
     if (!name || this.halted || !this.story.variablesState.GlobalVariableExistsWithName(name)) return null;
     const raw: unknown = this.story.variablesState[name];
+    // A record: the entry goes into (or out of) its store, and its counter follows.
+    if (a.kind === "record") {
+      const count = a.count;
+      if (!count || !this.story.variablesState.GlobalVariableExistsWithName(count) || !a.entry) return null;
+      const store = typeof raw === "string" ? raw : "";
+      const next = a.op === "remove" ? recordDrop(store, a.entry) : recordAdd(store, a.entry);
+      const before = this.story.state.ToJson();
+      this.story.variablesState[name] = next;
+      this.story.variablesState[count] = recordEntries(next).length;
+      const placed = this.addAside({ ...a, result: { changed: next !== store } });
+      placed.before = before;
+      return placed;
+    }
     const from = typeof raw === "number" ? raw : Number(raw);
     let to: number | string;
     if (a.kind === "adjust") to = (Number.isFinite(from) ? from : 0) + (a.delta ?? 0);

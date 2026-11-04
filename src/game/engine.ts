@@ -2,6 +2,7 @@ import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
 import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText, type PartyDef } from "./config";
 import { boardOf, freeDoors, markRoom, nearestFreeRoom, noteGet, noteSet, parseLayout, placeRoom, placeSecret, startLayout, stepsBetween, wayBetween, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
+import { recordAdd, recordAt, recordDrop, recordEntries } from "./records";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -43,6 +44,8 @@ export interface DiceRecord {
   unknown?: true;
   /** For a table roll: the table and the row the total landed on (text in the engine's language). */
   table?: { id: string; name: string; text: string; rowId?: string; row?: number };
+  /** For a pick from a record: the record and the entry that came out. */
+  record?: { id: string; name: string; entry: string };
   /** For a draw: the deck and the card that came out (named in the engine's language). */
   deck?: { id: string; name: string; card: string; cardId: string; desc?: string };
 }
@@ -203,6 +206,8 @@ export interface HudView {
   hands?: HandView[];
   /** The party, absent when the game has none. */
   party?: { name: string; members: PartyMemberView[] };
+  /** Each record's entries, absent when the game has no records. */
+  records?: { id: string; name: string; entries: string[] }[];
 }
 
 /**
@@ -247,6 +252,7 @@ export class GameEngine {
     // ink forbids unsafe externals. Faces are a hash of (seed, index), so a call repeated by lookahead rolls the same.
     story.BindExternalFunction(inkNames(this.config).dice, (formula: unknown, label: unknown) => this.rollDice(formula, label), true);
     this.bindDungeon(story);
+    this.bindRecords(story);
     // A resource lives in min..max: whatever the story adds, it is clamped once the step is done
     // (inkjs tells observers after a Continue), and the overshoot is kept for the checkers.
     for (const r of this.resourceVariables()) {
@@ -342,6 +348,18 @@ export class GameEngine {
     return result.band;
   }
 
+  /** The records' functions: pure on the store text, so lookahead may call them as often as it likes. */
+  private bindRecords(story: Story): void {
+    if (!this.config.records?.length) return;
+    const n = inkNames(this.config);
+    const text = (v: unknown) => GameEngine.text(v) ?? "";
+    story.BindExternalFunction(n.recordJoin, (store: unknown, entry: unknown) => recordAdd(text(store), text(entry)), true);
+    story.BindExternalFunction(n.recordDrop, (store: unknown, entry: unknown) => recordDrop(text(store), text(entry)), true);
+    story.BindExternalFunction(n.recordSize, (store: unknown) => recordEntries(text(store)).length, true);
+    story.BindExternalFunction(n.recordAt, (store: unknown, k: unknown) => recordAt(text(store), Number(k)), true);
+    story.BindExternalFunction(n.recordText, (store: unknown) => recordEntries(text(store)).join(this.language === "en" ? ", " : "、"), true);
+  }
+
   /** The growing dungeon's functions: pure on the layout text, so lookahead may call them as often as it likes and back/load/replay keep the map. */
   private bindDungeon(story: Story): void {
     const def = this.config.dungeon;
@@ -387,6 +405,8 @@ export class GameEngine {
     const label = GameEngine.text(labelArg) ?? "";
     const table = label === "" ? undefined : this.config.tables?.find((t) => t.id === label);
     const deck = label === "" ? undefined : this.config.decks?.find((d) => d.id === label);
+    // A pick from a record rolls "1d<count>" with the label "record:<id>": the entry is read from the store now.
+    const recordDef = label.startsWith("record:") ? this.config.records?.find((r) => r.id === label.slice(7)) : undefined;
     // A table's dice come from the table itself, a deck's from its pile; the text is only what the generated ink passes along.
     const left = deck ? this.pile(deck.id, deck.cards) : [];
     const formula = table ? tableFormula(table) : deck ? { count: 1, sides: Math.max(1, left.length), bonus: 0, d66: false } : parseFormula(text);
@@ -413,6 +433,10 @@ export class GameEngine {
         ...(hit?.row.id !== undefined ? { rowId: hit.row.id } : {}),
         ...(hit ? { row: hit.index } : {}),
       };
+    }
+    if (recordDef) {
+      const store = GameEngine.text(this.read(recordDef.id)) ?? "";
+      record.record = { id: recordDef.id, name: localize(recordDef.name, this.language, recordDef.id), entry: recordAt(store, total) };
     }
     if (deck) {
       const card = left[total - 1];
@@ -617,6 +641,7 @@ export class GameEngine {
       ...(this.config.decks?.length ? { decks: this.config.decks.map((d) => ({ id: d.id, name: name(d), left: this.pile(d.id, d.cards).length, total: d.cards.length })) } : {}),
       ...(this.config.hands?.length ? { hands: this.config.hands.map((h) => ({ id: h.id, name: name(h), cards: this.cardsIn(h.id) })) } : {}),
       ...(this.config.party ? { party: this.party(this.config.party) } : {}),
+      ...(this.config.records?.length ? { records: this.config.records.map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
     };
   }
 

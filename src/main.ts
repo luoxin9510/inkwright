@@ -18,7 +18,7 @@ import GAME_ENGINE from "virtual:game-engine";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { findGameNote, loadGameConfig } from "./game/obsidian";
-import { engineFile, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
+import { engineFile, inkNames, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
 import { generateInk } from "./game/inkgen";
 import { resolveConfig, type ConfigSource } from "./game/resolve";
 import type { CardNote } from "./game/cards";
@@ -540,6 +540,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       ? session.applyManual({ kind: "adjust", lang: session.language, var: id, delta, result: null })
       : session.applyManual({ kind: "set", lang: session.language, var: id, value, result: null });
     if (!placed) return;
+    this.apply(session.current());
+    this.persist();
+  }
+
+  /** The player adds an entry to a record or takes one out (a clue found, a thread closed). Kept in the run. */
+  changeRecord(id: string, op: "add" | "remove", entry: string): void {
+    const session = this.session, config = this.game?.config;
+    if (!session || this.replaying || !config?.records?.some((r) => r.id === id) || entry.trim() === "") return;
+    const count = `${id}${inkNames(config).countSuffix}`;
+    if (!session.applyManual({ kind: "record", lang: session.language, var: id, count, op, entry: entry.trim(), result: null })) return;
     this.apply(session.current());
     this.persist();
   }

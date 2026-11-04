@@ -497,6 +497,7 @@ const PLAYER = `(function () {
     if (h.resources.length) line(s.status, h.resources.map(shown).join(" · "));
     if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
     if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
+    (h.records || []).forEach(function (r) { line(r.name, r.entries.length ? r.entries.join(language() === "en" ? ", " : "、") : "—"); });
     h.companions.forEach(function (c) {
       if (c.resources.length) line(c.name, c.resources.map(function (r) { return r.name + " " + r.value; }).join(" · "));
     });
@@ -521,8 +522,8 @@ const PLAYER = `(function () {
       var li = document.createElement("li"), faces = r.rolls.length ? r.rolls.join("+") : "—";
       if (r.kind === "check" && r.token) faces = tokenText(r.token);
       if (r.kind === "dice") {
-        var got = r.deck ? r.deck.card : r.table ? r.table.text : null;
-        li.textContent = (r.deck ? r.deck.name : r.table ? r.table.name + " " + r.formula : r.formula) + ": " + (r.unknown ? "?" : faces + " = " + r.total + (got !== null ? " · " + got : ""));
+        var got = r.deck ? r.deck.card : r.record ? r.record.entry : r.table ? r.table.text : null;
+        li.textContent = (r.deck ? r.deck.name : r.record ? r.record.name : r.table ? r.table.name + " " + r.formula : r.formula) + ": " + (r.unknown ? "?" : faces + " = " + r.total + (got !== null ? " · " + got : ""));
       } else {
         var mods = r.modifiers.map(function (m) { return (m.value > 0 ? " +" : " ") + m.value; }).join("");
         li.textContent = (r.unknown ? r.skill + " " + s.unknownSkill : skillOf(r.skill).name) + " " + r.difficulty + ": " +
@@ -696,13 +697,13 @@ const PLAYER = `(function () {
     if (r.kind === "dice") {
       // Free dice, a table or a deck: the formula (or the table and its dice, or the deck), the faces, the total, the row or card.
       card.className = "roll free";
-      skill.textContent = r.deck ? r.deck.name : r.table ? r.table.name + " " + r.formula : r.formula;
+      skill.textContent = r.deck ? r.deck.name : r.record ? r.record.name : r.table ? r.table.name + " " + r.formula : r.formula;
       card.appendChild(skill);
       card.appendChild(faces(r.rolls, r.dropped));
       var total = document.createElement("span");
       total.textContent = r.unknown ? "?" : "= " + r.total;
       card.appendChild(total);
-      var result = r.deck ? r.deck.card : r.table ? r.table.text : null;
+      var result = r.deck ? r.deck.card : r.record ? r.record.entry : r.table ? r.table.text : null;
       if (result !== null) {
         var row = document.createElement("span");
         row.className = "band";
