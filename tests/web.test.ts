@@ -529,3 +529,17 @@ describe("re-exported pages keep the player's progress", () => {
     expect(texts("#story p").slice(1)).toEqual(story.slice(1));
   });
 });
+
+test("a saved run that cannot be replayed (broken) starts the page over, keeps the old save aside and saves new progress", () => {
+  const src = "开始。\n+ [向左] -> k\n+ [向右] -> k\n=== k ===\n到了。\n-> END\n";
+  const broken = JSON.stringify({ version: "old", state: "{}", log: [], history: [], start: "{ not json", picks: [1] });
+  localStorage.setItem("inkwright:b", broken);
+  mount(buildWebPage({ title: "B", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "b" }));
+  expect(texts("#choices button")).toEqual(["向左", "向右"]);
+  expect(localStorage.getItem("inkwright:b:old")).toBe(broken);
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(texts("#story p")).toEqual(["开始。", "向左", "到了。"]);
+  // The new progress is saved (the page is not stuck "replaying").
+  mount(buildWebPage({ title: "B", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "b" }));
+  expect(texts("#story p")).toEqual(["开始。", "向左", "到了。"]);
+});
