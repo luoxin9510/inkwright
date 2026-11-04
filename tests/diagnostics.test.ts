@@ -88,6 +88,11 @@ describe("translateRuntime", () => {
     expect(translateRuntime("Cannot assign to a variable (cat) that hasn't been declared in the story"))
       .toBe("无法给 'cat' 赋值:剧本里没有用 VAR 声明这个变量");
   });
+  test("a tag written inside a string (inside a text function's argument)", () => {
+    // Exact text from inkjs, seen with {t("… #check:iron:10", "…")}.
+    expect(translate("Tags aren't allowed inside of strings. Please use \\# if you want a hash symbol."))
+      .toBe("字符串里不能写标签(#):把标签移到字符串外面;要写井号就写成 \\#");
+  });
   test("plain messages are translated as-is", () => {
     expect(translateRuntime("Unresolved variable: x")).toBe(translate("Unresolved variable: x"));
   });

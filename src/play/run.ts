@@ -96,9 +96,12 @@ export function withTaken(run: Run, taken: readonly Taken[], seqNext: number, no
   const chosen: Action[] = taken.map((t) => ({
     kind: "choose", seq: t.seq, lang: t.lang, index: t.index, text: t.text, ...(t.payload ? { payload: t.payload } : {}), fp: t.fp, offered: t.offered,
   }));
-  const aside: Action[] = asides.map((a): Action => a.kind === "oracle"
-    ? { kind: "oracle", seq: a.seq, lang: a.lang, ...(a.question ? { question: a.question } : {}), odds: a.odds ?? "even", result: a.result }
-    : { kind: "roll", seq: a.seq, lang: a.lang, formula: a.formula ?? "", ...(a.table ? { table: a.table } : {}), result: a.result });
+  const aside: Action[] = asides.map((a): Action => {
+    if (a.kind === "oracle") return { kind: "oracle", seq: a.seq, lang: a.lang, ...(a.question ? { question: a.question } : {}), odds: a.odds ?? "even", result: a.result };
+    if (a.kind === "adjust") return { kind: "adjust", seq: a.seq, lang: a.lang, var: a.var ?? "", delta: a.delta ?? 0 };
+    if (a.kind === "set") return { kind: "set", seq: a.seq, lang: a.lang, var: a.var ?? "", value: a.value ?? 0 };
+    return { kind: "roll", seq: a.seq, lang: a.lang, formula: a.formula ?? "", ...(a.table ? { table: a.table } : {}), result: a.result };
+  });
   const actions = [...chosen, ...aside].sort((x, y) => x.seq - y.seq);
   const { pending: _pending, ...rest } = run;
   return { ...rest, actions, seqNext: Math.max(seqNext, run.seqNext), updatedAt: now };
@@ -114,6 +117,11 @@ export function replayActions(run: Run): ReplayAction[] {
     }
     if (a.kind === "roll") {
       out.push({ index: -1, text: null, lang: a.lang, seq: a.seq, aside: { kind: "roll", lang: a.lang, formula: a.formula, ...(a.table ? { table: a.table } : {}), result: a.result } });
+      continue;
+    }
+    if (a.kind === "adjust" || a.kind === "set") {
+      const change = a.kind === "adjust" ? { delta: a.delta } : { value: a.value };
+      out.push({ index: -1, text: null, lang: a.lang, seq: a.seq, aside: { kind: a.kind, lang: a.lang, var: a.var, ...change, result: null } });
       continue;
     }
     if (a.kind !== "choose") break;
@@ -225,6 +233,8 @@ function isAction(v: unknown): v is Action {
   if (!isObject(v) || !isString(v.kind) || !isNumber(v.seq) || !orNull(v.lang ?? null, isString)) return false;
   if (v.kind === "oracle") return isString(v.odds) && (v.question === undefined || isString(v.question)) && isOracleResult(v.result);
   if (v.kind === "roll") return isString(v.formula) && (v.table === undefined || isString(v.table)) && isTrayRoll(v.result);
+  if (v.kind === "adjust") return isString(v.var) && isNumber(v.delta);
+  if (v.kind === "set") return isString(v.var) && (isNumber(v.value) || isString(v.value));
   if (v.kind !== "choose") return true;
   return isNumber(v.index) && orNull(v.text, isString)
     && (v.payload === undefined || isPayload(v.payload))

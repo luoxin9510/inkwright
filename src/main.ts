@@ -526,6 +526,20 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.persist();
   }
 
+  /** The player changes a resource by hand (one marked `manual`): by `delta`, or to `value`. Kept in the run; shows from the next choice on. */
+  adjustResource(id: string, delta: number, value?: number): void {
+    const session = this.session;
+    if (!session || this.replaying) return;
+    const def = this.game?.config.resources.find((r) => r.id === id);
+    if (!def?.manual) return;
+    const placed = value === undefined
+      ? session.applyManual({ kind: "adjust", lang: session.language, var: id, delta, result: null })
+      : session.applyManual({ kind: "set", lang: session.language, var: id, value, result: null });
+    if (!placed) return;
+    this.apply(session.current());
+    this.persist();
+  }
+
   /** Player mode on or off; turning it on locks the main story (so opening a chapter does not switch away from it). */
   togglePlayerMode(): void {
     this.config.playerMode = !(this.config.playerMode ?? false);
@@ -1171,6 +1185,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         game?.seed(s, seeds.dice);
       },
       outcome: game ? () => game.signatures() : undefined,
+      // A value changed by hand stays within its resource's range.
+      clampVar: (name, value) => {
+        const r = game?.config.resources.find((x) => x.id === name);
+        return r ? Math.min(r.max, Math.max(r.min, value)) : value;
+      },
     });
     session.seqNext = run.seqNext;
     this.session = session;

@@ -480,7 +480,20 @@ const PLAYER = `(function () {
     hudEl.textContent = "";
     hudEl.hidden = false;
     if (h.character) line(h.character.name, h.character.skills.map(function (k) { return k.name + " " + k.level; }).join(" · "));
-    if (h.resources.length) line(s.status, h.resources.map(function (r) { return r.name + " " + r.value + "/" + r.max; }).join(" · "));
+    // A clock as filled and empty slices, a track as boxes of four ticks; else the number.
+    function shown(r) {
+      var span = r.max - r.min, at = r.value - r.min, out = "", i;
+      if (r.display === "clock") {
+        for (i = 0; i < span; i++) out += i < at ? "●" : "○";
+        return r.name + " " + out;
+      }
+      if (r.display === "track") {
+        for (i = 0; i < span / 4; i++) out += ["□", "◔", "◑", "◕", "■"][Math.max(0, Math.min(4, at - i * 4))];
+        return r.name + " " + out;
+      }
+      return r.name + " " + r.value + "/" + r.max;
+    }
+    if (h.resources.length) line(s.status, h.resources.map(shown).join(" · "));
     if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
     if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
     h.companions.forEach(function (c) {

@@ -28,9 +28,30 @@ export interface JournalInput {
   asides?: readonly PlacedAside[];
 }
 
+/**
+ * The asides as they are shown: a run of hand changes to the same variable at the same place (ticking a track
+ * five times) reads as one change, from the first value to the last. Each stays its own action in the run.
+ */
+export function mergeAsides(asides: readonly PlacedAside[]): PlacedAside[] {
+  const out: PlacedAside[] = [];
+  for (const a of asides) {
+    const last = out.at(-1);
+    if (last && a.kind === "adjust" && last.kind === "adjust" && last.var === a.var && last.at === a.at && last.after === a.after) {
+      const from = (last.result as { from: unknown } | null)?.from, to = (a.result as { to: unknown } | null)?.to;
+      out[out.length - 1] = { ...last, delta: (last.delta ?? 0) + (a.delta ?? 0), result: { from, to }, seq: a.seq };
+    } else out.push(a);
+  }
+  return out;
+}
+
 /** One question or roll from the dice tray as a line: `🔮 门后有人吗(很可能)d100 34 / 75 → 是`, `🎲 动作 1d6: 4 = 4 · 寻找`. */
 export function asideLine(a: PlacedAside, language: Language): string {
   const s = stringsFor(language);
+  if (a.kind === "adjust" || a.kind === "set") {
+    const r = a.result as { from: unknown; to: unknown } | null;
+    const change = a.kind === "adjust" ? `${(a.delta ?? 0) > 0 ? "+" : ""}${a.delta ?? 0}` : `= ${String(a.value)}`;
+    return `✎ ${a.var ?? ""} ${change}${r ? ` (${String(r.from)} → ${String(r.to)})` : ""}`;
+  }
   if (a.kind === "oracle") {
     const r = a.result as OracleResult;
     const answer = s.answers[r.answer === "yes" ? (r.extreme ? "yesAnd" : "yes") : r.extreme ? "noAnd" : "no"];
@@ -75,7 +96,7 @@ export function renderJournal(j: JournalInput): string {
   for (const r of j.rolls) byTurn.set(r.turn, [...(byTurn.get(r.turn) ?? []), r]);
   let lastTurn: number | null = null;
   let next = 0;
-  const asides = j.asides ?? [];
+  const asides = mergeAsides(j.asides ?? []);
   let nextAside = 0;
   // Choices and tray lines up to paragraph i, in the order they were done: an aside before the choice made after it.
   const choicesBefore = (i: number) => {

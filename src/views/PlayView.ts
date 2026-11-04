@@ -6,6 +6,7 @@ import type { Inspection } from "../play/inspect";
 import { inputOf } from "../play/input";
 import { STORY_LANGUAGES, type Choice, type Paragraph, type PlacedAside } from "../play/session";
 import { ODDS, type Odds, type OracleResult, type TrayRoll } from "../play/oracle";
+import { mergeAsides } from "../play/journal";
 import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, GridView, MapView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
 import { tokenText } from "../game/dice";
@@ -114,6 +115,8 @@ export interface PlayController {
   /** The dice tray: a yes/no question to the oracle, a formula, a table. */
   askOracle(question: string, odds: Odds): void;
   rollTray(formula: string, table?: string): void;
+  /** Changes a resource marked `manual` by hand. */
+  adjustResource(id: string, delta: number, value?: number): void;
 }
 
 /** Paragraphs drawn at most; earlier ones wait behind a button, so a long run stays quick to draw. */
@@ -325,7 +328,7 @@ export class PlayView extends ItemView {
       lastTurn = s.game?.turns[first - 1] ?? null;
     }
     // The tray's questions and rolls, drawn where they were asked: before the paragraph that came after them.
-    const asides = s.asides ?? [];
+    const asides = mergeAsides(s.asides ?? []);
     let nextAside = 0;
     const asidesBefore = (i: number) => {
       while (nextAside < asides.length && asides[nextAside].at <= i) {
@@ -436,6 +439,12 @@ export class PlayView extends ItemView {
   /** One question or roll from the dice tray, as a card in the text. */
   private renderAside(parent: HTMLElement, a: PlacedAside): HTMLElement {
     const t = T();
+    if (a.kind === "adjust" || a.kind === "set") {
+      const r = a.result as { from: unknown; to: unknown } | null;
+      const name = this.state?.game?.hud.resources.find((x) => x.id === a.var)?.name ?? a.var ?? "";
+      const change = a.kind === "adjust" ? `${(a.delta ?? 0) > 0 ? "+" : ""}${a.delta ?? 0}` : `= ${String(a.value)}`;
+      return parent.createDiv({ cls: "inkwright-manual", text: `✎ ${name} ${change}${r ? `(${String(r.from)} → ${String(r.to)})` : ""}` });
+    }
     if (a.kind === "oracle") {
       const r = a.result as OracleResult;
       const answer = t.answers[r.answer === "yes" ? (r.extreme ? "yesAnd" : "yes") : r.extreme ? "noAnd" : "no"];
@@ -739,10 +748,23 @@ export class PlayView extends ItemView {
     for (const r of game.hud.resources) {
       const row = hud.createDiv({ cls: "inkwright-hud-row" });
       row.createSpan({ cls: "inkwright-hud-name", text: r.name });
-      const bar = row.createDiv({ cls: "inkwright-hud-bar" });
-      const span = Math.max(1, r.max - r.min);
-      bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(((r.value - r.min) / span) * 100)}%` });
+      if (r.display === "clock") this.renderClock(row, r.value - r.min, r.max - r.min);
+      else if (r.display === "track") this.renderTrack(row, r.value - r.min, (r.max - r.min) / 4);
+      else {
+        const bar = row.createDiv({ cls: "inkwright-hud-bar" });
+        const span = Math.max(1, r.max - r.min);
+        bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(((r.value - r.min) / span) * 100)}%` });
+      }
       row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
+      // The player is the game master: a resource marked manual can be changed here (a tick on a track).
+      if (r.manual) {
+        const down = row.createEl("button", { cls: "inkwright-hud-adjust", text: "−", attr: { "aria-label": T().adjustDown(r.name), title: T().adjustHint } });
+        down.disabled = r.value <= r.min;
+        down.onclick = () => this.controller.adjustResource(r.id, -1);
+        const up = row.createEl("button", { cls: "inkwright-hud-adjust", text: "+", attr: { "aria-label": T().adjustUp(r.name), title: T().adjustHint } });
+        up.disabled = r.value >= r.max;
+        up.onclick = () => this.controller.adjustResource(r.id, 1);
+      }
     }
     // In a party game the gear is on the cards; an empty pack of the protagonist is noise.
     if (game.hud.items && !(game.hud.party && game.hud.items.length === 0)) {
@@ -759,6 +781,28 @@ export class PlayView extends ItemView {
     for (const c of game.hud.companions) {
       const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");
       hud.createDiv({ cls: "inkwright-hud-companion", text });
+    }
+  }
+
+  /** A clock of `segments` slices, `filled` of them filled (Blades-style). */
+  private renderClock(el: HTMLElement, filled: number, segments: number): void {
+    const n = Math.max(1, segments);
+    const svg = el.createSvg("svg", { cls: "inkwright-clock", attr: { viewBox: "-1 -1 2 2", width: "28", height: "28" } });
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * 2 * Math.PI - Math.PI / 2, a1 = ((i + 1) / n) * 2 * Math.PI - Math.PI / 2;
+      const p = (a: number) => `${(0.92 * Math.cos(a)).toFixed(3)} ${(0.92 * Math.sin(a)).toFixed(3)}`;
+      svg.createSvg("path", { cls: i < filled ? "inkwright-clock-on" : "inkwright-clock-off", attr: { d: `M0 0 L${p(a0)} A0.92 0.92 0 0 1 ${p(a1)} Z` } });
+    }
+  }
+
+  /** A track of `boxes` boxes, each four ticks; `ticks` filled (Ironsworn-style progress). */
+  private renderTrack(el: HTMLElement, ticks: number, boxes: number): void {
+    const track = el.createDiv({ cls: "inkwright-track" });
+    for (let b = 0; b < Math.max(1, boxes); b++) {
+      const box = track.createSpan({ cls: "inkwright-track-box" });
+      const t = Math.min(4, Math.max(0, ticks - b * 4));
+      box.setText(["", "╲", "✕", "✕╲", "✱"][t]);
+      if (t === 4) box.addClass("inkwright-track-full");
     }
   }
 

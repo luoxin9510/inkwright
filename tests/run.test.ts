@@ -49,7 +49,7 @@ describe("asides in the run", () => {
     // The player's "step N" counts choices only: the oracle at position 1 is in step 2's place, the roll at 3 after step 2.
     expect([0, 1, 2, 3, 4].map((pos) => stepAt(r.actions, pos))).toEqual([1, 2, 2, 3, 3]);
     // A kind this version cannot replay stops the replay there.
-    const later = { ...r, actions: [...r.actions, { kind: "adjust" as const, seq: 4, lang: null, var: "hp", delta: -1 }, ...r.actions.slice(0, 1).map((a) => ({ ...a, seq: 5 }))] };
+    const later = { ...r, actions: [...r.actions, { kind: "record" as const, seq: 4, lang: null, record: "clues", op: "add" as const, entry: "钥匙" }, ...r.actions.slice(0, 1).map((a) => ({ ...a, seq: 5 }))] };
     expect(replayActions(later)).toHaveLength(4);
   });
 });
@@ -144,7 +144,7 @@ describe("reading a run from a file (another device, an import: not trusted)", (
     expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, table: { id: "action" } } }))).toBeNull();
     expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, dropped: ["0"] } }))).toBeNull();
     // Kinds this version cannot replay are kept: the replay stops there (replayActions).
-    expect(parseRun(withAction({ kind: "adjust", seq: 0, lang: null, var: "hp", delta: -1 }))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ kind: "record", seq: 0, lang: null, record: "clues", op: "add", entry: "钥匙" }))?.actions).toHaveLength(1);
     expect(parseRun(withAction({ seq: 0, lang: null }))).toBeNull();
   });
 

@@ -543,3 +543,11 @@ test("a saved run that cannot be replayed (broken) starts the page over, keeps t
   mount(buildWebPage({ title: "B", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "b" }));
   expect(texts("#story p")).toEqual(["开始。", "向左", "到了。"]);
 });
+
+test("a game page shows a clock as slices and a track as boxes of four ticks", () => {
+  const config = { ...CONFIG, resources: [...CONFIG.resources, { id: "末日", min: 0, max: 4, initial: 0, display: "clock" as const }, { id: "誓言", min: 0, max: 12, initial: 0, display: "track" as const }] };
+  const src = `-> main\n${generateInk(config)}\n=== main ===\n~ 末日 = 3\n~ 誓言 = 6\n门。\n* [走] -> END\n`;
+  mount(buildWebPage({ title: "C", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "c", languageVar: "语言", game: config, engine: GAME_ENGINE }));
+  expect(document.querySelector("#hud")?.textContent).toContain("末日 ●●●○");
+  expect(document.querySelector("#hud")?.textContent).toContain("誓言 ■◑□");
+});
