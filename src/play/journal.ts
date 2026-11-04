@@ -1,7 +1,7 @@
 import type { RollRecord } from "../game/engine";
 import { tokenText } from "../game/dice";
 import { stringsFor, type Language } from "../i18n";
-import type { Paragraph, PlacedAside } from "./session";
+import type { Paragraph, Payload, PlacedAside } from "./session";
 import type { OracleResult, TrayRoll } from "./oracle";
 
 /**
@@ -136,7 +136,7 @@ export interface LiveInput {
   voices?: readonly (string | null)[];
   skills?: readonly { id: string; name: string }[];
   /** The choices made, oldest first: seq, text, the index in `log` where their text begins, what they carried, whether it was a paragraph (#write). */
-  taken: readonly { seq: number; text: string; at: number; payload?: { text?: string; item?: string }; write?: boolean }[];
+  taken: readonly { seq: number; text: string; at: number; payload?: Payload; write?: boolean }[];
   asides: readonly PlacedAside[];
   /** The highest seq written so far (-1: nothing). */
   writtenSeq: number;
@@ -189,8 +189,9 @@ export function liveBlocks(j: LiveInput): { text: string; writtenSeq: number; wr
     items.push({
       seq: t.seq,
       render: () => {
-        const written = t.write && t.payload?.text ? [quote(t.payload.text)] : [];
-        const head = t.payload?.text && !t.write ? `${t.text} · ${t.payload.text}` : t.text;
+        const typed = t.payload && "text" in t.payload ? t.payload.text : "";
+        const written = t.write && typed ? [quote(typed)] : [];
+        const head = typed && !t.write ? `${t.text} · ${typed}` : t.text;
         return [`**→ ${head}**`, ...written, ...paragraphs(j, t.at, j.taken[k + 1]?.at ?? j.log.length)];
       },
     });

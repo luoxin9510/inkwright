@@ -44,7 +44,7 @@ describe("decks", () => {
   test("the generated ink declares a LIST and a pile per deck, and draw/shuffle/deck_left", () => {
     const ink = generateInk(DECKS);
     expect(ink).toContain("LIST 线索 = 血手印, 半张票, 钥匙扣\nVAR 线索_牌堆 = (血手印, 半张票, 钥匙扣)");
-    expect(ink).toContain('{ 牌堆名 == "线索" and LIST_COUNT(线索_牌堆) > 0:\n    ~ temp c = 第几张(线索_牌堆, 掷骰(LIST_COUNT(线索_牌堆), "线索"))\n    ~ 线索_牌堆 -= c\n    ~ return c\n}');
+    expect(ink).toContain('~ temp 抽出的牌 = ()\n{ 牌堆名 == "线索" and LIST_COUNT(线索_牌堆) > 0:\n    ~ 抽出的牌 = 第几张(线索_牌堆, 掷骰(LIST_COUNT(线索_牌堆), "线索"))\n    ~ 线索_牌堆 -= 抽出的牌\n    ~ return 抽出的牌\n}');
     expect(ink).toContain('{ 牌堆名 == "线索":\n    ~ 线索_牌堆 = LIST_ALL(线索)\n}');
     expect(ink).toContain('{ 牌堆名 == "线索":\n    ~ return LIST_COUNT(线索_牌堆)\n}');
   });
@@ -94,4 +94,19 @@ describe("decks", () => {
     expect(readConfig(fm).config?.decks).toEqual([{ id: "d", cards: [{ id: "x", name: "X" }] }]);
     expect(readConfig({ ...fm, decks: [{ id: "d", cards: "x" }] }).problems.map((p) => p.code)).toEqual(["shape"]);
   });
+});
+
+test("cards may be called like the temps the generated ink used to have (c, none); the temps' own names are reserved", () => {
+  const deck = (ids: string[]): GameConfig => ({ ...CONFIG, decks: [{ id: "牌堆", cards: ids.map((id) => ({ id })) }] });
+  const src = (cfg: GameConfig) => `-> main\n${generateInk(cfg)}\n=== main ===\n~ temp x = 抽牌("牌堆")\n{x}\n-> END\n`;
+  const cfg = deck(["c", "none", "before"]);
+  const engine = new GameEngine(cfg);
+  const s = new PlaySession(new Compiler(src(cfg)).Compile(), { setup: (st) => engine.setup(st, "昕") });
+  expect(s.start().errors).toEqual([]);
+  expect(validateConfig(deck(["抽出的牌"]))).toContainEqual({ code: "duplicate", args: ["抽出的牌"] });
+  // Two decks: the draw function declares its temp once, for every deck.
+  const two: GameConfig = { ...CONFIG, decks: [{ id: "甲堆", cards: [{ id: "甲" }] }, { id: "乙堆", cards: [{ id: "乙" }] }] };
+  const e2 = new GameEngine(two);
+  const s2 = new PlaySession(new Compiler(`-> main\n${generateInk(two)}\n=== main ===\n{抽牌("乙堆")} {抽牌("甲堆")} {抽牌("甲堆")}。\n-> END\n`).Compile(), { setup: (st) => e2.setup(st, "昕") });
+  expect(s2.start().paragraphs[0].text).toBe("乙 甲 。");
 });

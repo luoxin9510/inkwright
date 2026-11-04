@@ -22,7 +22,7 @@ export interface Choice {
  * What a choice carries besides its index: a variable written just before the choice is taken.
  * A card played from a hand (`item`: an ink list item by name) or text the player typed.
  */
-export type Payload = { var: string; item: string } | { var: string; text: string };
+export type Payload = { var: string; item: string } | { var: string; items: string[] } | { var: string; text: string };
 
 /** A choice made, as replayed in another language: the index alone, or with its payload. */
 export type Pick = number | { index: number; payload: Payload };
@@ -451,7 +451,7 @@ export class PlaySession {
     const lang = this.language;
     const rolled = this.outcome?.().length ?? 0;
     try {
-      if (payload) this.story.variablesState[payload.var] = "item" in payload ? InkList.FromString(payload.item, this.story) : payload.text;
+      if (payload) this.story.variablesState[payload.var] = payloadValue(payload, this.story);
       this.story.ChooseChoiceIndex(index);
     } catch (e) {
       // A payload that does not fit the story (no such list item) must not leave half a move behind.
@@ -696,3 +696,14 @@ function fingerprint(parts: readonly string[]): string {
   return (h >>> 0).toString(16);
 }
 
+
+/** What a payload writes: a card as a list item, several as one list, or text. */
+function payloadValue(payload: Payload, story: Story): InkList | string {
+  if ("item" in payload) return InkList.FromString(payload.item, story);
+  if ("items" in payload) {
+    let list = new InkList();
+    for (const item of payload.items) list = list.Union(InkList.FromString(item, story));
+    return list;
+  }
+  return payload.text;
+}

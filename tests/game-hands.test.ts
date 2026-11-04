@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { Compiler } from "inkjs/full";
 import { compileStory } from "../src/compile/compile";
-import { readConfig, validateConfig, type GameConfig } from "../src/game/config";
+import { parsePlayTag, readConfig, validateConfig, type GameConfig } from "../src/game/config";
 import { GameEngine } from "../src/game/engine";
 import { generateInk } from "../src/game/inkgen";
 import { exploreStory } from "../src/play/explore";
@@ -168,5 +168,58 @@ describe("hands", () => {
     expect(s.errors).toEqual([]);
     expect(s.stuck).toBe(0);
     expect(s.endings.reduce((n, e) => n + e.count, 0)).toBe(20);
+  });
+});
+
+describe("playing several cards at once (#play:hand:min-max)", () => {
+  const MANY = (tag: string) => `-> main
+${generateInk(HANDS)}
+=== main ===
+~ 手牌 += 抽牌("线索")
+~ 手牌 += 抽牌("线索")
+~ 手牌 += 抽牌("线索")
+桌上。
++ [投入 ${tag}]
+    投入了 {LIST_COUNT(出牌)} 张。
+    ~ 手牌 -= 出牌
+    -> END
+`;
+
+  test("the tag reads a count or a range; without one it is one card", () => {
+    expect(parsePlayTag("play:手牌")).toEqual({ hand: "手牌", min: 1, max: 1 });
+    expect(parsePlayTag("play:手牌:2")).toEqual({ hand: "手牌", min: 2, max: 2 });
+    expect(parsePlayTag("play:手牌:1-3")).toEqual({ hand: "手牌", min: 1, max: 3 });
+    expect(parsePlayTag("play:手牌:3-1")).toBeNull();
+    expect(parsePlayTag("play:手牌:0")).toBeNull();
+    expect(parsePlayTag("play:手牌:x")).toBeNull();
+  });
+
+  test("the cards picked go into played together; too few is no payload; a hand short of the minimum locks the choice", () => {
+    const engine = new GameEngine(HANDS, { rng: faces(1) });
+    const s = new PlaySession(new Compiler(MANY("#play:手牌:2-3")).Compile(), { setup: (st) => engine.setup(st, "昕") });
+    const step = s.start();
+    const play = engine.playOf(step.choices[0])!;
+    expect(play).toMatchObject({ hand: "手牌", min: 2, max: 3 });
+    expect(engine.playPayload("手牌", ["血手印"], play)).toBeNull();
+    expect(engine.playPayload("手牌", ["血手印", "血手印"], play)).toBeNull();
+    expect(engine.playPayload("手牌", ["血手印", "钥匙扣", "半张票", "半张票"], play)).toBeNull();
+    expect(engine.playPayload("手牌", ["血手印", "钥匙扣"], play)).toEqual({ var: "出牌", items: ["血手印", "钥匙扣"] });
+    expect(s.choose(0, engine.playPayload("手牌", ["血手印", "钥匙扣"], play)!).paragraphs.map((p) => p.text)).toEqual(["投入了 2 张。"]);
+    expect(engine.hud().hands?.[0].cards.map((c) => c.id)).toEqual(["半张票"]);
+    const short = new GameEngine(HANDS, { rng: faces(1) });
+    const t = new PlaySession(new Compiler(MANY("#play:手牌:4")).Compile(), { setup: (st) => short.setup(st, "昕") });
+    expect(short.canChoose(t.start().choices[0])).toBe(false);
+  });
+
+  test("the explorer plays each card alone (when one may go) and all of them (when all may), and says it sampled", async () => {
+    const r = await compileStory("main.ink", async () => MANY("#play:手牌:1-3"));
+    const x = exploreStory(r.story!, { game: HANDS, character: "昕" });
+    expect(x.errors).toEqual([]);
+    expect(x.endings.map((e) => e.choices.join(" > ")).sort()).toEqual([
+      "投入 ▸ 半张票", "投入 ▸ 血手印", "投入 ▸ 血手印 + 半张票 + 钥匙扣", "投入 ▸ 钥匙扣",
+    ]);
+    const s = simulateStory(r.story!, { game: HANDS, character: "昕", runs: 10, seed: 3 });
+    expect(s.errors).toEqual([]);
+    expect(s.stuck).toBe(0);
   });
 });

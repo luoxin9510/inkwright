@@ -91,7 +91,7 @@ export interface PlayController {
   deleteSave(id: string): Promise<void>;
   startAt(path: string | null): void;
   /** Takes a choice; a `#play` choice is taken with the id of a card picked from its hand, an `#input` choice with the text typed. */
-  choose(index: number, value?: string): void;
+  choose(index: number, value?: string | string[]): void;
   setStoryLanguage(lang: string): void;
   selectCharacter(id: string): void;
   toggleLock(): void;
@@ -135,7 +135,7 @@ export class PlayView extends ItemView {
   /** Set when a choice button was clicked, so the next text that arrives is scrolled to. */
   private afterChoice = false;
   /** The card tapped in a hand, for the next `#play` choice; forgotten when the choices change. */
-  private picked: { hand: string; card: string } | null = null;
+  private picked: { hand: string; cards: string[] } | null = null;
   private pickedAt = "";
   /** The story whose earlier paragraphs the player asked to see; they are hidden again for another story. */
   private showAllFor: string | null = null;
@@ -382,7 +382,10 @@ export class PlayView extends ItemView {
     // A #use choice on screen: what is carried shows as a row of cards to pick from, beside the hands.
     const using = (s.game?.plays ?? []).find((p) => p?.use && p.cards.length > 0);
     const hands = [...(s.game?.hud.hands ?? []), ...(using ? [{ id: using.hand, name: T().inventory, cards: using.cards }] : [])];
-    if (s.game && hands.length > 0) this.renderHands(main, hands, s.game.cardImages);
+    // How many cards a choice on screen takes from each hand, so its row lets that many be picked.
+    const most: Record<string, number> = {};
+    for (const p of s.game?.plays ?? []) if (p) most[p.hand] = Math.max(most[p.hand] ?? 1, p.max);
+    if (s.game && hands.length > 0) this.renderHands(main, hands, s.game.cardImages, most);
 
     // Picking a saved run up: the text grows as it replays; there is nothing to choose until it is done.
     if (s.replay) {
@@ -395,7 +398,9 @@ export class PlayView extends ItemView {
     const choices = main.createDiv({ cls: "inkwright-choices" });
     s.choices.forEach((c, i) => {
       const play = s.game?.plays[i] ?? null;
-      const card = play && this.picked?.hand === play.hand ? play.cards.find((k) => k.id === this.picked?.card) : undefined;
+      // The cards picked in this choice's hand; it goes when there are as many as it takes (#play:hand:1-3).
+      const chosen = play && this.picked?.hand === play.hand ? play.cards.filter((k) => this.picked?.cards.includes(k.id)) : [];
+      const ready = play !== null && chosen.length >= play.min && chosen.length <= play.max;
       // An #input choice (not a #play one) gets a text field above its button; the button waits for a line.
       const variable = play ? null : inputOf(c);
       // #write asks for a paragraph: a box of several lines (Enter is a new line; Ctrl/Cmd+Enter takes the choice).
@@ -403,7 +408,7 @@ export class PlayView extends ItemView {
       const field: HTMLInputElement | HTMLTextAreaElement | null = variable === null ? null
         : multiline ? choices.createEl("textarea", { cls: "inkwright-input inkwright-write", placeholder: T().writeHere, text: this.typed.get(c.index) ?? "" })
         : choices.createEl("input", { cls: "inkwright-input", type: "text", placeholder: T().typeHere, value: this.typed.get(c.index) ?? "" });
-      const button = choices.createEl("button", { text: card ? `${c.text} · ${card.name}` : c.text, cls: "inkwright-choice" });
+      const button = choices.createEl("button", { text: ready ? `${c.text} · ${chosen.map((k) => k.name).join(" + ")}` : c.text, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
       const needs = s.game?.needs[i] ?? [];
@@ -411,15 +416,19 @@ export class PlayView extends ItemView {
         button.createSpan({ cls: `inkwright-need${need.has ? "" : " inkwright-need-missing"}`, text: `${T().needs} ${need.name}` });
       }
       // A #play choice waits for a card from its hand; with no card to play it is locked like a missing item.
-      if (play && !card) button.createSpan({ cls: "inkwright-choice-pick", text: play.known && play.cards.length > 0 ? (play.use ? T().pickItem : T().pickCard) : `${play.use ? T().inventory : play.name} · ${T().nothingCarried}` });
-      const locked = needs.some((n) => !n.has) || (play !== null && !card);
+      if (play && !ready) {
+        const enough = play.known && play.cards.length >= play.min;
+        const hint = !enough ? `${play.use ? T().inventory : play.name} · ${T().nothingCarried}` : play.use ? T().pickItem : play.max > 1 ? (play.min === play.max ? T().pickCardsN : T().pickCardsRange).split("{min}").join(String(play.min)).split("{max}").join(String(play.max)) : T().pickCard;
+        button.createSpan({ cls: "inkwright-choice-pick", text: hint });
+      }
+      const locked = needs.some((n) => !n.has) || (play !== null && !ready);
       if (locked) {
         button.disabled = true;
         button.addClass("inkwright-choice-locked");
       }
       button.onclick = () => {
         this.afterChoice = true;
-        this.controller.choose(c.index, field ? field.value : card?.id);
+        this.controller.choose(c.index, field ? field.value : play ? (play.max > 1 ? chosen.map((k) => k.id) : chosen[0]?.id) : undefined);
       };
       if (field) {
         const empty = () => field.value.trim() === "";
@@ -731,7 +740,7 @@ export class PlayView extends ItemView {
   }
 
   /** Each hand as a row of cards (tap to pick one, tap again to put it back); the picked card's description shows under the row. */
-  private renderHands(el: HTMLElement, hands: HandView[], images: Record<string, string>): void {
+  private renderHands(el: HTMLElement, hands: HandView[], images: Record<string, string>, most: Record<string, number> = {}): void {
     const wrap = el.createDiv({ cls: "inkwright-hands" });
     for (const hand of hands) {
       const box = wrap.createDiv({ cls: "inkwright-hand" });
@@ -741,10 +750,14 @@ export class PlayView extends ItemView {
         continue;
       }
       const row = box.createDiv({ cls: "inkwright-cards" });
-      const on = this.picked?.hand === hand.id ? hand.cards.find((c) => c.id === this.picked?.card) : undefined;
+      // The cards picked here; as many as a choice on screen takes from this hand (one for most).
+      const picked = this.picked?.hand === hand.id ? this.picked.cards : [];
+      const max = Math.max(1, most[hand.id] ?? 1);
+      const on = hand.cards.find((c) => c.id === picked[picked.length - 1]);
       for (const card of hand.cards) {
         const art = card.image === undefined ? undefined : images[card.id];
-        const button = row.createEl("button", { cls: `inkwright-card${on?.id === card.id ? " inkwright-card-on" : ""}${art ? " inkwright-card-illustrated" : ""}`, attr: { "aria-pressed": String(on?.id === card.id) } });
+        const isOn = picked.includes(card.id);
+        const button = row.createEl("button", { cls: `inkwright-card${isOn ? " inkwright-card-on" : ""}${art ? " inkwright-card-illustrated" : ""}`, attr: { "aria-pressed": String(isOn) } });
         if (art) button.createEl("img", { cls: "inkwright-card-art", attr: { src: art, alt: "" } });
         button.createSpan({ cls: "inkwright-card-deck", text: card.deckName });
         button.createSpan({ cls: "inkwright-card-name", text: card.name });
@@ -753,7 +766,9 @@ export class PlayView extends ItemView {
           for (const a of card.attrs) attrs.createSpan({ cls: "inkwright-card-attr", text: `${a.name} ${a.value}`, attr: { title: a.name } });
         }
         button.onclick = () => {
-          this.picked = on?.id === card.id ? null : { hand: hand.id, card: card.id };
+          // Tap to pick, tap again to put back; with room for one, another card takes its place; when full, the oldest goes.
+          const next = isOn ? picked.filter((id) => id !== card.id) : max === 1 ? [card.id] : [...picked, card.id].slice(-max);
+          this.picked = next.length > 0 ? { hand: hand.id, cards: next } : null;
           // Re-render in place: the rows keep their scroll position, so a card at the far end stays in view.
           const scrolls = Array.from(this.contentEl.querySelectorAll<HTMLElement>(".inkwright-cards")).map((r) => r.scrollLeft);
           this.render();

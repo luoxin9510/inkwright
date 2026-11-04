@@ -63,7 +63,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), updatedStop: t.webUpdatedStop("{n}"),
+      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), pickN: t.pickCardsN, pickRange: t.pickCardsRange, updatedStop: t.webUpdatedStop("{n}"),
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -252,7 +252,7 @@ const PLAYER = `(function () {
   var history = [];  // [{ state, n }]: state before each choice, log length then
   var start = null;  // state at the beginning, to replay picks in another language
   var picks = [];    // choices since start: an index, or { index, payload } for one taken with a card
-  var picked = null; // { hand, card }: the card tapped in a hand, for the next #play choice
+  var picked = null; // { hand, cards }: the cards tapped in a hand, for the next #play choice
   var typed = {};    // text typed into #input choices by choice index, until the next choice
 
   // #input:<var> on a choice: the line typed goes into that VAR.
@@ -419,7 +419,11 @@ const PLAYER = `(function () {
       name.className = "name";
       name.textContent = hand.name + (hand.cards.length ? "" : " · " + str().nothingCarried);
       box.appendChild(name);
-      var on = picked && picked.hand === hand.id ? hand.cards.filter(function (c) { return c.id === picked.card; })[0] : null;
+      // The cards picked here; as many as a choice on screen takes from this hand (one for most).
+      var mine = picked && picked.hand === hand.id ? picked.cards : [];
+      var max = 1;
+      if (engine) story.currentChoices.forEach(function (c) { var p = engine.playOf({ tags: c.tags || [] }); if (p && p.hand === hand.id) max = Math.max(max, p.max); });
+      var on = hand.cards.filter(function (c) { return c.id === mine[mine.length - 1]; })[0] || null;
       if (hand.cards.length) {
         var row = document.createElement("div");
         row.className = "cards";
@@ -427,8 +431,9 @@ const PLAYER = `(function () {
           var b = document.createElement("button"), d = document.createElement("span"), n = document.createElement("span");
           var art = card.image !== undefined ? cfg.cardImages[card.id] : null;
           b.type = "button";
-          b.className = "card" + (on && on.id === card.id ? " on" : "") + (art ? " illustrated" : "");
-          b.setAttribute("aria-pressed", on && on.id === card.id ? "true" : "false");
+          var isOn = mine.indexOf(card.id) >= 0;
+          b.className = "card" + (isOn ? " on" : "") + (art ? " illustrated" : "");
+          b.setAttribute("aria-pressed", isOn ? "true" : "false");
           if (art) {
             var img = document.createElement("img");
             img.src = art;
@@ -454,7 +459,9 @@ const PLAYER = `(function () {
             b.appendChild(attrs);
           }
           b.onclick = function () {
-            picked = on && on.id === card.id ? null : { hand: hand.id, card: card.id };
+            // Tap to pick, again to put back; with room for one another takes its place; when full the oldest goes.
+            var next = isOn ? mine.filter(function (id) { return id !== card.id; }) : max === 1 ? [card.id] : mine.concat([card.id]).slice(-max);
+            picked = next.length ? { hand: hand.id, cards: next } : null;
             // Re-render in place; the rows keep their scroll position.
             var scrolls = Array.prototype.map.call(handsEl.querySelectorAll(".cards"), function (r) { return r.scrollLeft; });
             render();
@@ -486,7 +493,8 @@ const PLAYER = `(function () {
     }
     hudEl.textContent = "";
     hudEl.hidden = false;
-    if (h.turn) line(s.turnRound.replace("{r}", String(h.turn.round)).replace("{p}", h.turn.phase), "");
+    // split/join, not replace: a "$&" in a phase's name is text, not a replacement pattern.
+    if (h.turn) line(s.turnRound.split("{r}").join(String(h.turn.round)).split("{p}").join(h.turn.phase), "");
     if (h.character) line(h.character.name, h.character.skills.map(function (k) { return k.name + " " + k.level; }).join(" · "));
     // A clock as filled and empty slices, a track as boxes of four ticks; else the number.
     function shown(r) {
@@ -613,8 +621,10 @@ const PLAYER = `(function () {
       b.type = "button";
       // A #play choice is taken with the card picked in its hand; until then it waits, and with no card to play it is locked.
       var play = engine ? engine.playOf({ tags: c.tags || [] }) : null;
-      var card = play && picked && picked.hand === play.hand ? play.cards.filter(function (k) { return k.id === picked.card; })[0] : null;
-      var label = card ? c.text + " · " + card.name : c.text;
+      // The cards picked in this choice's hand; it goes with as many as it takes (#play:hand:1-3).
+      var chosen = play && picked && picked.hand === play.hand ? play.cards.filter(function (k) { return picked.cards.indexOf(k.id) >= 0; }) : [];
+      var ready = !!play && chosen.length >= play.min && chosen.length <= play.max;
+      var label = ready ? c.text + " · " + chosen.map(function (k) { return k.name; }).join(" + ") : c.text;
       b.textContent = label;
       var check = engine ? engine.describeChoice({ tags: c.tags || [] }) : null;
       if (check) {
@@ -632,13 +642,15 @@ const PLAYER = `(function () {
         need.textContent = str().needs + " " + n.name;
         b.appendChild(need);
       });
-      if (play && !card) {
+      if (play && !ready) {
         var wait = document.createElement("span");
         wait.className = "need";
-        wait.textContent = play.known && play.cards.length ? (play.use ? str().pickItem : str().pickCard) : (play.use ? str().inventory : play.name) + " · " + str().nothingCarried;
+        var enough = play.known && play.cards.length >= play.min;
+        wait.textContent = !enough ? (play.use ? str().inventory : play.name) + " · " + str().nothingCarried
+          : play.use ? str().pickItem : play.max > 1 ? (play.min === play.max ? str().pickN : str().pickRange).split("{min}").join(String(play.min)).split("{max}").join(String(play.max)) : str().pickCard;
         b.appendChild(wait);
       }
-      var locked = needs.some(function (n) { return !n.has; }) || (play && !card);
+      var locked = needs.some(function (n) { return !n.has; }) || (play && !ready);
       if (locked) b.disabled = true;
       // An #input choice (not a #play one) gets a text field above it; the button waits for a line.
       var v = play ? null : inputOf(c.tags);
@@ -664,7 +676,7 @@ const PLAYER = `(function () {
           if (text) choose(c.index, c.text + " · " + text, { var: v, text: text });
           return;
         }
-        choose(c.index, label, card ? engine.playPayload(play.hand, card.id) : null);
+        choose(c.index, label, ready ? (play.max > 1 ? engine.playPayload(play.hand, chosen.map(function (k) { return k.id; }), play) : engine.playPayload(play.hand, chosen[0].id)) : null);
       };
       choicesEl.appendChild(b);
     });
@@ -827,7 +839,8 @@ const PLAYER = `(function () {
     var offered = story.currentChoices.map(function (c) { return c.text; });
     var shownIn = language();
     try {
-      if (payload) story.variablesState[payload.var] = payload.item !== undefined ? inkjs.InkList.FromString(payload.item, story) : payload.text;
+      if (payload) story.variablesState[payload.var] = payload.items ? payload.items.reduce(function (l, it) { return l.Union(inkjs.InkList.FromString(it, story)); }, new inkjs.InkList())
+        : payload.item !== undefined ? inkjs.InkList.FromString(payload.item, story) : payload.text;
       story.ChooseChoiceIndex(index);
     } catch (e) {
       story.state.LoadJson(before);
@@ -879,7 +892,8 @@ const PLAYER = `(function () {
     old.forEach(function (p) {
       var i = typeof p === "number" ? p : p.index, payload = typeof p === "number" ? null : p.payload;
       var c = story.currentChoices.filter(function (c) { return c.index === i; })[0];
-      var label = !payload ? c && c.text : payload.item !== undefined ? (engine ? c && c.text + " · " + engine.cardName(payload.item) : c && c.text) : c && c.text + " · " + payload.text;
+      var label = !payload ? c && c.text : payload.items ? c && c.text + " · " + payload.items.map(function (i) { return engine ? engine.cardName(i) : i; }).join(" + ")
+        : payload.item !== undefined ? (engine ? c && c.text + " · " + engine.cardName(payload.item) : c && c.text) : c && c.text + " · " + payload.text;
       if (c) choose(i, label, payload);
     });
     replaying = false;
@@ -935,7 +949,8 @@ const PLAYER = `(function () {
       var found = findChoice(texts, a, "match", typeof p === "number" || !p.lang || p.lang === language());
       if (!found) { stoppedAt = i; break; }
       var c = story.currentChoices[found.index];
-      var label = !payload ? c.text : payload.item !== undefined ? (engine ? c.text + " · " + engine.cardName(payload.item) : c.text) : c.text + " · " + payload.text;
+      var label = !payload ? c.text : payload.items ? c.text + " · " + payload.items.map(function (i) { return engine ? engine.cardName(i) : i; }).join(" + ")
+        : payload.item !== undefined ? (engine ? c.text + " · " + engine.cardName(payload.item) : c.text) : c.text + " · " + payload.text;
       choose(found.index, label, payload);
     }
     replaying = false;
