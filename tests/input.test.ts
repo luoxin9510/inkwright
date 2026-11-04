@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { Compiler } from "inkjs/full";
 import { compileStory } from "../src/compile/compile";
-import { inputOf, inputPayload, inputPlaceholder } from "../src/play/input";
+import { inputOf, inputPayload, inputPlaceholder, isWrite } from "../src/play/input";
 import { exploreStory } from "../src/play/explore";
 import { playScript } from "../src/play/script";
 import { PlaySession } from "../src/play/session";
@@ -84,5 +84,41 @@ describe("#input", () => {
     const s = simulateStory(r.story!, { runs: 10, seed: 1 });
     expect(s.errors).toEqual([]);
     expect(s.endings.map((e) => e.lastText).sort()).toEqual(["你叫它[cat]。", "它走了。"]);
+  });
+});
+
+describe("#write (a paragraph)", () => {
+  const SRC = 'VAR entry = ""\n+ [写下这一晚 #write:entry]\n    你写下:{entry}\n    -> END\n';
+
+  test("the tag names the variable like #input; it asks for several lines", () => {
+    expect(inputOf({ tags: ["write:entry"] })).toBe("entry");
+    expect(isWrite({ tags: ["write:entry"] })).toBe(true);
+    expect(isWrite({ tags: ["input:entry"] })).toBe(false);
+    expect(inputOf({ tags: ["write:"] })).toBeNull();
+  });
+
+  test("the lines are kept (only the ends trimmed) and the story prints them in one paragraph", () => {
+    expect(inputPayload("entry", "\n 第一行\n第二行\n\n第三段  \n")).toEqual({ var: "entry", text: "第一行\n第二行\n\n第三段" });
+    const s = new PlaySession(new Compiler(SRC).Compile());
+    s.start();
+    const step = s.choose(0, inputPayload("entry", "第一行\n第二行")!);
+    expect(step.paragraphs.map((p) => p.text)).toEqual(["你写下:第一行\n第二行"]);
+  });
+
+  test("the session records that the choice asked for a paragraph, whatever was typed", () => {
+    const s = new PlaySession(new Compiler(SRC).Compile());
+    s.start();
+    s.choose(0, inputPayload("entry", "只有一行")!);
+    expect(s.taken[0].write).toBe(true);
+    const plain = new PlaySession(new Compiler('VAR n = ""\n+ [起名 #input:n] {n}\n-> END\n').Compile());
+    plain.start();
+    plain.choose(0, inputPayload("n", "煤球")!);
+    expect(plain.taken[0].write).toBeUndefined();
+  });
+
+  test("the explorer and headless play type the placeholder", async () => {
+    const r = await compileStory("main.ink", async () => SRC);
+    expect(exploreStory(r.story!, {}).endings.map((e) => e.lastText)).toEqual(["你写下:[entry]"]);
+    expect(playScript(new Compiler(SRC).Compile(), { choices: [{ choice: 0, text: "一段话\n两行" }] }).transcript.at(-1)).toMatchObject({ text: "你写下:一段话\n两行" });
   });
 });

@@ -3,6 +3,7 @@ import { translateRuntime } from "../compile/diagnostics";
 import { T } from "../i18n";
 import { inspect, type Inspection } from "./inspect";
 import { findChoice, type ReplayMode } from "./match";
+import { isWrite } from "./input";
 
 export interface Paragraph {
   text: string;
@@ -53,6 +54,8 @@ export interface Taken {
   fp: string;
   /** The texts of every choice offered with it, in order: lets a replay see that only this one was reworded. */
   offered: string[];
+  /** It asked for a paragraph (`#write`): the journal quotes what was written. */
+  write?: boolean;
 }
 
 /**
@@ -426,6 +429,7 @@ export class PlaySession {
     this.history.push({ state: this.story.state.ToJson(), logLength: this.log.length });
     const text = this.story.currentChoices[index]?.text ?? "";
     const offered = this.story.currentChoices.map((c) => c.text);
+    const write = isWrite({ tags: this.story.currentChoices[index]?.tags ?? [] });
     const lang = this.language;
     const rolled = this.outcome?.().length ?? 0;
     try {
@@ -444,7 +448,7 @@ export class PlaySession {
     const given = seq ?? this.nextSeq;
     this.nextSeq = Math.max(this.nextSeq, given + 1);
     const rolls = this.outcome?.().slice(rolled) ?? [];
-    this.takenList.push({ index, text, lang, ...(payload ? { payload } : {}), seq: given, fp: fingerprint([...rolls, `choices:${step.choices.length}`]), offered });
+    this.takenList.push({ index, text, lang, ...(payload ? { payload } : {}), seq: given, fp: fingerprint([...rolls, `choices:${step.choices.length}`]), offered, ...(write ? { write: true } : {}) });
     return step;
   }
 

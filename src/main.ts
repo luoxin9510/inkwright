@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Notice, Platform, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type App, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -22,7 +22,7 @@ import { engineFile, localize, playableCharacters, type ConfigProblem, type Game
 import { generateInk } from "./game/inkgen";
 import { resolveConfig, type ConfigSource } from "./game/resolve";
 import type { CardNote } from "./game/cards";
-import { renderJournal } from "./play/journal";
+import { liveBlocks, liveHeader, renderJournal } from "./play/journal";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
@@ -50,6 +50,8 @@ interface Settings {
   migrated?: string[];
   /** Player mode: author controls hidden, the main story locked, edits wait until applied, restart keeps the run. */
   playerMode?: boolean;
+  /** Live journal for stories whose game note does not say (`journal.live`), and for stories without one. */
+  liveJournal?: boolean;
 }
 
 /** A compiled story with the engine for its game note, and a hash of both: one version of a story. */
@@ -137,6 +139,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private recap: { at: number; when: string } | null = null;
   /** The run was just read from the save folder (a story opened, a restart): a replay may show a recap. */
   private resuming = false;
+  /** The story whose live journal path was refused (inside a dependency folder), so it is said only once. */
+  private journalRefused: string | null = null;
   /** Writes of the run, one after another. */
   private writing: Promise<void> = Promise.resolve();
   /** A write is queued and has not started: it will write the latest run, so another is not needed. */
@@ -652,7 +656,75 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     this.run = { ...withTaken(run, session.taken, session.seqNext, now.toISOString(), session.asides), ...(this.buildHash ? { build: this.buildHash } : {}) };
     this.keepBuild();
+    this.liveJournal();
     this.writeRun();
+  }
+
+  /**
+   * The live journal (solo PRD §4.7): appends what was done since it was last written to the run's journal note
+   * (made on the first move, in player mode or once a choice was made). Only appended, never rewritten; the
+   * run records how far it got, so a write that did not happen (the app closed) is made up for next time.
+   */
+  private liveJournal(): void {
+    const session = this.session, root = this.root;
+    const live = this.game?.config.journal?.live ?? this.config.liveJournal ?? false;
+    if (!live || !session || root === null || !this.run) return;
+    if (!(this.config.playerMode ?? false) && session.taken.length === 0) return;
+    this.writing = this.writing.then(async () => {
+      const run = this.run;
+      if (!run || run.story !== root || this.session !== session) return;
+      const game = this.gameView();
+      const language = (session.language ?? getLanguage()) === "en" ? "en" : "zh";
+      const input = {
+        language, log: session.log, turns: session.turns, rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills,
+        taken: session.taken.map((t, i) => ({ seq: t.seq, text: t.text, at: session.choicesMade[i]?.at ?? session.log.length, payload: t.payload, write: t.write === true })),
+        asides: session.asides, writtenSeq: run.journal?.writtenSeq ?? -1, writtenTop: run.journal?.writtenTop ?? -1,
+      } as const;
+      const blocks = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })) });
+      try {
+        let path = run.journal?.path;
+        let file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+        if (!path || !(file instanceof TFile)) {
+          // The first write (or the note was deleted): a new note with the header and the text so far.
+          const dir = root.slice(0, root.lastIndexOf("/") + 1);
+          const story = dir === "" ? this.app.vault.getName() : dir.slice(0, -1).split("/").pop() ?? "story";
+          const character = game?.characters.find((c) => c.id === game.current)?.name ?? null;
+          path = await this.newJournalPath(new Date(), story, character);
+          if (isDependency(path, this.files)) {
+            // Said once per story: every later move would come here again.
+            if (this.journalRefused !== root) new Notice(T().journalIsDependency(path));
+            this.journalRefused = root;
+            return;
+          }
+          const fresh = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })), writtenSeq: -1, writtenTop: -1 });
+          file = await this.app.vault.create(path, liveHeader({ title: story, date: new Date(), language, character }, input) + fresh.text);
+          this.run = this.run ? { ...this.run, journal: { path, writtenSeq: fresh.writtenSeq, writtenTop: fresh.writtenTop } } : this.run;
+          // The run must know the note and how far it was written before anything else happens: write it again.
+          this.writeRun();
+          return;
+        }
+        if (blocks.text === "") return;
+        await this.appendToNote(file, blocks.text);
+        this.run = this.run ? { ...this.run, journal: { path, writtenSeq: blocks.writtenSeq, writtenTop: blocks.writtenTop } } : this.run;
+        this.writeRun();
+      } catch (e) {
+        console.error("Inkwright: could not write the live journal", e);
+      }
+    });
+  }
+
+  /** Appends to a note: through the editor when it is open there (so the player's cursor and edits are kept), else the vault. */
+  private async appendToNote(file: TFile, text: string): Promise<void> {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file?.path === file.path && view.getMode() === "source") {
+        const editor = view.editor;
+        const last = editor.lastLine();
+        editor.replaceRange(text, { line: last, ch: editor.getLine(last).length });
+        return;
+      }
+    }
+    await this.app.vault.process(file, (data) => data + text);
   }
 
   /** The version being played is kept (once), so a later edit can go back to it. */
@@ -734,6 +806,15 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.store = this.makeStore();
     if (this.run) this.writeRun();
     await this.refreshSaves();
+  }
+
+  getLiveJournal(): boolean {
+    return this.config.liveJournal ?? false;
+  }
+
+  async setLiveJournal(value: boolean): Promise<void> {
+    this.config.liveJournal = value;
+    await this.saveData(this.config);
   }
 
   getSyncMode(): SyncMode {
@@ -919,6 +1000,19 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       title: story, date: now, language, character, log: session.log, turns: session.turns, choices: session.choicesMade.map((c) => this.withCard(c)),
       rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills, asides: session.asides,
     });
+    const path = await this.newJournalPath(now, story, character);
+    await this.app.vault.create(path, text);
+    new Notice(T().journalWritten + path);
+    return { path };
+  }
+
+  /**
+   * A free path for a new journal note from the game note's `journal.path` (`{dir}`, `{story}`, `{date}`, `{time}`,
+   * `{character}`; default `{dir}日志/{date} {time}.md`), its folders made; never an existing note's path.
+   */
+  private async newJournalPath(now: Date, story: string, character: string | null): Promise<string> {
+    const root = this.root ?? "";
+    const dir = root.slice(0, root.lastIndexOf("/") + 1);
     const pad = (n: number) => String(n).padStart(2, "0");
     // A name goes into a file name: no separators, nothing a file system rejects, no "..".
     const clean = (v: string) => Array.from(v).filter((c) => c.charCodeAt(0) >= 32).join("").replace(/[\\/:*?"<>|]/g, "-").replace(/\.{2,}/g, "-").trim();
@@ -947,9 +1041,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       const base = path.slice(0, -3);
       for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = `${base} (${n}).md`;
     }
-    await this.app.vault.create(path, text);
-    new Notice(T().journalWritten + path);
-    return { path };
+    return path;
   }
 
   /** Writes the game's engine ink (from its game note) next to the main story; defaults to the current one. */
