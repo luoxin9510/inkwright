@@ -205,8 +205,18 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       read: (p) => vault.read(file(p)),
       write: async (p, d) => {
         const f = at(p);
-        if (f instanceof TFile) await vault.modify(f, d);
-        else await vault.create(normalizePath(p), d);
+        if (f instanceof TFile) {
+          await vault.modify(f, d);
+          return;
+        }
+        try {
+          await vault.create(normalizePath(p), d);
+        } catch (e) {
+          // The file arrived (a sync) after the index was read: write over it instead.
+          const now = at(p);
+          if (!(now instanceof TFile)) throw e;
+          await vault.modify(now, d);
+        }
       },
       mkdir: async (p) => {
         if (!at(p)) await vault.createFolder(normalizePath(p));
