@@ -1,6 +1,7 @@
 import { Story } from "inkjs/full";
 import type { GameConfig } from "../game/config";
 import { GameEngine } from "../game/engine";
+import { inputOf, inputPlaceholder } from "./input";
 import { PlaySession } from "./session";
 
 export interface SimulateOptions {
@@ -103,8 +104,11 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
       // A choice that plays from a hand is taken with a random card in it.
       const play = engine?.playOf(pick);
       const card = play && play.cards.length > 0 ? play.cards[Math.floor(random() * play.cards.length)] : null;
-      const payload = engine && play && card ? engine.playPayload(play.hand, card.id) ?? undefined : undefined;
-      path.push(card ? `${pick.text} ▸ ${card.name}` : pick.text);
+      const cardPayload = engine && play && card ? engine.playPayload(play.hand, card.id) ?? undefined : undefined;
+      // A choice that asks for a line of text gets the placeholder.
+      const variable = play ? null : inputOf(pick);
+      const payload = cardPayload ?? (variable === null ? undefined : { var: variable, text: inputPlaceholder(variable) });
+      path.push(card ? `${pick.text} ▸ ${card.name}` : variable !== null ? `${pick.text} ▸ ${inputPlaceholder(variable)}` : pick.text);
       step = session.choose(pick.index, payload);
       steps++;
     }

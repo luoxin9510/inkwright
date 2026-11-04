@@ -83,6 +83,11 @@ describe("translateRuntime", () => {
   test("works without a file name", () => {
     expect(translateRuntime("RUNTIME WARNING: line 2: Something unknown")).toBe("运行警告(第 2 行):Something unknown(暂无中文翻译)");
   });
+  test("writing a variable the story never declared (an #input choice naming a missing VAR)", () => {
+    // Exact text from inkjs, seen when a payload names a variable the story lacks.
+    expect(translateRuntime("Cannot assign to a variable (cat) that hasn't been declared in the story"))
+      .toBe("无法给 'cat' 赋值:剧本里没有用 VAR 声明这个变量");
+  });
   test("plain messages are translated as-is", () => {
     expect(translateRuntime("Unresolved variable: x")).toBe(translate("Unresolved variable: x"));
   });

@@ -48,6 +48,7 @@ Requires Obsidian 1.13 or later; older versions get the previous release automat
 - **Knot graph**: diverts, tunnels and threads between knots, with knots that can never be reached from the start highlighted.
 - **Export as web page**: one self-contained `.html` file next to the story, playable in any browser, with undo and progress kept in the browser. Upload it anywhere (itch.io, GitHub Pages, …).
 - **Bilingual stories**: declare `VAR lang = "en"` (or `VAR 语言`) and write text as `{tr("Hello", "你好")}`-style calls; the play panel and exported pages get a language switch that replays the run in the other language without losing progress. Text left outside such a call is reported as a warning.
+- **The player writes**: a choice tagged `#input:name` gets a text field; the line typed goes into the `name` VAR (a name, an oath, a diary line), and saves, undo and the language switch keep it.
 - **Game mode**: a `game.md` note next to the story turns it into a game with dice checks, skills, resources, characters, items, random tables, decks, hands of cards, a map and more (see [Game mode](#game-mode) below).
 - **Playtest at scale**: `npm run check-ink -- <folder> --all` plays every branch (both sides of every check in a game) and reports endings, runtime errors, unreached knots and choices; `--random 300` plays random runs and gives the odds of each ending.
 - **Write the session to a note**: in a game, one command turns the run so far (text, choices, dice) into a markdown note.

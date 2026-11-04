@@ -3,6 +3,7 @@ import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
+import { inputOf } from "../play/input";
 import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
 import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, GridView, MapView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
@@ -69,8 +70,8 @@ export interface PlayController {
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
   startAt(path: string | null): void;
-  /** Takes a choice; a `#play` choice is taken with the id of a card picked from its hand. */
-  choose(index: number, card?: string): void;
+  /** Takes a choice; a `#play` choice is taken with the id of a card picked from its hand, an `#input` choice with the text typed. */
+  choose(index: number, value?: string): void;
   setStoryLanguage(lang: string): void;
   selectCharacter(id: string): void;
   toggleLock(): void;
@@ -94,6 +95,8 @@ export class PlayView extends ItemView {
   /** The card tapped in a hand, for the next `#play` choice; forgotten when the choices change. */
   private picked: { hand: string; card: string } | null = null;
   private pickedAt = "";
+  /** Text typed into `#input` choices, by choice index; kept across re-renders of the same spot, like `picked`. */
+  private typed = new Map<number, string>();
   private bar: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly controller: PlayController) {
@@ -271,7 +274,10 @@ export class PlayView extends ItemView {
 
     // A card picked in a hand belongs to this spot: the next text, or other choices, drop it.
     const spot = `${s.root ?? ""}\n${s.log.length}\n${s.choices.map((c) => c.text).join("\n")}`;
-    if (spot !== this.pickedAt) this.picked = null;
+    if (spot !== this.pickedAt) {
+      this.picked = null;
+      this.typed.clear();
+    }
     this.pickedAt = spot;
     if (s.game?.hud.hands) this.renderHands(main, s.game.hud.hands, s.game.cardImages);
 
@@ -279,6 +285,9 @@ export class PlayView extends ItemView {
     s.choices.forEach((c, i) => {
       const play = s.game?.plays[i] ?? null;
       const card = play && this.picked?.hand === play.hand ? play.cards.find((k) => k.id === this.picked?.card) : undefined;
+      // An #input choice (not a #play one) gets a text field above its button; the button waits for a line.
+      const variable = play ? null : inputOf(c);
+      const field = variable === null ? null : choices.createEl("input", { cls: "inkwright-input", type: "text", placeholder: T().typeHere, value: this.typed.get(c.index) ?? "" });
       const button = choices.createEl("button", { text: card ? `${c.text} · ${card.name}` : c.text, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
@@ -288,14 +297,27 @@ export class PlayView extends ItemView {
       }
       // A #play choice waits for a card from its hand; with no card to play it is locked like a missing item.
       if (play && !card) button.createSpan({ cls: "inkwright-choice-pick", text: play.known && play.cards.length > 0 ? T().pickCard : `${play.name} · ${T().nothingCarried}` });
-      if (needs.some((n) => !n.has) || (play && !card)) {
+      const locked = needs.some((n) => !n.has) || (play !== null && !card);
+      if (locked) {
         button.disabled = true;
         button.addClass("inkwright-choice-locked");
       }
       button.onclick = () => {
         this.afterChoice = true;
-        this.controller.choose(c.index, card?.id);
+        this.controller.choose(c.index, field ? field.value : card?.id);
       };
+      if (field) {
+        const empty = () => field.value.trim() === "";
+        button.disabled = locked || empty();
+        field.disabled = locked;
+        field.oninput = () => {
+          this.typed.set(c.index, field.value);
+          button.disabled = locked || empty();
+        };
+        field.onkeydown = (e) => {
+          if (e.key === "Enter" && !e.isComposing && !button.disabled) button.click();
+        };
+      }
     });
     if (fresh) {
       (line ?? newCards[0] ?? paras[from]).scrollIntoView({ block: "start" });
