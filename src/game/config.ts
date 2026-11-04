@@ -884,7 +884,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     party: isObj(fm.party) ? readParty(fm.party) : undefined,
     attributes: isObj(fm.attributes) ? (fm.attributes as Record<string, LocalizedText>) : undefined,
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
-    journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}), ...(fm.journal.live === true ? { live: true } : {}) } : undefined,
+    journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}), ...(typeof fm.journal.live === "boolean" ? { live: fm.journal.live } : {}) } : undefined,
     oracle: isObj(fm.oracle) ? fm.oracle : undefined,
     languages: (fm.languages ?? undefined) as string[] | undefined,
     engineFile: (fm.engineFile ?? undefined) as string | undefined,

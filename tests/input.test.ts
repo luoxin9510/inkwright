@@ -105,6 +105,17 @@ describe("#write (a paragraph)", () => {
     expect(step.paragraphs.map((p) => p.text)).toEqual(["你写下:第一行\n第二行"]);
   });
 
+  test("the session records that the choice asked for a paragraph, whatever was typed", () => {
+    const s = new PlaySession(new Compiler(SRC).Compile());
+    s.start();
+    s.choose(0, inputPayload("entry", "只有一行")!);
+    expect(s.taken[0].write).toBe(true);
+    const plain = new PlaySession(new Compiler('VAR n = ""\n+ [起名 #input:n] {n}\n-> END\n').Compile());
+    plain.start();
+    plain.choose(0, inputPayload("n", "煤球")!);
+    expect(plain.taken[0].write).toBeUndefined();
+  });
+
   test("the explorer and headless play type the placeholder", async () => {
     const r = await compileStory("main.ink", async () => SRC);
     expect(exploreStory(r.story!, {}).endings.map((e) => e.lastText)).toEqual(["你写下:[entry]"]);

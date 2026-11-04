@@ -675,7 +675,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       const language = (session.language ?? getLanguage()) === "en" ? "en" : "zh";
       const input = {
         language, log: session.log, turns: session.turns, rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills,
-        taken: session.taken.map((t, i) => ({ seq: t.seq, text: t.text, at: session.choicesMade[i]?.at ?? session.log.length, payload: t.payload, write: this.wroteParagraph(t.payload) })),
+        taken: session.taken.map((t, i) => ({ seq: t.seq, text: t.text, at: session.choicesMade[i]?.at ?? session.log.length, payload: t.payload, write: t.write === true })),
         asides: session.asides, writtenSeq: run.journal?.writtenSeq ?? -1, writtenTop: run.journal?.writtenTop ?? -1,
       } as const;
       const blocks = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })) });
@@ -695,19 +695,18 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
           const fresh = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })), writtenSeq: -1, writtenTop: -1 });
           file = await this.app.vault.create(path, liveHeader({ title: story, date: new Date(), language, character }, input) + fresh.text);
           this.run = this.run ? { ...this.run, journal: { path, writtenSeq: fresh.writtenSeq, writtenTop: fresh.writtenTop } } : this.run;
+          // The run must know the note and how far it was written before anything else happens: write it again.
+          this.writeRun();
           return;
         }
-        if (blocks.text !== "") await this.appendToNote(file, blocks.text);
+        if (blocks.text === "") return;
+        await this.appendToNote(file, blocks.text);
         this.run = this.run ? { ...this.run, journal: { path, writtenSeq: blocks.writtenSeq, writtenTop: blocks.writtenTop } } : this.run;
+        this.writeRun();
       } catch (e) {
         console.error("Inkwright: could not write the live journal", e);
       }
     });
-  }
-
-  /** Whether a choice's payload is a paragraph (#write): the journal quotes it. */
-  private wroteParagraph(payload: Payload | undefined): boolean {
-    return !!payload && "text" in payload && payload.text.includes("\n");
   }
 
   /** Appends to a note: through the editor when it is open there (so the player's cursor and edits are kept), else the vault. */

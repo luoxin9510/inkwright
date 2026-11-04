@@ -3,6 +3,7 @@ import { Compiler } from "inkjs/full";
 import { liveBlocks, liveHeader } from "../src/play/journal";
 import { PlaySession } from "../src/play/session";
 import { inputPayload } from "../src/play/input";
+import { readConfig } from "../src/game/config";
 
 const SRC = 'VAR entry = ""\n开场。\n+ [推门] -> k\n=== k ===\n门开了。\n里面很黑。\n+ [写下来 #write:entry]\n    {entry}\n    -> k2\n=== k2 ===\n+ [再来] -> k\n';
 const oracle = { kind: "oracle" as const, lang: "zh", question: "有人吗", odds: "even", result: { roll: 30, threshold: 50, answer: "yes", extreme: false } };
@@ -62,4 +63,11 @@ describe("the live journal", () => {
     s.choose(0, inputPayload("entry", "# 标题\n---")!);
     expect(liveBlocks(input(s, { seq: 0, top: 0 })).text).toContain("> # 标题\n> ---\n");
   });
+});
+
+test("a game note can turn the live journal on or off for its story (false is kept, so it can override the setting)", () => {
+  const fm = { rules: { kind: "sum", dice: [6, 6] }, skills: [{ id: "wits" }], characters: [{ id: "you" }] };
+  expect(readConfig({ ...fm, journal: { live: false } }).config?.journal).toEqual({ live: false });
+  expect(readConfig({ ...fm, journal: { live: true, path: "日志/{date}.md" } }).config?.journal).toEqual({ path: "日志/{date}.md", live: true });
+  expect(readConfig({ ...fm, journal: { live: "yes" } }).problems).toEqual([{ code: "shape", args: ["journal"] }]);
 });

@@ -358,6 +358,8 @@ export class PlayView extends ItemView {
         para.createSpan({ cls: "inkwright-voice-name", text: skill.name, ...(skill.stance ? { title: skill.stance } : {}) });
       }
       para.appendText(p.text);
+      // A paragraph the player wrote (#write) keeps its lines; other text is laid out as before.
+      if (p.text.includes("\n")) para.addClass("inkwright-lines");
       // Picked up after a while: a line where the player left off.
       if (s.recap && s.recap.at === i + 1) story.createDiv({ cls: "inkwright-recap" }).createSpan({ cls: "inkwright-recap-text", text: T().leftOff(s.recap.when) });
     });
