@@ -132,8 +132,19 @@ describe("reading a run from a file (another device, an import: not trusted)", (
     expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: 3, fp: "" }))).toBeNull();
     expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "a", fp: "", payload: { var: 1 } }))).toBeNull();
     expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "a", fp: "", offered: [1] }))).toBeNull();
+    // The tray's actions carry their results: the panel draws them as they are, so they must have the shape it draws.
+    const oracleOk = { kind: "oracle", seq: 0, lang: null, odds: "even", question: "有人吗", result: { roll: 30, threshold: 50, answer: "yes", extreme: false } };
+    expect(parseRun(withAction(oracleOk))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ ...oracleOk, result: {} }))).toBeNull();
+    expect(parseRun(withAction({ ...oracleOk, result: { ...oracleOk.result, answer: "maybe" } }))).toBeNull();
+    expect(parseRun(withAction({ ...oracleOk, question: 5 }))).toBeNull();
+    const rollOk = { kind: "roll", seq: 0, lang: null, formula: "1d6", table: "action", result: { formula: "1d6", rolls: [4], total: 4, table: { id: "action", name: "动作", text: "交易" } } };
+    expect(parseRun(withAction(rollOk))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, rolls: "4" } }))).toBeNull();
+    expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, table: { id: "action" } } }))).toBeNull();
+    expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, dropped: ["0"] } }))).toBeNull();
     // Kinds this version cannot replay are kept: the replay stops there (replayActions).
-    expect(parseRun(withAction({ kind: "oracle", seq: 0, lang: null, odds: "even", result: {} }))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ kind: "adjust", seq: 0, lang: null, var: "hp", delta: -1 }))?.actions).toHaveLength(1);
     expect(parseRun(withAction({ seq: 0, lang: null }))).toBeNull();
   });
 

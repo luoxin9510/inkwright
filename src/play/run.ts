@@ -208,8 +208,23 @@ function isPayload(v: unknown): boolean {
 }
 
 /** An action as a file may hold it; kinds this version cannot replay pass with their seq (the replay stops there). */
+/** An oracle answer as the panel draws it. */
+function isOracleResult(v: unknown): boolean {
+  return isObject(v) && isNumber(v.roll) && isNumber(v.threshold) && (v.answer === "yes" || v.answer === "no") && typeof v.extreme === "boolean";
+}
+
+/** A tray roll as the panel draws it. */
+function isTrayRoll(v: unknown): boolean {
+  if (!isObject(v) || !isString(v.formula) || !Array.isArray(v.rolls) || !v.rolls.every(isNumber) || !isNumber(v.total)) return false;
+  if (v.dropped !== undefined && !(Array.isArray(v.dropped) && v.dropped.every(isNumber))) return false;
+  const t = v.table;
+  return t === undefined || (isObject(t) && isString(t.id) && isString(t.name) && isString(t.text) && (t.rowId === undefined || isString(t.rowId)));
+}
+
 function isAction(v: unknown): v is Action {
   if (!isObject(v) || !isString(v.kind) || !isNumber(v.seq) || !orNull(v.lang ?? null, isString)) return false;
+  if (v.kind === "oracle") return isString(v.odds) && (v.question === undefined || isString(v.question)) && isOracleResult(v.result);
+  if (v.kind === "roll") return isString(v.formula) && (v.table === undefined || isString(v.table)) && isTrayRoll(v.result);
   if (v.kind !== "choose") return true;
   return isNumber(v.index) && orNull(v.text, isString)
     && (v.payload === undefined || isPayload(v.payload))
