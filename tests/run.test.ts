@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { mergeRuns, migrateSave, newRun, parseRun, replayActions, storyFolder, withTaken, type Run } from "../src/play/run";
+import { mergeRuns, migrateSave, newRun, parseRun, replayActions, stepAt, storyFolder, withTaken, type Run } from "../src/play/run";
 import type { Taken } from "../src/play/session";
 
 const NOW = "2026-11-04T10:00:00.000Z";
@@ -31,6 +31,26 @@ describe("runs", () => {
     expect(storyFolder("main.ink")).toMatch(/^main-[0-9a-f]{8}$/);
     expect(storyFolder("a/b:c?.ink")).toMatch(/^b_c_-[0-9a-f]{8}$/);
     expect(storyFolder("游戏/雨夜来客/main.ink")).not.toBe(storyFolder("游戏/别的/main.ink"));
+  });
+});
+
+describe("asides in the run", () => {
+  test("the tray's asides are kept among the choices in the order done, and replay as recorded", () => {
+    const asides = [
+      { kind: "oracle" as const, lang: "zh", question: "门后有人吗", odds: "likely", result: { roll: 3 }, seq: 1, at: 1, after: 1 },
+      { kind: "roll" as const, lang: "zh", formula: "1d6", table: "action", result: { total: 4 }, seq: 3, at: 2, after: 2 },
+    ];
+    const r = withTaken(base(), [...taken(1), { ...taken(1)[0], seq: 2, text: "c1" }], 4, NOW, asides);
+    expect(r.actions.map((a) => [a.kind, a.seq])).toEqual([["choose", 0], ["oracle", 1], ["choose", 2], ["roll", 3]]);
+    expect(r.actions[1]).toEqual({ kind: "oracle", seq: 1, lang: "zh", question: "门后有人吗", odds: "likely", result: { roll: 3 } });
+    const replay = replayActions(r);
+    expect(replay.map((a) => [a.seq, a.aside?.kind ?? "choose"])).toEqual([[0, "choose"], [1, "oracle"], [2, "choose"], [3, "roll"]]);
+    expect(replay[3].aside).toEqual({ kind: "roll", lang: "zh", formula: "1d6", table: "action", result: { total: 4 } });
+    // The player's "step N" counts choices only: the oracle at position 1 is in step 2's place, the roll at 3 after step 2.
+    expect([0, 1, 2, 3, 4].map((pos) => stepAt(r.actions, pos))).toEqual([1, 2, 2, 3, 3]);
+    // A kind this version cannot replay stops the replay there.
+    const later = { ...r, actions: [...r.actions, { kind: "adjust" as const, seq: 4, lang: null, var: "hp", delta: -1 }, ...r.actions.slice(0, 1).map((a) => ({ ...a, seq: 5 }))] };
+    expect(replayActions(later)).toHaveLength(4);
   });
 });
 
@@ -112,8 +132,19 @@ describe("reading a run from a file (another device, an import: not trusted)", (
     expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: 3, fp: "" }))).toBeNull();
     expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "a", fp: "", payload: { var: 1 } }))).toBeNull();
     expect(parseRun(withAction({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "a", fp: "", offered: [1] }))).toBeNull();
+    // The tray's actions carry their results: the panel draws them as they are, so they must have the shape it draws.
+    const oracleOk = { kind: "oracle", seq: 0, lang: null, odds: "even", question: "有人吗", result: { roll: 30, threshold: 50, answer: "yes", extreme: false } };
+    expect(parseRun(withAction(oracleOk))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ ...oracleOk, result: {} }))).toBeNull();
+    expect(parseRun(withAction({ ...oracleOk, result: { ...oracleOk.result, answer: "maybe" } }))).toBeNull();
+    expect(parseRun(withAction({ ...oracleOk, question: 5 }))).toBeNull();
+    const rollOk = { kind: "roll", seq: 0, lang: null, formula: "1d6", table: "action", result: { formula: "1d6", rolls: [4], total: 4, table: { id: "action", name: "动作", text: "交易" } } };
+    expect(parseRun(withAction(rollOk))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, rolls: "4" } }))).toBeNull();
+    expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, table: { id: "action" } } }))).toBeNull();
+    expect(parseRun(withAction({ ...rollOk, result: { ...rollOk.result, dropped: ["0"] } }))).toBeNull();
     // Kinds this version cannot replay are kept: the replay stops there (replayActions).
-    expect(parseRun(withAction({ kind: "oracle", seq: 0, lang: null, odds: "even", result: {} }))?.actions).toHaveLength(1);
+    expect(parseRun(withAction({ kind: "adjust", seq: 0, lang: null, var: "hp", delta: -1 }))?.actions).toHaveLength(1);
     expect(parseRun(withAction({ seq: 0, lang: null }))).toBeNull();
   });
 

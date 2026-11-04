@@ -55,6 +55,28 @@ export interface Taken {
   offered: string[];
 }
 
+/**
+ * Something the player did beside the story (the dice tray): an oracle question or a roll, with what came
+ * out. It changes no story variable; it is kept where it happened, with a seq like a choice.
+ */
+export interface Aside {
+  seq?: number;
+  lang: string | null;
+  kind: "oracle" | "roll";
+  question?: string;
+  odds?: string;
+  formula?: string;
+  table?: string;
+  result: unknown;
+}
+
+/** An aside where it happened: after `at` paragraphs of the log and `after` choices. */
+export interface PlacedAside extends Aside {
+  seq: number;
+  at: number;
+  after: number;
+}
+
 /** A recorded choice to replay; `text` null for one recorded without it (an old save): checked by index only. */
 export interface ReplayAction {
   index: number;
@@ -66,6 +88,8 @@ export interface ReplayAction {
   fp?: string;
   /** The texts offered with it (see Taken.offered). */
   offered?: string[];
+  /** Not a choice: an aside to put back where it was, as recorded (index and text unused). */
+  aside?: Aside;
 }
 
 /**
@@ -169,6 +193,8 @@ export class PlaySession {
   private takenList: Taken[] = [];
   /** The next seq to give a choice: seqs are never reused within a run, even after back. */
   private nextSeq = 0;
+  /** The asides of this run (the dice tray), oldest first. */
+  private asideList: PlacedAside[] = [];
   /** State at the start point; null after loading a save made without one. */
   private startState: string | null = null;
   /** Choices made since startState. */
@@ -204,6 +230,7 @@ export class PlaySession {
     }
     const picks = this.picks;
     const seqs = this.takenList.map((t) => t.seq);
+    const asides = this.asideList;
     this.story = this.attach(new Story(this.json));
     this.story.state.LoadJson(this.startState);
     this.applyLanguage();
@@ -214,12 +241,19 @@ export class PlaySession {
     this.picks = [];
     this.chosen = [];
     this.takenList = [];
+    this.asideList = [];
     this.errors = [];
     this.halted = false;
     let step = this.advance();
+    // Asides go back after as many choices as before, where the text in the new language has got to then.
+    const place = (after: number) => {
+      for (const a of asides) if (a.after === after) this.addAside(a);
+    };
+    place(0);
     picks.forEach((pick, i) => {
       const seq = seqs[i];
       step = typeof pick === "number" ? this.choose(pick, undefined, seq) : this.choose(pick.index, pick.payload, seq);
+      place(i + 1);
     });
     return { ...step, paragraphs: [] };
   }
@@ -232,6 +266,7 @@ export class PlaySession {
     this.picks = [];
     this.chosen = [];
     this.takenList = [];
+    this.asideList = [];
     // The constructor's Story is fresh: seeds go in before the language (already applied) matters to anything.
     this.prepare?.(this.story);
     this.applyLanguage();
@@ -247,6 +282,39 @@ export class PlaySession {
   /** The record of this run's choices, oldest first. */
   get taken(): readonly Taken[] {
     return this.takenList;
+  }
+
+  /** The asides of this run, oldest first. */
+  get asides(): readonly PlacedAside[] {
+    return this.asideList;
+  }
+
+  /** Keeps an aside here: after the text so far and the choices so far. A replayed one keeps its seq. */
+  addAside(a: Aside): PlacedAside {
+    const seq = a.seq ?? this.nextSeq;
+    this.nextSeq = Math.max(this.nextSeq, seq + 1);
+    const placed: PlacedAside = { ...a, seq, at: this.log.length, after: this.takenList.length };
+    this.asideList.push(placed);
+    return placed;
+  }
+
+  /** Takes back everything done from `seq` on (choices and asides alike), latest first. */
+  undoUntil(seq: number): void {
+    for (;;) {
+      const latest = Math.max(this.takenList.at(-1)?.seq ?? -1, this.asideList.at(-1)?.seq ?? -1);
+      if (latest < seq || this.undo() === null) return;
+    }
+  }
+
+  /** Takes back the latest thing done: an aside, or a choice (see back). Null when there is nothing to take back. */
+  undo(): Step | null {
+    const aside = this.asideList.at(-1);
+    const choice = this.takenList.at(-1);
+    if (aside && (!choice || aside.seq > choice.seq)) {
+      this.asideList.pop();
+      return this.snapshot([]);
+    }
+    return this.back();
   }
 
   /** The seq the next choice will get. */
@@ -285,6 +353,12 @@ export class PlaySession {
       }
       if (Date.now() - begun >= budget) return result(i, { at: i, reason: "budget" });
       const a = actions[i];
+      // An aside is put back as it was recorded: nothing to find on the screen, nothing rolled again.
+      if (a.aside) {
+        this.addAside({ ...a.aside, seq: a.seq });
+        options.onProgress?.(i + 1, actions.length);
+        continue;
+      }
       const sameLanguage = a.lang === null || this.language === null || a.lang === this.language;
       const found = this.halted ? null : findChoice(this.story.currentChoices.map((c) => c.text), a, mode, sameLanguage);
       if (!found) return result(i, { at: i, reason: "mismatch" });
@@ -357,6 +431,8 @@ export class PlaySession {
     this.picks.pop();
     this.chosen.pop();
     this.takenList.pop();
+    // The asides asked after the choice taken back go with it.
+    this.asideList = this.asideList.filter((a) => a.after <= this.takenList.length);
     this.errors = [];
     this.halted = false;
     return this.snapshot([]);
@@ -390,6 +466,7 @@ export class PlaySession {
     this.history = [];
     this.chosen = [];
     this.takenList = [];
+    this.asideList = [];
     this.errors = [];
     this.halted = false;
     this.startState = save.start ?? null;
@@ -441,6 +518,7 @@ export class PlaySession {
     this.picks = [];
     this.chosen = [];
     this.takenList = [];
+    this.asideList = [];
     this.errors = [];
     this.halted = false;
     this.applyLanguage();
@@ -463,6 +541,7 @@ export class PlaySession {
     this.picks = [];
     this.chosen = [];
     this.takenList = [];
+    this.asideList = [];
     this.startState = null;
     this.errors = [];
     this.halted = false;

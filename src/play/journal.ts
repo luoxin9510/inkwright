@@ -1,7 +1,8 @@
 import type { RollRecord } from "../game/engine";
 import { tokenText } from "../game/dice";
 import { stringsFor, type Language } from "../i18n";
-import type { Paragraph } from "./session";
+import type { Paragraph, PlacedAside } from "./session";
+import type { OracleResult, TrayRoll } from "./oracle";
 
 /**
  * A play session as a markdown note: the text read, each choice made where it was made, and
@@ -23,6 +24,22 @@ export interface JournalInput {
   /** Speaking skill per paragraph, aligned with `log`. */
   voices?: readonly (string | null)[];
   skills?: readonly { id: string; name: string }[];
+  /** The dice tray's questions and rolls, where they were asked (oldest first). */
+  asides?: readonly PlacedAside[];
+}
+
+/** One question or roll from the dice tray as a line: `🔮 门后有人吗(很可能)d100 34 / 75 → 是`, `🎲 动作 1d6: 4 = 4 · 寻找`. */
+export function asideLine(a: PlacedAside, language: Language): string {
+  const s = stringsFor(language);
+  if (a.kind === "oracle") {
+    const r = a.result as OracleResult;
+    const answer = s.answers[r.answer === "yes" ? (r.extreme ? "yesAnd" : "yes") : r.extreme ? "noAnd" : "no"];
+    return `🔮 ${s.oracleLine(a.question ?? "", s.oddsNames[a.odds ?? "even"] ?? a.odds ?? "", r.roll, r.threshold, answer)}`;
+  }
+  const r = a.result as TrayRoll;
+  const out = new Set(r.dropped ?? []);
+  const faces = r.rolls.map((f, i) => (out.has(i) ? `~~${f}~~` : String(f))).join("+") || "—";
+  return `🎲 ${r.table ? `${r.table.name} ` : ""}${r.formula}: ${faces} = ${r.total}${r.table ? ` · ${r.table.text}` : ""}`;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -58,8 +75,21 @@ export function renderJournal(j: JournalInput): string {
   for (const r of j.rolls) byTurn.set(r.turn, [...(byTurn.get(r.turn) ?? []), r]);
   let lastTurn: number | null = null;
   let next = 0;
+  const asides = j.asides ?? [];
+  let nextAside = 0;
+  // Choices and tray lines up to paragraph i, in the order they were done: an aside before the choice made after it.
   const choicesBefore = (i: number) => {
-    while (next < j.choices.length && j.choices[next].at <= i) out.push(`**→ ${j.choices[next++].text}**`, "");
+    for (;;) {
+      const a = asides[nextAside], c = j.choices[next];
+      const aReady = a !== undefined && a.at <= i, cReady = c !== undefined && c.at <= i;
+      if (aReady && (!cReady || a.after <= next)) {
+        out.push(`> ${asideLine(a, j.language)}`, "");
+        nextAside++;
+      } else if (cReady) {
+        out.push(`**→ ${c.text}**`, "");
+        next++;
+      } else break;
+    }
   };
   j.log.forEach((p, i) => {
     choicesBefore(i);

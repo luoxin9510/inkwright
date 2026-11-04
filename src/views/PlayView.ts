@@ -4,7 +4,8 @@ import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { inputOf } from "../play/input";
-import { STORY_LANGUAGES, type Choice, type Paragraph } from "../play/session";
+import { STORY_LANGUAGES, type Choice, type Paragraph, type PlacedAside } from "../play/session";
+import { ODDS, type Odds, type OracleResult, type TrayRoll } from "../play/oracle";
 import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, GridView, MapView, RollRecord } from "../game/engine";
 import { fxOf, type Fx } from "../game/config";
 import { tokenText } from "../game/dice";
@@ -75,6 +76,10 @@ export interface PlayState {
   update?: boolean;
   /** The run was picked up after a while: where the player left off, and when. */
   recap?: { at: number; when: string } | null;
+  /** The dice tray's questions and rolls, where they were asked. */
+  asides?: PlacedAside[];
+  /** Tables offered on the tray (marked `oracle: true` in the game note). */
+  trayTables?: { id: string; name: string }[];
 }
 
 export interface PlayController {
@@ -106,6 +111,9 @@ export interface PlayController {
   stopAtDrift(): void;
   dismissNote(): void;
   togglePlayerMode(): void;
+  /** The dice tray: a yes/no question to the oracle, a formula, a table. */
+  askOracle(question: string, odds: Odds): void;
+  rollTray(formula: string, table?: string): void;
 }
 
 /** Paragraphs drawn at most; earlier ones wait behind a button, so a long run stays quick to draw. */
@@ -128,6 +136,14 @@ export class PlayView extends ItemView {
   private showAllFor: string | null = null;
   /** Player mode: the problems the story has, shown when its badge is clicked. */
   private problemsOpen = false;
+  /** The dice tray is unfolded; what was typed in it is kept across redraws. */
+  private trayOpen = false;
+  private trayQuestion = "";
+  private trayOdds: Odds = "even";
+  private trayFormula = "";
+  /** Tray cards drawn last time (per story), so a new one is scrolled into view. */
+  private shownAsides = 0;
+  private asidesRoot: string | null = null;
   /** Text typed into `#input` choices, by choice index; kept across re-renders of the same spot, like `picked`. */
   private typed = new Map<number, string>();
   private bar: HTMLElement | null = null;
@@ -308,8 +324,18 @@ export class PlayView extends ItemView {
       };
       lastTurn = s.game?.turns[first - 1] ?? null;
     }
+    // The tray's questions and rolls, drawn where they were asked: before the paragraph that came after them.
+    const asides = s.asides ?? [];
+    let nextAside = 0;
+    const asidesBefore = (i: number) => {
+      while (nextAside < asides.length && asides[nextAside].at <= i) {
+        const a = asides[nextAside++];
+        if (a.at >= first) newCards.push(this.renderAside(story, a));
+      }
+    };
     s.log.forEach((p, i) => {
       if (i < first) return;
+      asidesBefore(i);
       if (s.chosen && s.chosen.at === i) turnLine();
       const turn = s.game?.turns[i] ?? null;
       if (s.game && turn !== null && (i === first || turn !== lastTurn)) {
@@ -332,6 +358,7 @@ export class PlayView extends ItemView {
       // Picked up after a while: a line where the player left off.
       if (s.recap && s.recap.at === i + 1) story.createDiv({ cls: "inkwright-recap" }).createSpan({ cls: "inkwright-recap-text", text: T().leftOff(s.recap.when) });
     });
+    asidesBefore(Number.MAX_SAFE_INTEGER);
     if (s.chosen && s.chosen.at >= s.log.length) turnLine();
     for (const msg of s.runtimeErrors) story.createDiv({ cls: "inkwright-diag inkwright-diag-error", text: msg });
     if (s.ended) story.createEl("p", { text: T().ended, cls: "inkwright-ended" });
@@ -391,12 +418,88 @@ export class PlayView extends ItemView {
         };
       }
     });
+    if (s.hasStory) this.renderTray(main, s.trayTables ?? []);
+    // A question just asked or a roll just made: its card is the last one; bring it into view.
+    const asked = (s.asides ?? []).length;
+    if (this.asidesRoot === s.root && asked > this.shownAsides) story.querySelectorAll(".inkwright-oracle, .inkwright-tray-roll").item(-1 + story.querySelectorAll(".inkwright-oracle, .inkwright-tray-roll").length)?.scrollIntoView({ block: "nearest" });
+    this.asidesRoot = s.root;
+    this.shownAsides = asked;
     if (fresh) {
       (line ?? newCards[0] ?? paras[from] ?? paras.find(Boolean))?.scrollIntoView({ block: "start" });
       this.animateRolls(newCards);
       this.playFx(story, s.log.slice(from).flatMap((p) => fxOf(p.tags)));
     } else if (changed) {
       choices.scrollIntoView({ block: "end" });
+    }
+  }
+
+  /** One question or roll from the dice tray, as a card in the text. */
+  private renderAside(parent: HTMLElement, a: PlacedAside): HTMLElement {
+    const t = T();
+    if (a.kind === "oracle") {
+      const r = a.result as OracleResult;
+      const answer = t.answers[r.answer === "yes" ? (r.extreme ? "yesAnd" : "yes") : r.extreme ? "noAnd" : "no"];
+      const card = parent.createDiv({ cls: `inkwright-roll inkwright-oracle inkwright-oracle-${r.answer}` });
+      card.createSpan({ cls: "inkwright-roll-skill", text: `🔮 ${a.question ?? ""}` });
+      card.createSpan({ cls: "inkwright-oracle-odds", text: `${t.oddsNames[a.odds ?? "even"] ?? ""} · d100 ${r.roll} / ${r.threshold}` });
+      card.createSpan({ cls: "inkwright-roll-band", text: answer });
+      return card;
+    }
+    const r = a.result as TrayRoll;
+    const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free inkwright-tray-roll" });
+    card.createSpan({ cls: "inkwright-roll-skill", text: r.table ? `${r.table.name} ${r.formula}` : r.formula });
+    const dice = card.createSpan({ cls: "inkwright-roll-dice" });
+    const out = new Set(r.dropped ?? []);
+    r.rolls.forEach((face, i) => dice.createSpan({ cls: `inkwright-die${out.has(i) ? " inkwright-die-dropped" : ""}`, text: String(face) }));
+    card.createSpan({ cls: "inkwright-roll-sum", text: `= ${r.total}` });
+    if (r.table) card.createSpan({ cls: "inkwright-roll-band", text: r.table.text });
+    return card;
+  }
+
+  /** The dice tray: ask the oracle, roll a formula or a common die, roll an inspiration table. Folded until opened. */
+  private renderTray(el: HTMLElement, tables: { id: string; name: string }[]): void {
+    const t = T();
+    const tray = el.createEl("details", { cls: "inkwright-tray" });
+    tray.open = this.trayOpen;
+    tray.ontoggle = () => {
+      this.trayOpen = tray.open;
+    };
+    tray.createEl("summary", { text: t.tray });
+    const ask = tray.createDiv({ cls: "inkwright-tray-row" });
+    const question = ask.createEl("input", { type: "text", placeholder: t.questionPlaceholder, value: this.trayQuestion, cls: "inkwright-tray-question" });
+    question.oninput = () => {
+      this.trayQuestion = question.value;
+    };
+    const odds = ask.createEl("select", { cls: "dropdown" });
+    for (const o of ODDS) odds.createEl("option", { text: t.oddsNames[o], value: o });
+    odds.value = this.trayOdds;
+    odds.onchange = () => {
+      this.trayOdds = odds.value as Odds;
+    };
+    const go = () => {
+      this.trayQuestion = "";
+      this.controller.askOracle(question.value, this.trayOdds);
+    };
+    ask.createEl("button", { text: t.ask, cls: "mod-cta" }).onclick = go;
+    question.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.isComposing) go();
+    };
+    const roll = tray.createDiv({ cls: "inkwright-tray-row" });
+    const formula = roll.createEl("input", { type: "text", placeholder: t.formulaPlaceholder, value: this.trayFormula, cls: "inkwright-tray-formula" });
+    formula.oninput = () => {
+      this.trayFormula = formula.value;
+    };
+    const rollIt = () => {
+      if (formula.value.trim() !== "") this.controller.rollTray(formula.value.trim());
+    };
+    roll.createEl("button", { text: t.rollIt }).onclick = rollIt;
+    formula.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.isComposing) rollIt();
+    };
+    for (const f of ["d6", "2d6", "d20", "d100"]) roll.createEl("button", { text: f, cls: "inkwright-tray-die" }).onclick = () => this.controller.rollTray(f);
+    if (tables.length > 0) {
+      const row = tray.createDiv({ cls: "inkwright-tray-row" });
+      for (const tb of tables) row.createEl("button", { text: `🎲 ${tb.name}` }).onclick = () => this.controller.rollTray("", tb.id);
     }
   }
 
