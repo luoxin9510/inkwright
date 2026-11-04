@@ -868,8 +868,22 @@ const PLAYER = `(function () {
 
   // Progress saved by an earlier export of the story: replayed from the start on this one, with the run's
   // seeds, each choice found again the way the Obsidian panel finds it (findChoice); stops where one is gone.
-  function replayUpdated(saved) {
+  function replayUpdated(saved, raw) {
     if (!saved.start || !saved.picks) return false;
+    try {
+      return replayPicks(saved);
+    } catch (e) {
+      // Not replayable after all (broken, or the story is too far from it): start over, but keep the old save aside.
+      replaying = false;
+      halted = false;
+      storage(false, [KEY + ":old", raw]);
+      return false;
+    } finally {
+      replaying = false;
+    }
+  }
+
+  function replayPicks(saved) {
     var old = JSON.parse(saved.start);
     story.ResetState();
     applyLanguage();
@@ -906,9 +920,10 @@ const PLAYER = `(function () {
 
   function resume() {
     try {
-      var saved = JSON.parse(storage(true, KEY) || "null");
+      var raw = storage(true, KEY);
+      var saved = JSON.parse(raw || "null");
       if (!saved) return false;
-      if (saved.version !== cfg.version) return replayUpdated(saved);
+      if (saved.version !== cfg.version) return replayUpdated(saved, raw);
       story.state.LoadJson(saved.state);
       log = saved.log;
       history = saved.history;
