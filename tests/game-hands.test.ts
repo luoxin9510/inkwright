@@ -67,7 +67,8 @@ describe("hands", () => {
   test("the generated ink declares each hand and the played VAR", () => {
     const ink = generateInk(HANDS);
     expect(ink).toContain("VAR 手牌 = ()\nVAR 出牌 = ()");
-    expect(generateInk(CONFIG)).not.toContain("VAR 出牌");
+    // Without hands, the played VAR is there only for #use: a game with items has it, one without has not.
+    expect(generateInk({ ...CONFIG, items: [] })).not.toContain("VAR 出牌");
   });
 
   test("the engine shows each hand's cards, and a #play choice carries one of them", () => {

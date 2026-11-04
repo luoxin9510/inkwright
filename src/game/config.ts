@@ -105,6 +105,13 @@ export interface TableDef {
   oracle?: boolean;
 }
 
+/** A turn structure: the round counter and the phase variable (a string, one of the phases' ids), which the generated ink declares. */
+export interface TurnDef {
+  round: string;
+  phase: string;
+  phases: { id: string; name?: LocalizedText }[];
+}
+
 /** A record: a list of short entries kept in one ink string (`record_add("clues", "the old mill")`), with a counter. */
 export interface RecordDef {
   /** Also the ink variable holding it; `<id>_count` (InkNames.countSuffix) counts its entries. */
@@ -291,6 +298,8 @@ export interface GameConfig {
   oracle?: OracleConfig;
   /** Records the story and the player keep: clues, people, threads (solo PRD §4.5). */
   records?: RecordDef[];
+  /** Rounds and phases shown on the HUD (a board game's turn structure; the story moves them). */
+  turn?: TurnDef;
   /**
    * Languages the story is written in, e.g. ["zh", "en"] (the first is the default). The
    * generated ink then declares the language variable and the text function (`{t("中文", "English")}`).
@@ -522,6 +531,11 @@ export function parsePlayTag(tag: string): string | null {
   return parts[1];
 }
 
+/** `use` on a choice: the player picks something carried (an item), written into the played VAR like a card. */
+export function parseUseTag(tag: string): boolean {
+  return tag.trim() === "use";
+}
+
 /** `go:<place>` on a choice → the place id; tapping that place on the map takes the choice. */
 export function parseGoTag(tag: string): string | null {
   const parts = tag.trim().split(":").map((p) => p.trim());
@@ -690,6 +704,16 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     ident(r.id);
     ident(`${r.id}${inkNames(config).countSuffix}`);
   }
+  if (config.turn) {
+    ident(config.turn.round);
+    ident(config.turn.phase);
+    if (config.turn.phases.length === 0) bad("list", "turn.phases");
+    const phases = new Set<string>();
+    for (const p of config.turn.phases) {
+      if (phases.has(p.id)) bad("duplicate", p.id);
+      phases.add(p.id);
+    }
+  }
   if (config.map) {
     // Links and token places are checked once the canvas has filled the places in (resolveMap validates again).
     const deferred = config.map.from !== undefined;
@@ -761,7 +785,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
   const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "dungeonVia", "notesVar", "noteGet", "noteSet", "roomNote", "setRoomNote", "notesParam", "fieldParam", "valueParam", "kParam2", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
   const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
-  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames)]);
+  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames)]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
@@ -874,6 +898,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   if (!opt(fm.attributes, (v) => isObj(v) && Object.values(v).every(isText))) shape("attributes");
   entries("hands", false, (e) => opt(e.name, isText));
   entries("records", false, (e) => opt(e.name, isText));
+  if (!opt(fm.turn, (v) => isObj(v) && isStr(v.round) && isStr(v.phase) && Array.isArray(v.phases) && v.phases.every((p: unknown) => isObj(p) && isStr(p.id) && opt(p.name, isText)))) shape("turn");
   // A map drawn from a canvas gets its positions there, so its places need only an id.
   const fromCanvas = isObj(fm.map) && isStr(fm.map.from);
   const place = (p: unknown) => isObj(p) && isStr(p.id) && (fromCanvas ? opt(p.x, isNum) && opt(p.y, isNum) : isNum(p.x) && isNum(p.y)) && opt(p.name, isText) && opt(p.links, (v) => Array.isArray(v) && v.every(isStr))
@@ -916,6 +941,7 @@ export function readConfig(fm: unknown): LoadedConfig {
       cards: (Array.isArray(d.cards) ? d.cards : []).filter(isObj).map((c) => readCard(c, String(c.id))),
     })),
     hands: (fm.hands ?? []) as HandDef[],
+    ...(isObj(fm.turn) ? { turn: { round: String(fm.turn.round), phase: String(fm.turn.phase), phases: (fm.turn.phases as Record<string, unknown>[]).map((p) => ({ id: String(p.id), ...(isText(p.name) ? { name: p.name } : {}) })) } } : {}),
     ...(Array.isArray(fm.records) && fm.records.length > 0 ? { records: (fm.records as Record<string, unknown>[]).map((e) => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}) })) } : {}),
     map: isObj(fm.map) ? readMap(fm.map) : undefined,
     dungeon: isObj(fm.dungeon) ? readDungeon(fm.dungeon) : undefined,

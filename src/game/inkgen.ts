@@ -202,6 +202,13 @@ export function generateInk(config: GameConfig): string {
     lines.push("", `// Hands: shown as cards in the panel; the story fills them (~ ${hands[0].id} += ${n.draw}("…")). A choice tagged #play:${hands[0].id} puts the card the player picked into ${n.played} before the choice runs: ~ ${hands[0].id} -= ${n.played}.`);
     for (const h of hands) lines.push(`VAR ${h.id} = ()`);
     lines.push(`VAR ${n.played} = ()`);
+  } else if (config.items?.length) {
+    // #use: the thing the player picks from what is carried goes into the played VAR, as a card does.
+    lines.push("", `// A choice tagged #use is taken with something carried, written into ${n.played} first: { ${n.played} == ${config.items[0].id}: … }.`, `VAR ${n.played} = ()`);
+  }
+  if (config.turn) {
+    lines.push("", `// Rounds and phases, shown on the HUD; the story moves them (~ ${config.turn.round} += 1, ~ ${config.turn.phase} = "${config.turn.phases[0]?.id ?? ""}").`,
+      `VAR ${config.turn.round} = 1`, `VAR ${config.turn.phase} = "${config.turn.phases[0]?.id ?? ""}"`);
   }
   // Map: the places as a LIST, where the player is, which places are revealed, and each token's place.
   const map = config.map;
