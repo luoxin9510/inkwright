@@ -1,4 +1,4 @@
-import { Notice, Platform, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, Notice, Platform, Plugin, TFile, TFolder, arrayBufferToBase64, moment, normalizePath, parseYaml, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -6,7 +6,7 @@ import { GRAPH_VIEW_TYPE, GraphView, type GraphController } from "./views/GraphV
 import type { Diagnostic } from "./compile/diagnostics";
 import { inputOf, inputPayload } from "./play/input";
 import { PlaySession, findLanguageVar, type Chosen, type Payload, type ReplayAction, type SaveData, type Step } from "./play/session";
-import { hash, migrateSave, newRun, replayActions, withTaken, type Run } from "./play/run";
+import { hash, migrateSave, newRun, parseRun, replayActions, withTaken, type Run } from "./play/run";
 import { RunStore, type Files, type SyncMode } from "./play/store";
 import { Story } from "inkjs/full";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
@@ -46,6 +46,8 @@ interface Settings {
   syncMode?: SyncMode;
   /** Ids of old saves (in `saves`) already moved into the run folder. */
   migrated?: string[];
+  /** Player mode: author controls hidden, the main story locked, edits wait until applied, restart keeps the run. */
+  playerMode?: boolean;
 }
 
 /** A compiled story with the engine for its game note, and a hash of both: one version of a story. */
@@ -127,6 +129,12 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private note: { guesses: number; drift: number | null } | null = null;
   /** The whole run was saved before the pending steps are dropped: once per stop. */
   private backedUp = false;
+  /** Player mode: a newer version of the story is waiting to be applied. */
+  private update = false;
+  /** The run was picked up after a while: the paragraph count where the player left off, and when. */
+  private recap: { at: number; when: string } | null = null;
+  /** The run was just read from the save folder (a story opened, a restart): a replay may show a recap. */
+  private resuming = false;
   /** Writes of the run, one after another. */
   private writing: Promise<void> = Promise.resolve();
   /** A write is queued and has not started: it will write the latest run, so another is not needed. */
@@ -157,6 +165,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "export-web", name: T().exportWeb, callback: () => void this.exportWeb() });
     this.addCommand({ id: "generate-engine", name: T().generateEngine, callback: () => void this.generateEngine() });
     this.addCommand({ id: "write-journal", name: T().writeJournal, callback: () => void this.writeJournal() });
+    this.addCommand({ id: "toggle-player-mode", name: T().togglePlayerMode, callback: () => this.togglePlayerMode() });
+    this.addCommand({ id: "export-run", name: T().exportRun, callback: () => void this.exportRun() });
+    this.addCommand({ id: "import-run", name: T().importRun, callback: () => this.pickRunToImport() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -339,6 +350,21 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   /** Replaces the draft with a new one (new seeds) from the current start point and character; written by the next persist. */
   private freshDraft(): void {
     if (this.root === null || !this.store) return;
+    // Player mode: starting over is a new run; the one so far stays in the saves list.
+    const session = this.session;
+    if (this.config.playerMode && this.run && session && session.taken.length > 0) {
+      const now = new Date();
+      // Stopped short of where it had got to: keep the whole run (its actions still hold the steps not replayed).
+      const source = this.run.pending?.length ? { ...this.run, updatedAt: now.toISOString() } : withTaken(this.run, session.taken, session.seqNext, now.toISOString());
+      const { conflictOf: _conflictOf, pending: _pending, ...kept } = source;
+      const id = newRun({ story: this.root, name: "", draft: false, startPoint: null, character: null, device: "", now: now.toISOString() }).id;
+      const store = this.store;
+      const old: Run = { ...kept, id, draft: false, name: T().runName(stamp(now)), rev: 0, baseRev: 0 };
+      this.writing = this.writing.then(async () => {
+        await store.write(old).catch((e: unknown) => new Notice(T().runWriteFailed(e instanceof Error ? e.message : String(e))));
+        await this.refreshSaves();
+      });
+    }
     const fresh = newRun({ story: this.root, name: "", draft: true, startPoint: this.startPoint, character: this.character, device: "", now: new Date().toISOString() });
     // The revision carries on, so this write supersedes every copy of the old draft.
     this.run = { ...fresh, rev: this.run?.rev ?? 0 };
@@ -460,6 +486,68 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return this.root === null || !this.store ? [] : this.store.list(this.root);
   }
 
+  /** Player mode on or off; turning it on locks the main story (so opening a chapter does not switch away from it). */
+  togglePlayerMode(): void {
+    this.config.playerMode = !(this.config.playerMode ?? false);
+    void this.saveData(this.config);
+    if (this.config.playerMode && this.config.locked === null && this.root !== null) void this.updateLock(this.root);
+    // Leaving player mode: a waiting update is applied, as edits are in author mode.
+    if (!this.config.playerMode && this.update) this.useNewest();
+    this.pushState();
+  }
+
+  /** Writes the run so far as a file (a backup, or to move it elsewhere): <save folder>/_exports/<story> <time>.json. */
+  async exportRun(): Promise<{ path: string | null }> {
+    const session = this.session, run = this.run, root = this.root;
+    if (!session || !run || root === null) {
+      new Notice(T().nothingToSave);
+      return { path: null };
+    }
+    const now = new Date();
+    const { pending: _pending, ...whole } = withTaken(run, session.taken, session.seqNext, now.toISOString());
+    // One fixed name whatever the UI language, so exports do not end up in two folders.
+    const folder = normalizePath(`${this.config.saveFolder ?? "Inkwright"}/_exports`);
+    // Named like the story's save folder: its file name, or its folder's for a main.ink.
+    const parts = root.replace(/\.ink$/, "").split("/");
+    const name = (parts.at(-1) === "main" && parts.length > 1 ? parts[parts.length - 2] : parts.at(-1) ?? "story").replace(/[\\/:*?"<>|]/g, "-");
+    let path = normalizePath(`${folder}/${name} ${stamp(now).replace(":", "-")}.json`);
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = path.replace(/( \(\d+\))?\.json$/, ` (${n}).json`);
+    let made = "";
+    for (const part of folder.split("/")) {
+      made = made === "" ? part : `${made}/${part}`;
+      if (!this.app.vault.getAbstractFileByPath(made)) await this.app.vault.createFolder(made);
+    }
+    await this.app.vault.create(path, JSON.stringify(whole, null, 1));
+    new Notice(T().runExported(path));
+    return { path };
+  }
+
+  /** Imports an exported run (a .json file in the vault) as a save of the current story. */
+  async importRun(path: string): Promise<{ id: string; name: string } | null> {
+    const store = this.store, root = this.root;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!store || root === null || !(file instanceof TFile)) return null;
+    // The file may come from anywhere: only a run a replay can take is imported.
+    const run = parseRun(await this.app.vault.read(file));
+    if (!run) {
+      new Notice(T().notARun(path));
+      return null;
+    }
+    const now = new Date().toISOString();
+    const { pending: _pending, conflictOf: _conflictOf, ...rest } = run;
+    const id = newRun({ story: root, name: "", draft: false, startPoint: null, character: null, device: "", now }).id;
+    const saved: Run = { ...rest, id, story: root, draft: false, name: run.name || file.basename, updatedAt: now, rev: 0, baseRev: 0 };
+    await store.write(saved);
+    await this.refreshSaves();
+    new Notice(T().runImported(saved.name));
+    return { id, name: saved.name };
+  }
+
+  private pickRunToImport(): void {
+    const files = this.app.vault.getFiles().filter((f) => f.extension === "json");
+    new RunFileModal(this.app, files, (f) => void this.importRun(f.path)).open();
+  }
+
   /** Hides the note that the panel stopped short; the steps not replayed stay until the player does something new. */
   dismissStop(): void {
     this.stopped = null;
@@ -495,6 +583,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const session = this.session, store = this.store, run = this.run;
     if (!session || !store || !run || this.replaying) return;
     this.stopped = null;
+    this.recap = null;
     const now = new Date();
     // Moving on from where a replay stopped drops the steps it could not take: keep the whole run as a save first.
     if (run.pending && run.pending.length > 0 && !this.backedUp) {
@@ -948,6 +1037,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     if (latest.run) {
       this.run = latest.run;
       this.runDirty = false;
+      this.resuming = true;
       void this.refreshSaves();
     }
     this.files = result.files;
@@ -964,6 +1054,13 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         this.pushState();
         return;
       }
+      // Player mode: an edit does not interrupt the run; it plays on its version until the update is applied.
+      if (this.config.playerMode && !latest.run && this.session && this.compiled && this.buildHash !== null && this.newest.hash !== this.buildHash) {
+        this.update = true;
+        this.pushState();
+        return;
+      }
+      this.update = false;
       this.frozen = null;
       this.useVersion(this.newest);
       this.playRun();
@@ -1010,6 +1107,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.stopped = null;
     this.note = null;
     this.backedUp = false;
+    // Whether this play picks the run up from the folder: taken now, so no later replay shows a stale recap.
+    const resuming = this.resuming;
+    this.resuming = false;
+    this.recap = null;
     const game = this.game;
     let problem: Stopped | null = null;
     if (run.startPoint !== null && !this.flows.some((f) => f.path === run.startPoint)) {
@@ -1046,11 +1147,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       : legacy?.from === "start" ? session.startFrom(legacy.state) : session.startAt(run.startPoint);
     this.apply(step);
     const actions = replayActions(run);
-    if (actions.length > 0) void this.replayRun(session, run, actions);
+    if (actions.length > 0) void this.replayRun(session, run, actions, resuming);
   }
 
   /** Replays a run's actions on the session, drawing progress; stops short (and says so) when the story no longer fits. */
-  private async replayRun(session: PlaySession, run: Run, actions: ReplayAction[]): Promise<void> {
+  private async replayRun(session: PlaySession, run: Run, actions: ReplayAction[], resuming: boolean): Promise<void> {
     const abort = new AbortController();
     this.replayAbort = abort;
     this.replaying = { done: 0, total: actions.length };
@@ -1081,6 +1182,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       void this.offerOlder(this.stopped);
     }
     if (result.guesses.length > 0 || result.drift !== null) this.note = { guesses: result.guesses.length, drift: result.drift === null ? null : result.drift + 1 };
+    // Picked up after more than an hour: a line where the player left off.
+    if (resuming && Date.now() - Date.parse(run.updatedAt) > 60 * 60 * 1000) this.recap = { at: session.log.length, when: stamp(new Date(run.updatedAt)) };
     this.apply(result.step);
   }
 
@@ -1150,6 +1253,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   /** Leaves the older version for the newest compile (which may stop the run again, where the edit is). */
   useNewest(): void {
     if (!this.newest || this.replaying) return;
+    this.update = false;
     this.frozen = null;
     this.useVersion(this.newest);
     this.playRun();
@@ -1270,6 +1374,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       replay: this.replaying,
       stopped: this.stopped,
       note: this.note,
+      playerMode: this.config.playerMode ?? false,
+      update: this.update,
+      recap: this.recap,
       frozen: this.frozen ? { at: stamp(new Date(this.frozen.createdAt)) } : null,
       storyLanguage: this.session?.language ?? null,
       game: this.gameView(),
@@ -1301,4 +1408,24 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 function stamp(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Picks an exported run file to import. */
+class RunFileModal extends FuzzySuggestModal<TFile> {
+  constructor(app: App, private readonly files: TFile[], private readonly onPick: (f: TFile) => void) {
+    super(app);
+    this.setPlaceholder(T().pickRunFile);
+  }
+
+  getItems(): TFile[] {
+    return this.files;
+  }
+
+  getItemText(f: TFile): string {
+    return f.path;
+  }
+
+  onChooseItem(f: TFile): void {
+    this.onPick(f);
+  }
 }

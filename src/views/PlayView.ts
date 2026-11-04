@@ -69,6 +69,12 @@ export interface PlayState {
   note?: { guesses: number; drift: number | null } | null;
   /** Playing an older version of the story (from before an edit); null when playing the newest. */
   frozen?: { at: string } | null;
+  /** Player mode: the author's controls are out of the way, and edits to the story wait until applied. */
+  playerMode?: boolean;
+  /** Player mode: the story was edited; the run plays on the version it was on until the update is applied. */
+  update?: boolean;
+  /** The run was picked up after a while: where the player left off, and when. */
+  recap?: { at: number; when: string } | null;
 }
 
 export interface PlayController {
@@ -99,7 +105,11 @@ export interface PlayController {
   /** Stops the run at the step whose outcome changed. */
   stopAtDrift(): void;
   dismissNote(): void;
+  togglePlayerMode(): void;
 }
+
+/** Paragraphs drawn at most; earlier ones wait behind a button, so a long run stays quick to draw. */
+const SHOWN_PARAGRAPHS = 200;
 
 export class PlayView extends ItemView {
   private state: PlayState | null = null;
@@ -114,6 +124,10 @@ export class PlayView extends ItemView {
   /** The card tapped in a hand, for the next `#play` choice; forgotten when the choices change. */
   private picked: { hand: string; card: string } | null = null;
   private pickedAt = "";
+  /** The story whose earlier paragraphs the player asked to see; they are hidden again for another story. */
+  private showAllFor: string | null = null;
+  /** Player mode: the problems the story has, shown when its badge is clicked. */
+  private problemsOpen = false;
   /** Text typed into `#input` choices, by choice index; kept across re-renders of the same spot, like `picked`. */
   private typed = new Map<number, string>();
   private bar: HTMLElement | null = null;
@@ -171,9 +185,12 @@ export class PlayView extends ItemView {
       cls: "inkwright-root",
       text: T().rootLine(s.root, locked),
     });
+    const player = s.playerMode ?? false;
     bar.createEl("button", { text: T().restart }).onclick = () => this.controller.restart();
-    bar.createEl("button", { text: locked ? T().unlockShort : T().lock }).onclick = () =>
-      this.controller.toggleLock();
+    if (!player) {
+      bar.createEl("button", { text: locked ? T().unlockShort : T().lock }).onclick = () =>
+        this.controller.toggleLock();
+    }
     if (s.hasStory) {
       const back = bar.createEl("button", { text: T().back });
       back.disabled = !s.canGoBack;
@@ -194,6 +211,9 @@ export class PlayView extends ItemView {
       select.value = s.storyLanguage;
       select.onchange = () => this.controller.setStoryLanguage(select.value);
     }
+    const mode = bar.createEl("button", { cls: `inkwright-mode${player ? " inkwright-mode-on" : ""}`, attr: { "aria-label": player ? T().authorMode : T().playerMode, title: player ? T().authorMode : T().playerMode } });
+    setIcon(mode, player ? "pencil" : "gamepad-2");
+    mode.onclick = () => this.controller.togglePlayerMode();
     const pin = bar.createEl("button", { cls: `inkwright-pin${s.pinned ? " inkwright-pin-on" : ""}`, attr: { "aria-label": s.pinned ? T().unpin : T().pin, title: s.pinned ? T().unpin : T().pin } });
     setIcon(pin, "pin");
     pin.onclick = () => this.controller.togglePin();
@@ -218,15 +238,28 @@ export class PlayView extends ItemView {
     const main = stage.createDiv({ cls: "inkwright-main" });
     this.fitSide();
 
-    if (s.flows.length > 0) this.renderStartFrom(main, s);
+    if (s.flows.length > 0 && !player) this.renderStartFrom(main, s);
     if (s.hasStory && s.game) this.renderHud(side, s.game);
     if (s.hasStory && s.game?.map) this.renderMap(side, s.game.map, s.game.mapImage);
     if (s.hasStory && s.game?.dungeon) this.renderDungeon(side, s.game.dungeon);
-    if (s.inspection) this.renderInspector(main, s.inspection);
+    if (s.inspection && !player) this.renderInspector(main, s.inspection);
     if (s.hasStory && s.game) this.renderDice(side, s.game);
     if (s.hasStory && s.saves.length > 0) this.renderSaves(main, s);
 
-    if (s.diagnostics.length > 0) {
+    // Player mode: the story's problems are one small badge until asked for.
+    if (player && s.diagnostics.length > 0) {
+      const badge = main.createEl("button", { cls: "inkwright-problems", text: T().problems(s.diagnostics.length) });
+      badge.onclick = () => {
+        this.problemsOpen = !this.problemsOpen;
+        this.render();
+      };
+    }
+    if (s.update) {
+      const note = main.createDiv({ cls: "inkwright-run-note inkwright-frozen" });
+      note.createSpan({ text: T().storyUpdated });
+      note.createDiv({ cls: "inkwright-run-note-buttons" }).createEl("button", { text: T().applyUpdate }).onclick = () => this.controller.useNewest();
+    }
+    if (s.diagnostics.length > 0 && (!player || this.problemsOpen)) {
       const box = main.createDiv({ cls: "inkwright-diagnostics" });
       box.createEl("h4", { text: T().errors });
       for (const d of s.diagnostics) {
@@ -266,10 +299,20 @@ export class PlayView extends ItemView {
       line = story.createDiv({ cls: "inkwright-turn" });
       line.createSpan({ cls: "inkwright-turn-text", text: s.chosen?.text ?? "" });
     };
+    // A long run draws its latest paragraphs; the earlier ones are behind a button.
+    const first = this.showAllFor === s.root ? 0 : Math.max(0, s.log.length - SHOWN_PARAGRAPHS);
+    if (first > 0) {
+      story.createEl("button", { cls: "inkwright-earlier", text: T().showEarlier(first) }).onclick = () => {
+        this.showAllFor = s.root;
+        this.render();
+      };
+      lastTurn = s.game?.turns[first - 1] ?? null;
+    }
     s.log.forEach((p, i) => {
+      if (i < first) return;
       if (s.chosen && s.chosen.at === i) turnLine();
       const turn = s.game?.turns[i] ?? null;
-      if (s.game && turn !== null && (i === 0 || turn !== lastTurn)) {
+      if (s.game && turn !== null && (i === first || turn !== lastTurn)) {
         for (const r of rollsByTurn.get(turn) ?? []) {
           const card = this.renderRoll(story, r, s.game);
           if (fresh && i >= from) newCards.push(card);
@@ -279,13 +322,15 @@ export class PlayView extends ItemView {
       const voice = s.game?.voices[i] ?? null;
       const skill = voice ? s.game?.skills.find((k) => k.id === voice) : undefined;
       const para = story.createEl("p");
-      paras.push(para);
+      paras[i] = para;
       if (skill) {
         para.addClass("inkwright-voice");
         if (skill.color) para.setCssProps({ "--inkwright-voice": skill.color });
         para.createSpan({ cls: "inkwright-voice-name", text: skill.name, ...(skill.stance ? { title: skill.stance } : {}) });
       }
       para.appendText(p.text);
+      // Picked up after a while: a line where the player left off.
+      if (s.recap && s.recap.at === i + 1) story.createDiv({ cls: "inkwright-recap" }).createSpan({ cls: "inkwright-recap-text", text: T().leftOff(s.recap.when) });
     });
     if (s.chosen && s.chosen.at >= s.log.length) turnLine();
     for (const msg of s.runtimeErrors) story.createDiv({ cls: "inkwright-diag inkwright-diag-error", text: msg });
@@ -347,7 +392,7 @@ export class PlayView extends ItemView {
       }
     });
     if (fresh) {
-      (line ?? newCards[0] ?? paras[from]).scrollIntoView({ block: "start" });
+      (line ?? newCards[0] ?? paras[from] ?? paras.find(Boolean))?.scrollIntoView({ block: "start" });
       this.animateRolls(newCards);
       this.playFx(story, s.log.slice(from).flatMap((p) => fxOf(p.tags)));
     } else if (changed) {
