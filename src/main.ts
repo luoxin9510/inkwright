@@ -139,6 +139,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private recap: { at: number; when: string } | null = null;
   /** The run was just read from the save folder (a story opened, a restart): a replay may show a recap. */
   private resuming = false;
+  /** The story whose live journal path was refused (inside a dependency folder), so it is said only once. */
+  private journalRefused: string | null = null;
   /** Writes of the run, one after another. */
   private writing: Promise<void> = Promise.resolve();
   /** A write is queued and has not started: it will write the latest run, so another is not needed. */
@@ -689,7 +691,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
           const character = game?.characters.find((c) => c.id === game.current)?.name ?? null;
           path = await this.newJournalPath(new Date(), story, character);
           if (isDependency(path, this.files)) {
-            new Notice(T().journalIsDependency(path));
+            // Said once per story: every later move would come here again.
+            if (this.journalRefused !== root) new Notice(T().journalIsDependency(path));
+            this.journalRefused = root;
             return;
           }
           const fresh = liveBlocks({ ...input, taken: input.taken.map((t) => ({ ...t, payload: t.payload && "text" in t.payload ? { text: t.payload.text } : undefined })), writtenSeq: -1, writtenTop: -1 });
