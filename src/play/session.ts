@@ -50,6 +50,8 @@ export interface Taken {
   payload?: Payload;
   seq: number;
   fp: string;
+  /** The texts of every choice offered with it, in order: lets a replay see that only this one was reworded. */
+  offered: string[];
 }
 
 /** A recorded choice to replay; `text` null for one recorded without it (an old save): checked by index only. */
@@ -59,9 +61,21 @@ export interface ReplayAction {
   lang: string | null;
   payload?: Payload;
   seq: number;
+  /** The fingerprint recorded with it: a different one on replay is reported as drift. */
+  fp?: string;
+  /** The texts offered with it (see Taken.offered). */
+  offered?: string[];
 }
 
+/**
+ * How a replay finds each recorded choice: "strict" only at its index with its text; "match" also by its
+ * text being unique on the screen, or (a guess) by its text with the numbers left out being unique, or by it
+ * being the one choice reworded on a screen that otherwise did not change; "index" whatever is at its index.
+ */
+export type ReplayMode = "strict" | "match" | "index";
+
 export interface ReplayOptions {
+  mode?: ReplayMode;
   /** Stops the replay (`aborted` in the result); the session is left wherever it got to. */
   signal?: AbortSignal;
   /** Wall-clock time the whole replay may take; past it the replay stops with reason "budget". */
@@ -80,6 +94,10 @@ export interface ReplayResult {
   /** Where and why the replay stopped before the end; null when every action was replayed (or it was aborted). */
   stop: { at: number; reason: "mismatch" | "error" | "budget" } | null;
   aborted: boolean;
+  /** Actions (by position) found only by a guess (numbers changed, or reworded). */
+  guesses: number[];
+  /** The first action (by position) whose outcome differs from its recorded fingerprint; null when none did. */
+  drift: number | null;
 }
 
 /** Everything needed to resume a session later; plain JSON. */
@@ -220,6 +238,11 @@ export class PlaySession {
     return this.advance();
   }
 
+  /** The current screen (choices, ended, errors), with no new text. */
+  current(): Step {
+    return this.snapshot([]);
+  }
+
   /** The record of this run's choices, oldest first. */
   get taken(): readonly Taken[] {
     return this.takenList;
@@ -248,7 +271,10 @@ export class PlaySession {
     const begun = Date.now();
     let worked = Date.now();
     let step = this.snapshot([]);
-    const result = (done: number, stop: ReplayResult["stop"], aborted = false): ReplayResult => ({ step, done, stop, aborted });
+    const mode = options.mode ?? "strict";
+    const guesses: number[] = [];
+    let drift: number | null = null;
+    const result = (done: number, stop: ReplayResult["stop"], aborted = false): ReplayResult => ({ step, done, stop, aborted, guesses, drift });
     for (let i = 0; i < actions.length; i++) {
       if (options.signal?.aborted) return result(i, null, true);
       if (Date.now() - worked >= slice) {
@@ -258,12 +284,14 @@ export class PlaySession {
       }
       if (Date.now() - begun >= budget) return result(i, { at: i, reason: "budget" });
       const a = actions[i];
-      const offered = this.halted ? undefined : this.story.currentChoices[a.index];
       const sameLanguage = a.lang === null || this.language === null || a.lang === this.language;
-      if (!offered || (a.text !== null && sameLanguage && offered.text !== a.text)) return result(i, { at: i, reason: "mismatch" });
-      step = this.choose(a.index, a.payload, a.seq);
+      const found = this.halted ? null : findChoice(this.story.currentChoices.map((c) => c.text), a, mode, sameLanguage);
+      if (!found) return result(i, { at: i, reason: "mismatch" });
+      if (found.guess) guesses.push(i);
+      step = this.choose(found.index, a.payload, a.seq);
       // The choice was taken, but its step stopped (a loop): what comes after it cannot be replayed.
       if (this.halted) return result(i + 1, { at: i + 1, reason: "error" });
+      if (drift === null && a.fp && this.takenList.at(-1)?.fp !== a.fp) drift = i;
       options.onProgress?.(i + 1, actions.length);
     }
     return result(actions.length, null);
@@ -275,6 +303,7 @@ export class PlaySession {
     if (this.halted) return this.snapshot([]);
     this.history.push({ state: this.story.state.ToJson(), logLength: this.log.length });
     const text = this.story.currentChoices[index]?.text ?? "";
+    const offered = this.story.currentChoices.map((c) => c.text);
     const lang = this.language;
     const rolled = this.outcome?.().length ?? 0;
     try {
@@ -293,7 +322,7 @@ export class PlaySession {
     const given = seq ?? this.nextSeq;
     this.nextSeq = Math.max(this.nextSeq, given + 1);
     const rolls = this.outcome?.().slice(rolled) ?? [];
-    this.takenList.push({ index, text, lang, ...(payload ? { payload } : {}), seq: given, fp: fingerprint([...rolls, `choices:${step.choices.length}`]) });
+    this.takenList.push({ index, text, lang, ...(payload ? { payload } : {}), seq: given, fp: fingerprint([...rolls, `choices:${step.choices.length}`]), offered });
     return step;
   }
 
@@ -516,4 +545,32 @@ function fingerprint(parts: readonly string[]): string {
   const s = parts.join("\n");
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
   return (h >>> 0).toString(16);
+}
+
+/** Numbers left out, so "付 3 金" and "付 5 金" read the same. */
+function withoutNumbers(text: string): string {
+  return text.replace(/\d+/g, "#");
+}
+
+/** Where a recorded choice is on the screen now, by the replay mode's rules; null when it is not there. */
+function findChoice(texts: readonly string[], a: ReplayAction, mode: ReplayMode, sameLanguage: boolean): { index: number; guess: boolean } | null {
+  if (a.index < 0) return null;
+  const atIndex = a.index < texts.length;
+  // Recorded without text, in another language, or told to: the index is all there is.
+  if (mode === "index" || a.text === null || !sameLanguage) return atIndex ? { index: a.index, guess: false } : null;
+  if (atIndex && texts[a.index] === a.text) return { index: a.index, guess: false };
+  if (mode === "strict") return null;
+  const only = (pred: (t: string) => boolean) => {
+    const hits = texts.flatMap((t, i) => (pred(t) ? [i] : []));
+    return hits.length === 1 ? hits[0] : null;
+  };
+  const text = a.text;
+  const same = only((t) => t === text);
+  if (same !== null) return { index: same, guess: false };
+  const numbers = only((t) => withoutNumbers(t) === withoutNumbers(text));
+  if (numbers !== null) return { index: numbers, guess: true };
+  // Reworded: the screen has as many choices, every other one as it was.
+  const before = a.offered;
+  if (atIndex && before && before.length === texts.length && before.every((t, i) => i === a.index || t === texts[i])) return { index: a.index, guess: true };
+  return null;
 }

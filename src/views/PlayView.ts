@@ -64,7 +64,11 @@ export interface PlayState {
   /** A saved run being replayed (the panel takes no input meanwhile); null when none is. */
   replay?: { done: number; total: number } | null;
   /** Why the panel stopped short of where the run had got to; null when it did not. */
-  stopped?: { reason: "mismatch" | "error" | "budget" | "start" | "character"; step: number; pending: number; detail?: string } | null;
+  stopped?: { reason: "mismatch" | "error" | "budget" | "start" | "character" | "chosen"; step: number; pending: number; detail?: string; older?: boolean } | null;
+  /** What the replay noticed without stopping: steps found by a guess, the first step (1-based) whose outcome changed. */
+  note?: { guesses: number; drift: number | null } | null;
+  /** Playing an older version of the story (from before an edit); null when playing the newest. */
+  frozen?: { at: string } | null;
 }
 
 export interface PlayController {
@@ -86,6 +90,15 @@ export interface PlayController {
   openDiagnostic(d: Diagnostic): Promise<void>;
   /** Hides the note that the run stopped short. */
   dismissStop(): void;
+  /** Takes the steps a replay could not take by their index. */
+  continueByIndex(): void;
+  /** Plays the run on the version of the story it was last played on. */
+  useOlder(): void;
+  /** Goes back to the newest version of the story. */
+  useNewest(): void;
+  /** Stops the run at the step whose outcome changed. */
+  stopAtDrift(): void;
+  dismissNote(): void;
 }
 
 export class PlayView extends ItemView {
@@ -292,7 +305,9 @@ export class PlayView extends ItemView {
       main.createDiv({ cls: "inkwright-run-note inkwright-replaying", text: T().replaying(s.replay.done, s.replay.total) });
       return;
     }
+    if (s.frozen) this.renderFrozen(main, s.frozen.at);
     if (s.stopped) this.renderStopped(main, s.stopped);
+    else if (s.note) this.renderNote(main, s.note);
     const choices = main.createDiv({ cls: "inkwright-choices" });
     s.choices.forEach((c, i) => {
       const play = s.game?.plays[i] ?? null;
@@ -349,10 +364,34 @@ export class PlayView extends ItemView {
       : st.reason === "character" ? t.stoppedCharacter(st.detail ?? "")
       : st.reason === "budget" ? t.stoppedBudget(st.step, st.pending)
       : st.reason === "error" ? t.stoppedError(st.step, st.pending)
+      : st.reason === "chosen" ? t.stoppedHere(st.step, st.pending)
       : t.stoppedMismatch(st.step, st.pending);
     note.createSpan({ text });
-    const ok = note.createEl("button", { text: t.dismiss, cls: "inkwright-run-note-ok" });
-    ok.onclick = () => this.controller.dismissStop();
+    const buttons = note.createDiv({ cls: "inkwright-run-note-buttons" });
+    if (st.pending > 0 && (st.reason === "mismatch" || st.reason === "chosen")) {
+      buttons.createEl("button", { text: t.continueByIndex }).onclick = () => this.controller.continueByIndex();
+    }
+    if (st.older) buttons.createEl("button", { text: t.useOlder }).onclick = () => this.controller.useOlder();
+    buttons.createEl("button", { text: t.dismiss }).onclick = () => this.controller.dismissStop();
+  }
+
+  /** A replay that went through but noticed something: choices found by a guess, an outcome that changed. */
+  private renderNote(el: HTMLElement, n: NonNullable<PlayState["note"]>): void {
+    const t = T();
+    const note = el.createDiv({ cls: "inkwright-run-note inkwright-stopped" });
+    const parts = [n.guesses > 0 ? t.guessed(n.guesses) : "", n.drift !== null ? t.drifted(n.drift) : ""].filter(Boolean);
+    note.createSpan({ text: parts.join(" ") });
+    const buttons = note.createDiv({ cls: "inkwright-run-note-buttons" });
+    if (n.drift !== null) buttons.createEl("button", { text: t.stopAt(n.drift) }).onclick = () => this.controller.stopAtDrift();
+    buttons.createEl("button", { text: t.dismiss }).onclick = () => this.controller.dismissNote();
+  }
+
+  /** Playing the version from before an edit: the edit is not used until the newest is applied. */
+  private renderFrozen(el: HTMLElement, at: string): void {
+    const t = T();
+    const note = el.createDiv({ cls: "inkwright-run-note inkwright-frozen" });
+    note.createSpan({ text: t.frozenNote(at) });
+    note.createDiv({ cls: "inkwright-run-note-buttons" }).createEl("button", { text: t.useNewest }).onclick = () => this.controller.useNewest();
   }
 
   /** One roll as a card in the text: a check (skill and difficulty, faces, sum, outcome) or free dice (formula or table, faces, total, the row). */

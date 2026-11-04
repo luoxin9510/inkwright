@@ -4,7 +4,7 @@ import type { Taken } from "../src/play/session";
 
 const NOW = "2026-11-04T10:00:00.000Z";
 const taken = (n: number, from = 0): Taken[] =>
-  Array.from({ length: n }, (_, i) => ({ index: 0, text: `c${from + i}`, lang: "zh", seq: from + i, fp: "f" }));
+  Array.from({ length: n }, (_, i) => ({ index: 0, text: `c${from + i}`, lang: "zh", seq: from + i, fp: "f", offered: [] }));
 const base = () => newRun({ story: "游戏/雨夜来客/main.ink", name: "", draft: true, startPoint: null, character: "xin", device: "A", now: NOW, random: () => 0.5 });
 
 describe("runs", () => {
@@ -18,11 +18,11 @@ describe("runs", () => {
   test("the session's record becomes the run's choose actions; pending goes", () => {
     const r = withTaken({ ...base(), pending: [] }, taken(3), 3, "2026-11-04T11:00:00.000Z");
     expect(r.actions.map((a) => [a.kind, a.seq])).toEqual([["choose", 0], ["choose", 1], ["choose", 2]]);
-    expect(r.actions[0]).toEqual({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "c0", fp: "f" });
+    expect(r.actions[0]).toEqual({ kind: "choose", seq: 0, lang: "zh", index: 0, text: "c0", fp: "f", offered: [] });
     expect(r.pending).toBeUndefined();
     expect(r.seqNext).toBe(3);
     expect(r.updatedAt).toBe("2026-11-04T11:00:00.000Z");
-    expect(replayActions(r)).toEqual([{ index: 0, text: "c0", lang: "zh", seq: 0 }, { index: 0, text: "c1", lang: "zh", seq: 1 }, { index: 0, text: "c2", lang: "zh", seq: 2 }]);
+    expect(replayActions(r)).toEqual([0, 1, 2].map((i) => ({ index: 0, text: `c${i}`, lang: "zh", seq: i, fp: "f", offered: [] })));
   });
 
   test("the story's folder is named after it, with a hash of its path", () => {
