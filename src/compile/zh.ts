@@ -7,6 +7,7 @@ function saw(text: string): string {
 }
 
 export const zhTable: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
+  [/^Tags aren't allowed inside of strings\. Please use \\# if you want a hash symbol\.$/, () => "字符串里不能写标签(#):把标签移到字符串外面;要写井号就写成 \\#"],
   [/^Recursive INCLUDE detected: '(.+)' is already open\.$/, (m) => `检测到循环引用:'${m[1]}' 已经在引用链中`],
   [/^Failed to load: '(.+?)'\.\nError:[\s\S]*$/, (m) => `无法加载文件:'${m[1]}'(找不到或无法读取)`],
   [/^Expected closing '\)'$/, () => "缺少右括号 ')'"],

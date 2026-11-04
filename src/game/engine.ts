@@ -62,6 +62,10 @@ export interface ResourceView {
   value: number;
   min: number;
   max: number;
+  /** How the panel draws it (bar by default); the character's own resources only. */
+  display?: "bar" | "clock" | "track";
+  /** The player may change it by hand. */
+  manual?: boolean;
 }
 
 export interface ItemView {
@@ -605,7 +609,7 @@ export class GameEngine {
       character: character
         ? { id: character.id, name: name(character), skills: this.config.skills.map((s) => ({ id: s.id, name: name(s), level: Number(this.read(s.id) ?? 0) })) }
         : null,
-      resources: this.config.resources.map((r) => view(r, r.id)),
+      resources: this.config.resources.map((r) => ({ ...view(r, r.id), ...(r.display ? { display: r.display } : {}), ...(r.manual ? { manual: true } : {}) })),
       companions: this.config.characters
         .filter((c) => c.id !== current)
         .map((c) => ({ id: c.id, name: name(c), resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),

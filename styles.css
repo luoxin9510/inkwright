@@ -19,6 +19,15 @@
 .inkwright-choice { min-height: 44px; text-align: left; white-space: normal; justify-content: flex-start; }
 .inkwright-run-note { margin-top: 12px; padding: 8px 10px; border-radius: 6px; background: var(--background-secondary); color: var(--text-muted); font-size: var(--font-smaller); }
 .inkwright-stopped { display: flex; gap: 8px; align-items: center; justify-content: space-between; border-left: 3px solid var(--text-warning); }
+.inkwright-clock { flex: none; }
+.inkwright-clock path { stroke: var(--background-primary); stroke-width: 0.06; }
+.inkwright-clock-on { fill: var(--text-accent); }
+.inkwright-clock-off { fill: var(--background-modifier-border); }
+.inkwright-track { display: flex; gap: 2px; flex-wrap: wrap; }
+.inkwright-track-box { display: inline-flex; width: 1.4em; height: 1.4em; align-items: center; justify-content: center; border: 1px solid var(--background-modifier-border); border-radius: 3px; font-size: 0.8em; color: var(--text-accent); }
+.inkwright-track-full { background: var(--background-modifier-hover); }
+.inkwright-hud-adjust { padding: 0 6px; min-height: 0; height: 1.6em; }
+.inkwright-manual { margin: 6px 0; color: var(--text-muted); font-size: var(--font-smaller); }
 .inkwright-tray { margin-top: 12px; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 8px; }
 .inkwright-tray summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-smaller); }
 .inkwright-tray-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }

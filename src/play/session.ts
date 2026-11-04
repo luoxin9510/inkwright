@@ -62,11 +62,16 @@ export interface Taken {
 export interface Aside {
   seq?: number;
   lang: string | null;
-  kind: "oracle" | "roll";
+  /** "adjust" / "set": the player changed a variable by hand (the only asides that change the story). */
+  kind: "oracle" | "roll" | "adjust" | "set";
   question?: string;
   odds?: string;
   formula?: string;
   table?: string;
+  /** adjust / set: the variable, what was added, or the value set. */
+  var?: string;
+  delta?: number;
+  value?: number | string;
   result: unknown;
 }
 
@@ -75,6 +80,8 @@ export interface PlacedAside extends Aside {
   seq: number;
   at: number;
   after: number;
+  /** adjust / set: the story's state just before, so undo can put it back. */
+  before?: string;
 }
 
 /** A recorded choice to replay; `text` null for one recorded without it (an old save): checked by index only. */
@@ -121,6 +128,8 @@ export interface ReplayResult {
   aborted: boolean;
   /** Actions (by position) found only by a guess (numbers changed, or reworded). */
   guesses: number[];
+  /** Hand changes (by position) to a variable the story no longer has: skipped. */
+  skipped: number[];
   /** The first action (by position) whose outcome differs from its recorded fingerprint; null when none did. */
   drift: number | null;
 }
@@ -159,6 +168,8 @@ export interface SessionOptions {
   prepare?: (story: Story) => void;
   /** The rolls of the current run so far, one short signature each; the new ones after a choice go into its fingerprint. */
   outcome?: () => readonly string[];
+  /** Keeps a value changed by hand within its variable's range (a resource's min..max). */
+  clampVar?: (name: string, value: number) => number;
 }
 
 const SLICE_MS = 20;
@@ -189,6 +200,7 @@ export class PlaySession {
   private readonly setup?: (story: Story) => void;
   private readonly prepare?: (story: Story) => void;
   private readonly outcome?: () => readonly string[];
+  private readonly clampVar?: (name: string, value: number) => number;
   /** The record of this run's choices (see Taken); empty after a load. */
   private takenList: Taken[] = [];
   /** The next seq to give a choice: seqs are never reused within a run, even after back. */
@@ -208,6 +220,7 @@ export class PlaySession {
     this.setup = options.setup;
     this.prepare = options.prepare;
     this.outcome = options.outcome;
+    this.clampVar = options.clampVar;
     this.story = this.attach(story);
     this.languageVar = findLanguageVar(story);
     this.preferredLanguage = options.language ?? null;
@@ -247,7 +260,7 @@ export class PlaySession {
     let step = this.advance();
     // Asides go back after as many choices as before, where the text in the new language has got to then.
     const place = (after: number) => {
-      for (const a of asides) if (a.after === after) this.addAside(a);
+      for (const a of asides) if (a.after === after) this.placeAside(a);
     };
     place(0);
     picks.forEach((pick, i) => {
@@ -298,6 +311,36 @@ export class PlaySession {
     return placed;
   }
 
+  /** Puts an aside here: a hand change is made again, anything else is kept as it was. */
+  private placeAside(a: Aside): PlacedAside | null {
+    return a.kind === "adjust" || a.kind === "set" ? this.applyManual(a) : this.addAside(a);
+  }
+
+  /**
+   * The player changes a variable by hand (adjust adds `delta`, set writes `value`), kept in range by `clampVar`;
+   * recorded as an aside with what it came to and the state before it (for undo). Null when the story has no such
+   * variable. The change shows from the next choice on: the choices on screen were worked out already.
+   */
+  applyManual(a: Aside): PlacedAside | null {
+    const name = a.var;
+    if (!name || this.halted || !this.story.variablesState.GlobalVariableExistsWithName(name)) return null;
+    const raw: unknown = this.story.variablesState[name];
+    const from = typeof raw === "number" ? raw : Number(raw);
+    let to: number | string;
+    if (a.kind === "adjust") to = (Number.isFinite(from) ? from : 0) + (a.delta ?? 0);
+    else to = a.value ?? 0;
+    if (typeof to === "number" && this.clampVar) to = this.clampVar(name, to);
+    const before = this.story.state.ToJson();
+    try {
+      this.story.variablesState[name] = to;
+    } catch {
+      return null;
+    }
+    const placed = this.addAside({ ...a, result: { from: Number.isFinite(from) ? from : raw, to } });
+    placed.before = before;
+    return placed;
+  }
+
   /** Takes back everything done from `seq` on (choices and asides alike), latest first. */
   undoUntil(seq: number): void {
     for (;;) {
@@ -312,6 +355,8 @@ export class PlaySession {
     const choice = this.takenList.at(-1);
     if (aside && (!choice || aside.seq > choice.seq)) {
       this.asideList.pop();
+      // A hand change is undone by putting the state back as it was just before it.
+      if (aside.before !== undefined) this.story.state.LoadJson(aside.before);
       return this.snapshot([]);
     }
     return this.back();
@@ -342,8 +387,9 @@ export class PlaySession {
     let step = this.snapshot([]);
     const mode = options.mode ?? "strict";
     const guesses: number[] = [];
+    const skipped: number[] = [];
     let drift: number | null = null;
-    const result = (done: number, stop: ReplayResult["stop"], aborted = false): ReplayResult => ({ step, done, stop, aborted, guesses, drift });
+    const result = (done: number, stop: ReplayResult["stop"], aborted = false): ReplayResult => ({ step, done, stop, aborted, guesses, skipped, drift });
     for (let i = 0; i < actions.length; i++) {
       if (options.signal?.aborted) return result(i, null, true);
       if (Date.now() - worked >= slice) {
@@ -355,7 +401,8 @@ export class PlaySession {
       const a = actions[i];
       // An aside is put back as it was recorded: nothing to find on the screen, nothing rolled again.
       if (a.aside) {
-        this.addAside({ ...a.aside, seq: a.seq });
+        // A hand change is made again (by its delta, on the value the story has now); one to a variable that is gone is skipped.
+        if (this.placeAside({ ...a.aside, seq: a.seq }) === null) skipped.push(i);
         options.onProgress?.(i + 1, actions.length);
         continue;
       }

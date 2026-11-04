@@ -50,6 +50,10 @@ export interface ResourceDef {
   min: number;
   max: number;
   initial: number;
+  /** How the panel draws it: a bar (default), a clock of max−min segments, or a track of (max−min)/4 boxes of four ticks. */
+  display?: "bar" | "clock" | "track";
+  /** The player may change it by hand on the HUD (the player is the game master). */
+  manual?: boolean;
 }
 
 export interface CharacterDef {
@@ -589,7 +593,7 @@ export function readCard(c: Record<string, unknown>, id: string): CardDef {
 }
 
 export const CONFIG_PROBLEM_CODES = [
-  "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters", "oracleChaos", "oracleOdds",
+  "noFrontmatter", "rulesKind", "list", "shape", "dice", "sides", "ident", "duplicate", "noCharacters", "oracleChaos", "oracleOdds", "resourceTrack",
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
@@ -611,6 +615,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   // The tray's oracle: a chaos value is one of the character's resources; a threshold leaves a chance either way.
   if (config.oracle?.chaos !== undefined && !config.resources.some((r) => r.id === config.oracle?.chaos)) bad("oracleChaos", config.oracle.chaos);
   for (const [k, n] of Object.entries(config.oracle?.odds ?? {})) if (typeof n === "number" && (n < 1 || n > 99)) bad("oracleOdds", k, n);
+  // A track is boxes of four ticks: its span must be whole boxes.
+  for (const r of config.resources) if (r.display === "track" && (r.max - r.min) % 4 !== 0) bad("resourceTrack", r.id, r.max - r.min);
   if (config.rules.kind === "sum") {
     if (config.rules.dice.length === 0 || config.rules.dice.some((d) => !Number.isInteger(d) || d < 2)) bad("dice");
   } else if (config.rules.kind === "rollUnder") {
@@ -815,7 +821,8 @@ export function readConfig(fm: unknown): LoadedConfig {
       if (!isObj(e) || !isStr(e.id) || !check(e)) shape(`${key}[${i}]`);
     });
   };
-  const resource = (e: Record<string, unknown>) => isNum(e.min) && isNum(e.max) && isNum(e.initial) && opt(e.name, isText);
+  const resource = (e: Record<string, unknown>) => isNum(e.min) && isNum(e.max) && isNum(e.initial) && opt(e.name, isText)
+    && opt(e.display, (v) => v === "bar" || v === "clock" || v === "track") && opt(e.manual, isBool);
   const voice = (v: unknown) => isObj(v) && opt(v.stance, isText) && opt(v.color, isStr);
   entries("skills", true, (e) => opt(e.name, isText) && opt(e.max, isNum) && opt(e.voice, voice));
   entries("resources", false, resource);
