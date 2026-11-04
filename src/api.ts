@@ -12,6 +12,7 @@ import { simulateStory, type SimulateOptions, type SimulateResult } from "./play
 import type { ChoiceCheck, ChoicePlay, GridView, HudView, MapView, RollRecord, ChoiceNeed } from "./game/engine";
 import type { ConfigProblem, GameConfig } from "./game/config";
 import type { Choice } from "./play/session";
+import type { Run } from "./play/run";
 import type { PlayState } from "./views/PlayView";
 
 export interface ApiHost {
@@ -36,6 +37,10 @@ export interface ApiHost {
   gameConfigFor(path: string): Promise<GameConfig | null>;
   writeJournal(): Promise<{ path: string | null }>;
   savesForRoot(): { id: string; name: string; savedAt: string }[];
+  /** The run the panel plays (its record of actions); null when there is none. */
+  currentRun(): Run | null;
+  /** Every saved run of the current main story, draft included. */
+  runsForRoot(): Promise<Run[]>;
 }
 
 export interface ApiDiagnostic {
@@ -82,6 +87,10 @@ export interface PanelReport extends Inspection {
   chosen: { text: string; at: number } | null;
   /** Whether the panel's top bar is pinned. */
   pinned: boolean;
+  /** A saved run being picked up (replayed); null when none is. The panel takes no choices meanwhile. */
+  replay: { done: number; total: number } | null;
+  /** Why the run stopped short of where it had got to (the story changed, a step failed, too long, start point or character gone); null when it did not. */
+  stopped: { reason: string; step: number; pending: number; detail?: string } | null;
   /** Game mode: the current character, check info per choice, resources and companions, dice log. */
   game: { character: string | null; checks: (ChoiceCheck | null)[]; needs: ChoiceNeed[][]; plays: (ChoicePlay | null)[]; hud: HudView; map: MapView | null; dungeon: GridView | null; rolls: RollRecord[] } | null;
 }
@@ -139,10 +148,14 @@ Visible play panel (the user sees what you do):
   back()               undo the last choice in the panel
   language("zh"|"en")  switch a bilingual story's language; replays the run so far in it
   character(id)        game mode: play as this character (restarts from the current start point)
-  save(name?)          save the panel's progress for its main story -> { id, name, savedAt } | null
-  saves()              saves of the current main story [{ id, name, savedAt }], newest first
-  load(idOrName)       load a save into the panel
-  deleteSave(idOrName) delete a save
+  save(name?)          save the panel's run as a run of its own (a snapshot) -> { id, name, savedAt } | null
+  saves()              saved runs of the current main story [{ id, name, savedAt }], newest first
+  load(idOrName)       load a saved run into the panel (it replays; the save itself is not changed)
+  deleteSave(idOrName) delete a saved run
+  run()                the run the panel plays: { id, story, startPoint, character, seeds, seqNext, actions[{kind, seq, lang, index, text, payload?, fp}], pending? }
+                       (saved in the vault: <save folder>/<story>/<run id>/<device>.json; resumed by replaying actions, see docs/solo-prd.md)
+  runs()               every run of the current main story, draft included -> [{ id, name, draft, updatedAt, actions, conflictOf? }]
+  panel() also has replay ({done,total} while a saved run is being picked up) and stopped (why it stopped short).
 
 Export:
   exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
@@ -247,6 +260,8 @@ export class InkwrightApi {
       startPoint: s.startPoint,
       chosen: s.chosen,
       pinned: s.pinned,
+      replay: s.replay ?? null,
+      stopped: s.stopped ?? null,
       text: s.log.map((p) => p.text),
       choices: s.choices,
       ended: s.ended,
@@ -303,6 +318,14 @@ export class InkwrightApi {
   async save(name?: string): Promise<{ id: string; name: string; savedAt: string } | null> {
     const slot = await this.host.saveGame(name);
     return slot && { id: slot.id, name: slot.name, savedAt: slot.savedAt };
+  }
+
+  run(): unknown {
+    return this.host.currentRun();
+  }
+
+  async runs(): Promise<{ id: string; name: string; draft: boolean; updatedAt: string; actions: number; conflictOf?: string }[]> {
+    return (await this.host.runsForRoot()).map((r) => ({ id: r.id, name: r.name, draft: r.draft, updatedAt: r.updatedAt, actions: r.actions.length, ...(r.conflictOf ? { conflictOf: r.conflictOf } : {}) }));
   }
 
   saves(): { id: string; name: string; savedAt: string }[] {

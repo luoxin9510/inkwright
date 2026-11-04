@@ -218,6 +218,8 @@ export class GameEngine {
   private readonly keepRolls: number;
   private log: { seed: number; record: RollRecord }[] = [];
   private overflows: Overflow[] = [];
+  /** The run's seed when the story lacks the dice variables (a stale engine file): its rolls still repeat. */
+  private fallbackSeed: number | null = null;
 
   constructor(readonly config: GameConfig, options: EngineOptions = {}) {
     this.language = config.languages?.[0] ?? "zh";
@@ -278,7 +280,29 @@ export class GameEngine {
     const names = inkNames(this.config);
     if (this.has(names.seed)) this.write(names.seed, 1 + Math.floor(Math.random() * 0x7fffffff));
     const id = character ?? playableCharacters(this.config)[0]?.id;
-    if (id !== undefined && playableCharacters(this.config).some((c) => c.id === id)) story.EvaluateFunction(names.select, [id]);
+    // A story without the engine file (not INCLUDEd yet, or stale) has no preset loader: nothing to load.
+    if (id !== undefined && playableCharacters(this.config).some((c) => c.id === id) && story.HasFunction(names.select)) story.EvaluateFunction(names.select, [id]);
+  }
+
+  /**
+   * Seeds a run that starts now (PlaySession's `prepare`): the dice seed and roll counter in the story, or
+   * the engine's own seed when the story lacks them. The same seed rolls the same dice, so a saved run replays.
+   */
+  seed(story: Story, seed: number): void {
+    this.story = story;
+    this.log = [];
+    this.fallbackSeed = seed;
+    const names = inkNames(this.config);
+    if (this.has(names.seed)) this.write(names.seed, seed);
+    if (this.has(names.rolls)) this.write(names.rolls, 0);
+  }
+
+  /** The rolls of the current run, one short line each (what a check or a roll came to), for fingerprints. */
+  signatures(): string[] {
+    return this.rolls.map((r) =>
+      r.kind === "check"
+        ? `check:${r.skill}:${r.band}:${r.total}${r.token ? `:${r.token.id}` : ""}`
+        : `dice:${r.formula}:${r.total}:${r.table ? `${r.table.id}=${r.table.row ?? ""}` : ""}:${r.deck ? `${r.deck.id}=${r.deck.cardId}` : ""}`);
   }
 
   /** The checks rolled so far in the current run, as far as the state has got (after back: fewer). */
@@ -298,7 +322,7 @@ export class GameEngine {
     const run = this.run();
     const seed = run?.seed ?? 0;
     const index = run?.count ?? (this.log.at(-1)?.record.index ?? -1) + 1;
-    const rng = this.rng ?? (run ? seededDice(seed, index) : Math.random);
+    const rng = this.rng ?? (run ? seededDice(seed, index) : this.fallbackSeed !== null ? seededDice(this.fallbackSeed, index) : Math.random);
     const forced = this.force?.({ skill, difficulty, red: false });
     const result = resolve(this.config.rules, input, rng, forced);
     if (run) this.write(inkNames(this.config).rolls, index + 1);
@@ -375,7 +399,7 @@ export class GameEngine {
       this.remember(seed, index, { kind: "dice", formula: text, rolls: [], total: 0, index, turn, unknown: true });
       return 0;
     }
-    const rng = this.rng ?? (run ? seededDice(seed, index) : Math.random);
+    const rng = this.rng ?? (run ? seededDice(seed, index) : this.fallbackSeed !== null ? seededDice(this.fallbackSeed, index) : Math.random);
     const { rolls, total, dropped } = rollFormula(formula, rng);
     const record: DiceRecord = { kind: "dice", formula: formatFormula(formula), rolls, total, index, turn, ...(dropped && dropped.length > 0 ? { dropped } : {}) };
     if (table) {
