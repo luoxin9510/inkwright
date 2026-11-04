@@ -875,6 +875,7 @@ const PLAYER = `(function () {
     } catch (e) {
       // Not replayable after all (broken, or the story is too far from it): start over, but keep the old save aside.
       replaying = false;
+      halted = false;
       storage(false, [KEY + ":old", raw]);
       return false;
     } finally {
