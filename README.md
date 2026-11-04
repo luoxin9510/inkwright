@@ -103,7 +103,7 @@ Run **Generate game engine ink** to write `_engine.ink` from the note, `INCLUDE`
 ```ink
 INCLUDE _engine.ink
 
-* [{t("轻轻推开门", "Ease the door open")} #check:insight:normal]
+* [{t("轻轻推开门", "Ease the door open")} #check:insight:10]
     { check("insight", 10) >= 3:
         {t("门无声地开了。", "It swings open without a sound.")}
     - else:
