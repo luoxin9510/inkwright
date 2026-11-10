@@ -5,7 +5,7 @@ import { boardOf, freeDoors, markRoom, nearestFreeRoom, noteGet, noteSet, parseL
 import { recordAdd, recordAt, recordDrop, recordEntries } from "./records";
 import { entAt, entCount, entDrop, entGet, entHas, entLabel, entPick, entSet, entSpawn, entities } from "./entities";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
-import { rowAt, tableFormula } from "./tables";
+import { inkId, inkText, lookupRow, rowAt, tableFormula } from "./tables";
 
 export interface EngineOptions {
   /** Random source for the dice; default: dice derived from the run's seed, so replays match. */
@@ -273,6 +273,8 @@ export class GameEngine {
     this.bindDungeon(story);
     this.bindRecords(story);
     this.bindEntities(story);
+    this.bindParty(story);
+    this.bindTables(story);
     // A resource lives in min..max: whatever the story adds, it is clamped once the step is done
     // (inkjs tells observers after a Continue), and the overshoot is kept for the checkers.
     for (const r of this.resourceVariables()) {
@@ -385,6 +387,68 @@ export class GameEngine {
     story.BindExternalFunction(n.recordSize, (store: unknown) => recordEntries(text(store)).length, true);
     story.BindExternalFunction(n.recordAt, (store: unknown, k: unknown) => recordAt(text(store), Number(k)), true);
     story.BindExternalFunction(n.recordText, (store: unknown) => recordEntries(text(store)).join(this.language === "en" ? ", " : "、"), true);
+  }
+
+  /**
+   * The table lookups (`table_text`, `table_id`): the generated ink tests every table's rows in a chain, which is slow
+   * in a game with many tables; this finds the row directly, by the same order (`lookupOrder`), and words it as the
+   * ink would (the story's language variable picks the text). Pure reads, so lookahead-safe.
+   */
+  private bindTables(story: Story): void {
+    const tables = this.config.tables ?? [];
+    if (tables.length === 0) return;
+    const n = inkNames(this.config);
+    const [first, second] = this.config.languages ?? [];
+    const rowOf = (name: unknown, total: unknown) => {
+      const t = tables.find((x) => x.id === GameEngine.text(name));
+      return t ? lookupRow(t, Number(total)) : null;
+    };
+    story.BindExternalFunction(n.tableText, (name: unknown, total: unknown) => {
+      const row = rowOf(name, total);
+      if (!row) return "";
+      if (first === undefined || second === undefined) return inkText(localize(row.text, "", ""));
+      const lang: unknown = story.variablesState.GlobalVariableExistsWithName(n.langVar) ? story.variablesState[n.langVar] : first;
+      return inkText(localize(row.text, lang === second ? second : first, ""));
+    }, true);
+    story.BindExternalFunction(n.tableId, (name: unknown, total: unknown) => {
+      const row = rowOf(name, total);
+      return row ? inkId(row.id) : "";
+    }, true);
+  }
+
+  /**
+   * Reads about the party's members (RPG PRD §4.5): a member by number (from 1) or id, any variable `<var>_<member>`
+   * the story declares. Pure reads of the state (lookahead sees its own values), so lookahead-safe.
+   */
+  private bindParty(story: Story): void {
+    const members = this.config.party?.members ?? [];
+    if (members.length === 0) return;
+    const n = inkNames(this.config);
+    const vars = story.variablesState;
+    const id = (who: unknown) => (typeof who === "number" ? members[who - 1]?.id : members.find((m) => m.id === GameEngine.text(who))?.id);
+    const read = (name: string): unknown => (vars.GlobalVariableExistsWithName(name) ? vars[name] : null);
+    // Lists compare by their items (ink's ==), everything else by value.
+    const same = (a: unknown, b: unknown) => (a !== null && typeof a === "object" && typeof (a as { Equals?: unknown }).Equals === "function" ? (a as { Equals(x: unknown): boolean }).Equals(b) : a === b);
+    // Nobody (0 from a search that found no one, a number past the party): the zero of the variable's type, taken
+    // from the first member that has it, so `member_get(i, "gear") ? knife` stays false instead of failing on a number.
+    const zero = (key: string): unknown => {
+      const sample = members.map((m) => read(`${key}_${m.id}`)).find((v) => v !== null) ?? null;
+      if (typeof sample === "boolean") return false;
+      if (typeof sample === "string") return "";
+      if (sample !== null && typeof sample === "object") return new (sample.constructor as new () => unknown)();
+      return 0;
+    };
+    story.BindExternalFunction(n.memberGet, (who: unknown, name: unknown) => {
+      const key = GameEngine.text(name) ?? "";
+      const m = id(who);
+      return (m === undefined ? zero(key) : read(`${key}_${m}`)) ?? 0;
+    }, true);
+    story.BindExternalFunction(n.partyCount, (name: unknown, match: unknown) => {
+      const key = GameEngine.text(name) ?? "";
+      let count = 0;
+      for (const m of members) if (same(read(`${key}_${m.id}`), match)) count++;
+      return count;
+    }, true);
   }
 
   /** The entities' functions: pure on a kind's store, so lookahead may call them as often as it likes. */

@@ -1,6 +1,6 @@
 import { inkNames, localize, playableCharacters, type GameConfig, type InkNames, type LocalizedText, type TableDef, type TableRow } from "./config";
 import { averageFormula, averageRoll, formatFormula } from "./dice";
-import { parseRange, tableFormula } from "./tables";
+import { inkId, inkText, lookupOrder, tableFormula } from "./tables";
 
 /**
  * The ink a game needs so its stories can run anywhere: skill and resource
@@ -63,6 +63,7 @@ export function generateInk(config: GameConfig): string {
       lines.push(`VAR ${n.partyTitle}_${m.id} = ""`);
       if (config.items?.length) lines.push(`VAR ${n.partyGear}_${m.id} = (${(m.items ?? []).join(", ")})`);
     }
+    if (party.members.length > 0) lines.push(...memberInk(config));
   }
   lines.push(
     "",
@@ -114,12 +115,9 @@ export function generateInk(config: GameConfig): string {
   for (const [text, avg] of averages) lines.push(`{ ${n.formulaParam} == "${text}":`, `    ~ return ${avg}`, "}");
   lines.push("~ return 1");
   if (tables.length > 0) {
-    const text = (t: LocalizedText) => {
-      const esc = (x: string) => x.replace(/["{}]/g, (c) => (c === '"' ? "'" : c === "{" ? "(" : ")")).replace(/\s+/g, " ");
-      return first !== undefined && second !== undefined
-        ? `${n.textFn}("${esc(localize(t, first, ""))}", "${esc(localize(t, second, ""))}")`
-        : `"${esc(localize(t, "", ""))}"`;
-    };
+    const text = (t: LocalizedText) => (first !== undefined && second !== undefined
+      ? `${n.textFn}("${inkText(localize(t, first, ""))}", "${inkText(localize(t, second, ""))}")`
+      : `"${inkText(localize(t, "", ""))}"`);
     lines.push(
       "",
       `// Tables: {${n.table}("${tables[0].id}")} rolls and reads a row; ${n.tableRoll}(${n.tableParam}) is the total alone, ${n.tableText}/${n.tableId}(${n.tableParam}, ${n.totalParam}) look a total up.`,
@@ -127,7 +125,9 @@ export function generateInk(config: GameConfig): string {
     );
     for (const t of tables) lines.push(`{ ${n.tableParam} == "${t.id}":`, `    ~ return ${n.dice}("${t.formula ? formatFormula(t.formula) : "1d1"}", "${t.id}")`, "}");
     lines.push("~ return 0");
-    const lookups: [string, (r: TableRow) => string][] = [[n.tableText, (r) => text(r.text)], [n.tableId, (r) => `"${(r.id ?? "").replace(/["{}]/g, "")}"`]];
+    const lookups: [string, (r: TableRow) => string][] = [[n.tableText, (r) => text(r.text)], [n.tableId, (r) => `"${inkId(r.id)}"`]];
+    // The engine looks a total up itself (a chain of branches over every table's rows is slow in ink); these are the fallbacks.
+    lines.push(`EXTERNAL ${n.tableText}(${n.tableParam}, ${n.totalParam})`, `EXTERNAL ${n.tableId}(${n.tableParam}, ${n.totalParam})`);
     for (const [fn, value] of lookups) {
       lines.push("", `=== function ${fn}(${n.tableParam}, ${n.totalParam}) ===`);
       for (const t of tables) for (const b of rowBranches(t, n)) lines.push(`{ ${b.cond}:`, `    ~ return ${value(b.row)}`, "}");
@@ -295,19 +295,47 @@ export function generateInk(config: GameConfig): string {
  * catches the rest.
  */
 function rowBranches(t: TableDef, n: InkNames): { cond: string; row: TableRow }[] {
-  const all = t.rows ?? [];
-  const ranged = all.some((r) => parseRange(r.range) !== null);
-  // Tie-safe: two open bottoms (`≤N`) both start at -Infinity, and a subtraction of those is NaN.
-  const lo = (r: TableRow) => parseRange(r.range)?.lo ?? 0;
-  const rows = ranged ? [...all].sort((a, b) => (lo(a) < lo(b) ? -1 : lo(a) > lo(b) ? 1 : 0)) : all;
-  return rows.map((r) => {
-    const i = all.indexOf(r);
-    const k = rows.indexOf(r);
-    // An open top (`6+`) can only be the last row, which takes the rest anyway.
-    const last = k === rows.length - 1 || parseRange(r.range)?.hi === Infinity;
-    const cond = last ? "" : ranged ? ` and ${n.totalParam} <= ${parseRange(r.range)?.hi ?? 0}` : ` and ${n.totalParam} == ${i + 1}`;
-    return { cond: `${n.tableParam} == "${t.id}"${cond}`, row: r };
+  return lookupOrder(t).map((b) => {
+    const cond = b.eq !== undefined ? ` and ${n.totalParam} == ${b.eq}` : b.le !== undefined ? ` and ${n.totalParam} <= ${b.le}` : "";
+    return { cond: `${n.tableParam} == "${t.id}"${cond}`, row: b.row };
   });
+}
+
+/**
+ * Party reads the engine does (RPG PRD §4.5): `member_get(who, "var")` and `party_count("var", value)`, pure and
+ * lookahead-safe. An ink switch per member costs some 35 steps a call against 10 through the engine, and stories
+ * that ask about members in every choice's text call them thousands of times a turn. The fallbacks (no engine)
+ * know what the generator declares per member (stats, title, gear); variables the story adds read as 0 there.
+ */
+function memberInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const party = config.party!;
+  const who = n.memberParam, v = n.varNameParam, m = n.matchParam, c = n.tempMatches;
+  const lines = [
+    "",
+    `// ${n.memberGet}(1, "${party.stats[0]?.id ?? "life"}") or ${n.memberGet}("${party.members[0].id}", …) reads <var>_<member> (any variable the story declares per member too); ${n.partyCount}("<var>", value) counts the members whose variable equals value. Done by the engine: far cheaper than a switch in ink.`,
+    `EXTERNAL ${n.memberGet}(${who}, ${v})`,
+    `EXTERNAL ${n.partyCount}(${v}, ${m})`,
+    `=== function ${n.memberGet}(${who}, ${v}) ===`,
+  ];
+  // The variables the generator declares per member: the stats, the title line and (with items) the gear.
+  const own = [...party.stats.map((st) => st.id), n.partyTitle, ...(config.items?.length ? [n.partyGear] : [])];
+  party.members.forEach((mb, i) => {
+    lines.push(`{ ${who} == ${i + 1} or ${who} == "${mb.id}":`);
+    for (const name of own) lines.push(`    { ${v} == "${name}":`, `        ~ return ${name}_${mb.id}`, "    }");
+    lines.push("    ~ return 0", "}");
+  });
+  // Nobody: the zero of the variable's type, as the engine gives it.
+  lines.push(`{ ${v} == "${n.partyTitle}":`, `    ~ return ""`, "}");
+  if (config.items?.length) lines.push(`{ ${v} == "${n.partyGear}":`, "    ~ return ()", "}");
+  lines.push("~ return 0", "", `=== function ${n.partyCount}(${v}, ${m}) ===`, `~ temp ${c} = 0`);
+  for (const name of own) {
+    lines.push(`{ ${v} == "${name}":`);
+    for (const mb of party.members) lines.push(`    { ${name}_${mb.id} == ${m}:`, `        ~ ${c} = ${c} + 1`, "    }");
+    lines.push("}");
+  }
+  lines.push(`~ return ${c}`);
+  return lines;
 }
 
 /**

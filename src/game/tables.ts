@@ -65,6 +65,40 @@ export function rowAt(table: TableDef, total: number): { row: TableRow; index: n
   return i >= 0 && i < rows.length ? { row: rows[i], index: i } : null;
 }
 
+/** A table row's text as it goes into an ink string literal (and as the engine's lookup returns it). */
+export function inkText(x: string): string {
+  return x.replace(/["{}]/g, (c) => (c === '"' ? "'" : c === "{" ? "(" : ")")).replace(/\s+/g, " ");
+}
+
+/** A table row's id as the generated lookup returns it. */
+export function inkId(id: string | undefined): string {
+  return (id ?? "").replace(/["{}]/g, "");
+}
+
+/**
+ * How the generated lookups (`table_text`, `table_id`) find a total's row, in the order they test: rows with ranges
+ * ascending by their bottom, each taken when `total <= le`; in a table without ranges, row k when `total == eq`. The
+ * last row (and an open top) takes the rest. The ink and the engine's binding both follow this, so they agree.
+ */
+export function lookupOrder(table: TableDef): { row: TableRow; eq?: number; le?: number }[] {
+  const all = table.rows ?? [];
+  const ranged = all.some((r) => parseRange(r.range) !== null);
+  // Tie-safe: two open bottoms (`≤N`) both start at -Infinity, and a subtraction of those is NaN.
+  const lo = (r: TableRow) => parseRange(r.range)?.lo ?? 0;
+  const rows = ranged ? [...all].sort((a, b) => (lo(a) < lo(b) ? -1 : lo(a) > lo(b) ? 1 : 0)) : all;
+  return rows.map((r, k) => {
+    // An open top (`6+`) can only be the last row, which takes the rest anyway.
+    if (k === rows.length - 1 || parseRange(r.range)?.hi === Infinity) return { row: r };
+    return ranged ? { row: r, le: parseRange(r.range)?.hi ?? 0 } : { row: r, eq: all.indexOf(r) + 1 };
+  });
+}
+
+/** The row the generated lookups give for a total (see `lookupOrder`); null for a table without rows. */
+export function lookupRow(table: TableDef, total: number): TableRow | null {
+  for (const b of lookupOrder(table)) if (b.eq !== undefined ? total === b.eq : b.le !== undefined ? total <= b.le : true) return b.row;
+  return null;
+}
+
 /** Problems in one table: no rows, a bad formula, ranges that leave a gap or overlap, a row without text. */
 export function tableProblems(table: TableDef): ConfigProblem[] {
   const out: ConfigProblem[] = [];
