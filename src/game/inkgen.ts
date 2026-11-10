@@ -82,11 +82,13 @@ export function generateInk(config: GameConfig): string {
     if (config.items?.length) {
       // Stacks with a count above 0 are carried too; the first carried item of each slot starts equipped.
       const counted = Object.entries(c.counts ?? {}).filter(([, k]) => k > 0).map(([id]) => id);
-      const carried = [...new Set([...(c.items ?? []), ...counted])];
+      const carried = [...new Set([...(c.items ?? []), ...counted, ...(c.equipped ?? [])])];
       lines.push(`    ~ ${n.inventory} = (${carried.join(", ")})`);
       for (const i of config.items.filter((it) => it.stack)) lines.push(`    ~ ${i.id}${n.stackSuffix} = ${Math.max(0, Math.floor(c.counts?.[i.id] ?? 0))}`);
       if (config.slots?.length) {
-        const worn = config.slots.map((sl) => carried.find((id) => config.items?.find((it) => it.id === id)?.slot === sl.id)).filter((id): id is string => id !== undefined);
+        const slotOf = (id: string) => config.items?.find((it) => it.id === id)?.slot;
+        // What the character says it wears (a sheet does), else the first carried item of each slot.
+        const worn = config.slots.map((sl) => (c.equipped ?? []).find((id) => slotOf(id) === sl.id) ?? carried.find((id) => slotOf(id) === sl.id)).filter((id): id is string => id !== undefined);
         lines.push(`    ~ ${n.equipped} = (${worn.join(", ")})`);
       }
     }

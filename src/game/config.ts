@@ -72,6 +72,8 @@ export interface CharacterDef {
   items?: string[];
   /** Starting counts of stacking items (`arrow: 12`); a count above 0 also puts the item in the inventory. */
   counts?: Record<string, number>;
+  /** Items worn from the start (with `slots`); default: the first carried item of each slot. */
+  equipped?: string[];
   /** Starting level (with `levels`; default 1). */
   level?: number;
   /** Starting values of resources, over their `initial` (a character sheet carries life, gold, experience). */
@@ -1095,6 +1097,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const c of config.characters) {
     for (const id of c.items ?? []) if (!items.has(id)) bad("unknownItem", c.id, id);
     for (const id of Object.keys(c.counts ?? {})) if (!stacks.has(id)) bad("countItem", c.id, id);
+    for (const id of c.equipped ?? []) if (!items.has(id)) bad("unknownItem", c.id, id);
     for (const id of Object.keys(c.resources ?? {})) if (!config.resources.some((r) => r.id === id)) bad("characterResource", c.id, id);
     for (const id of Object.keys(c.statuses ?? {})) if (!statusIds.has(id)) bad("characterStatus", c.id, id);
     if (c.level !== undefined && (!config.levels || !Number.isInteger(c.level) || c.level < 1 || c.level > config.levels.at.length)) bad("characterLevel", c.id, c.level);
@@ -1268,7 +1271,7 @@ export function readConfig(fm: unknown): LoadedConfig {
 /** Whether a characters entry (in game.md or a character sheet's frontmatter) has the right shape. */
 export function isCharacter(e: Record<string, unknown>): boolean {
   return opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr))
-    && opt(e.counts, numMap) && opt(e.level, isNum) && opt(e.resources, numMap) && opt(e.statuses, numMap);
+    && opt(e.counts, numMap) && opt(e.equipped, (v) => Array.isArray(v) && v.every(isStr)) && opt(e.level, isNum) && opt(e.resources, numMap) && opt(e.statuses, numMap);
 }
 
 /** A string or a number from the frontmatter as text; undefined for anything else. */

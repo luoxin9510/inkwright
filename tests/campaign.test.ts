@@ -15,7 +15,8 @@ const RULES = {
   skills: [{ id: "might" }],
   resources: [{ id: "xp", min: 0, max: 99, initial: 0 }, { id: "life", min: 0, max: 9, initial: 6 }],
   levels: { resource: "xp", at: [0, 5, 12] },
-  items: [{ id: "sword", modifiers: { might: 1 } }, { id: "tough", name: { zh: "坚韧", en: "Tough" } }, { id: "arrow", stack: true }],
+  slots: [{ id: "weapon" }],
+  items: [{ id: "sword", slot: "weapon", modifiers: { might: 1 } }, { id: "axe", slot: "weapon", modifiers: { might: 2 } }, { id: "tough", name: { zh: "坚韧", en: "Tough" } }, { id: "arrow", stack: true }],
   statuses: [{ id: "scar" }],
 };
 const FIRST = readConfig({ ...RULES, characters: [{ id: "hero", name: { zh: "阿岚", en: "Lan" }, skills: { might: 1 }, items: ["sword"], counts: { arrow: 5 } }], sheets: "../角色" }).config as GameConfig;
@@ -32,6 +33,7 @@ Ready {level_up_ready()}.
     ~ temp up = level_up()
     ~ might += 1
     ~ give(tough, 1)
+    ~ equip(axe)
     ~ add_status("me", "scar", 0)
     Up {up}: level {level}, next at {next_level_at()}, ready {level_up_ready()}.
     The end. #sheet
@@ -66,7 +68,7 @@ describe("levels and a campaign of two adventures", () => {
     const sheet = sheetOf(FIRST, one.read, "hero")!;
     expect(one.engine.sheet()).toEqual(sheet);
     expect(sheet).toEqual({
-      id: "hero", name: { zh: "阿岚", en: "Lan" }, skills: { might: 2 }, items: ["sword", "tough"], counts: { arrow: 3 },
+      id: "hero", name: { zh: "阿岚", en: "Lan" }, skills: { might: 2 }, items: ["sword", "axe", "tough"], equipped: ["axe"], counts: { arrow: 3 },
       level: 2, resources: { xp: 6, life: 4 }, statuses: { scar: 0 },
     });
     expect(sheetName(sheet, "zh")).toBe("阿岚");
@@ -80,8 +82,8 @@ describe("levels and a campaign of two adventures", () => {
     expect(resolved.files).toEqual(["角色", "角色/阿岚.md"]);
     expect(resolved.config.characters.map((c) => c.id)).toEqual(["hero"]);
 
-    const two = play(`-> start\n${generateInk(resolved.config)}\n=== start ===\nLevel {level}, might {might}, xp {xp}, life {life}, arrows {inv_count(arrow)}, tough {inv ? tough}, scar {has_status("me", "scar")}.\n-> END\n`, resolved.config, "hero");
-    expect(two.s.start().paragraphs.map((p) => p.text)).toEqual(["Level 2, might 2, xp 6, life 4, arrows 3, tough true, scar true."]);
+    const two = play(`-> start\n${generateInk(resolved.config)}\n=== start ===\nLevel {level}, might {might}, xp {xp}, life {life}, arrows {inv_count(arrow)}, tough {inv ? tough}, worn {equipped}, scar {has_status("me", "scar")}.\n-> END\n`, resolved.config, "hero");
+    expect(two.s.start().paragraphs.map((p) => p.text)).toEqual(["Level 2, might 2, xp 6, life 4, arrows 3, tough true, worn axe, scar true."]);
   });
 
   test("an empty or missing sheets folder is a problem", async () => {

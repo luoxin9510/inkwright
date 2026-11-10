@@ -24,6 +24,11 @@ export function sheetOf(config: GameConfig, state: StateReader, current: string 
       if (k > 0) counts[i.id] = k;
     }
     if (plain.length > 0) out.items = plain;
+    if (config.slots?.length) {
+      const equipped = state(n.equipped);
+      const worn = carried.filter((i) => i.slot !== undefined && carries(equipped, i.id)).map((i) => i.id);
+      if (worn.length > 0) out.equipped = worn;
+    }
     if (Object.keys(counts).length > 0) out.counts = counts;
   }
   if (config.levels) out.level = Math.max(1, num(n.level));
