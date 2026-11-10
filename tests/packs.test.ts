@@ -17,7 +17,7 @@ describe("new games on a pack", () => {
 
   test("the bundled packs are listed with their names; dungeon-crawl is one", () => {
     const zh = packList(packs, "zh", fm);
-    expect(zh.find((p) => p.id === "dungeon-crawl")).toMatchObject({ name: "地城爬行", version: "1.0" });
+    expect(zh.find((p) => p.id === "dungeon-crawl")).toMatchObject({ name: "地城爬行", version: "1.1" });
     expect(packList(packs, "en", fm).find((p) => p.id === "dungeon-crawl")?.name).toBe("Dungeon crawl");
     // The template's generated engine is not bundled: the plugin generates it.
     expect(Object.keys(packs["dungeon-crawl"])).not.toContain("template/_engine.ink");

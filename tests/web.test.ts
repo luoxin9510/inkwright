@@ -623,3 +623,18 @@ test("a game page lists the entities in play under their kind, and they go when 
   expect(hud()).toContain("Foes1");
   expect(hud()).toContain("RatLife 1/1");
 });
+
+test("a game page shows a stack's count, what is worn and statuses", () => {
+  setLanguage("en");
+  const config = {
+    ...CONFIG, ink: "en" as const, languages: undefined,
+    slots: [{ id: "weapon", name: { zh: "武器", en: "Weapon" } }],
+    items: [...(CONFIG.items ?? []), { id: "arrow", name: { zh: "箭", en: "Arrow" }, stack: true }, { id: "bow", name: { zh: "弓", en: "Bow" }, slot: "weapon" }],
+    statuses: [{ id: "poison", name: { zh: "中毒", en: "Poisoned" } }],
+  };
+  const src = `-> start\n${generateInk(config)}\n=== start ===\n~ give(arrow, 5)\n~ equip(bow)\n~ add_status("me", "poison", 2)\nReady.\n-> END\n`;
+  mount(buildWebPage({ title: "G", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "gear", game: config, engine: GAME_ENGINE }));
+  const hud = document.querySelector("#hud")?.textContent ?? "";
+  expect(hud).toContain("Arrow ×5 · ◆ Bow");
+  expect(hud).toContain("StatusesPoisoned 2");
+});

@@ -64,7 +64,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), pickN: t.pickCardsN, pickRange: t.pickCardsRange, updatedStop: t.webUpdatedStop("{n}"),
+      inventory: t.inventory, nothingCarried: t.nothingCarried, statuses: t.statuses, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), pickN: t.pickCardsN, pickRange: t.pickCardsRange, updatedStop: t.webUpdatedStop("{n}"),
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -512,7 +512,11 @@ const PLAYER = `(function () {
       return r.name + " " + r.value + "/" + r.max;
     }
     if (h.resources.length) line(s.status, h.resources.map(shown).join(" · "));
-    if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(function (i) { return i.name; }).join(" · ") : s.nothingCarried);
+    // An item: worn ones marked, a stack's count; statuses as name and turns left.
+    function itemText(i) { return (i.equipped ? "◆ " : "") + i.name + (i.count !== undefined ? " ×" + i.count : ""); }
+    function statusText(list) { return list.map(function (st) { return st.turns > 0 ? st.name + " " + st.turns : st.name; }).join(", "); }
+    if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(itemText).join(" · ") : s.nothingCarried);
+    if (h.statuses && h.statuses.length) line(s.statuses, statusText(h.statuses));
     if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
     (h.records || []).forEach(function (r) { line(r.name, r.entries.length ? r.entries.join(language() === "en" ? ", " : "、") : "—"); });
     h.companions.forEach(function (c) {
@@ -523,7 +527,8 @@ const PLAYER = `(function () {
       h.party.members.forEach(function (m) {
         var bits = m.title ? [m.title] : [];
         m.stats.forEach(function (st) { bits.push(st.name + " " + st.value + (st.max !== undefined ? "/" + st.max : "")); });
-        if (m.gear && m.gear.length) bits.push(m.gear.map(function (i) { return i.name; }).join(", "));
+        if (m.gear && m.gear.length) bits.push(m.gear.map(itemText).join(", "));
+        if (m.statuses && m.statuses.length) bits.push(statusText(m.statuses));
         line(m.name, bits.join(" · "));
         if (m.down) hudEl.lastChild.className = "down";
       });
@@ -533,7 +538,7 @@ const PLAYER = `(function () {
       if (!k.entities.length) return;
       line(k.name, String(k.entities.length));
       k.entities.forEach(function (e) {
-        line(e.name, e.stats.map(function (st) { return st.name + " " + st.value + (st.max !== undefined ? "/" + st.max : ""); }).join(" · "));
+        line(e.name, e.stats.map(function (st) { return st.name + " " + st.value + (st.max !== undefined ? "/" + st.max : ""); }).concat(e.statuses && e.statuses.length ? [statusText(e.statuses)] : []).join(" · "));
         if (e.down) hudEl.lastChild.className = "down";
       });
     });

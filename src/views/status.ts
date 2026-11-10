@@ -1,5 +1,5 @@
 import { T } from "../i18n";
-import type { GridView, MapView } from "../game/engine";
+import type { GridView, ItemView, MapView, StatusView } from "../game/engine";
 import { logLine } from "../play/describe";
 import type { GameView } from "./PlayView";
 
@@ -71,8 +71,9 @@ export function renderHud(el: HTMLElement, game: GameView, act: HudActions, focu
   if (game.hud.items && !(game.hud.party && game.hud.items.length === 0)) {
     const row = chipRow(hud, t.inventory);
     if (game.hud.items.length === 0) row.createSpan({ cls: "inkwright-hud-value", text: t.nothingCarried });
-    for (const item of game.hud.items) row.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
+    for (const item of game.hud.items) itemChip(row, item);
   }
+  if (game.hud.statuses && game.hud.statuses.length > 0) statusTags(chipRow(hud, t.statuses), game.hud.statuses);
   if (game.hud.decks) {
     const row = chipRow(hud, t.decks);
     for (const d of game.hud.decks) row.createSpan({ cls: "inkwright-item", text: `${d.name} ${d.left}/${d.total}` });
@@ -148,8 +149,27 @@ function renderParty(el: HTMLElement, party: NonNullable<GameView["hud"]["party"
     for (const st of m.stats) statLine(card, st);
     if (m.gear && m.gear.length > 0) {
       const gear = card.createDiv({ cls: "inkwright-party-gear" });
-      for (const item of m.gear) gear.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
+      for (const item of m.gear) itemChip(gear, item);
     }
+    if (m.statuses && m.statuses.length > 0) statusTags(card.createDiv({ cls: "inkwright-statuses" }), m.statuses);
+  }
+}
+
+/** An item: its name, a stack's count, a mark when it is worn (the slot in the tooltip). */
+function itemChip(el: HTMLElement, item: ItemView): void {
+  const title = [item.slot !== undefined ? (item.equipped ? T().wornAs(item.slot) : item.slot) : "", item.desc ?? ""].filter((x) => x !== "").join(" · ");
+  el.createSpan({
+    cls: ["inkwright-item", ...(item.equipped ? ["inkwright-item-equipped"] : [])],
+    text: `${item.equipped ? "◆ " : ""}${item.name}${item.count !== undefined ? ` ×${item.count}` : ""}`,
+    ...(title ? { title } : {}),
+  });
+}
+
+/** Statuses as small tags: the name and the turns left (none when it lasts until cleared). */
+function statusTags(el: HTMLElement, statuses: StatusView[]): void {
+  for (const st of statuses) {
+    const title = [st.turns > 0 ? T().statusTurnsLeft(st.turns) : T().statusLasting, st.desc ?? ""].filter((x) => x !== "").join(" · ");
+    el.createSpan({ cls: "inkwright-status", text: st.turns > 0 ? `${st.name} ${st.turns}` : st.name, title });
   }
 }
 
@@ -180,6 +200,7 @@ export function renderKinds(el: HTMLElement, kinds: NonNullable<GameView["hud"][
       const card = row.createDiv({ cls: ["inkwright-party-member", ...(e.down ? ["inkwright-party-down"] : [])] });
       card.createDiv({ cls: "inkwright-party-who", text: e.name });
       for (const st of e.stats) statLine(card, st);
+      if (e.statuses && e.statuses.length > 0) statusTags(card.createDiv({ cls: "inkwright-statuses" }), e.statuses);
     }
   }
 }

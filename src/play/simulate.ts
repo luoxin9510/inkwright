@@ -1,5 +1,5 @@
 import { Story } from "inkjs/full";
-import { localize, type GameConfig } from "../game/config";
+import { inkNames, localize, type GameConfig } from "../game/config";
 import { GameEngine, type CardView, type HudView, type RollRecord } from "../game/engine";
 import { inputOf, inputPlaceholder } from "./input";
 import { PlaySession } from "./session";
@@ -52,6 +52,16 @@ export interface SimulateResult {
   checks?: CheckCount[];
   /** Game mode with kinds: what came and went of each kind (RPG PRD §4.1). */
   kinds?: KindCount[];
+  /** Game mode with statuses: how often each was put on someone (seen after each step) and in how many runs. */
+  statuses?: StatusCount[];
+}
+
+/** A status over the runs: times it appeared on someone (one who, one step), runs it appeared in at all. */
+export interface StatusCount {
+  status: string;
+  name: string;
+  times: number;
+  runs: number;
 }
 
 /**
@@ -126,6 +136,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
   if (engine && options.language === "en") engine.language = "en";
   const tally = engine && options.game ? new Tally(options.game, engine.language) : null;
   const kindTally = engine && options.game?.kinds?.length ? new KindTally(options.game, engine.language) : null;
+  const statusTally = engine && options.game?.statuses?.length ? new StatusTally() : null;
   // A fresh Story: the one given may be mid-play, and the engine binds its check function once per Story.
   const session = new PlaySession(new Story(story.ToJson() as string), {
     language: options.language,
@@ -142,6 +153,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
     let step = i === 0 ? session.start() : session.restart();
     let steps = 0;
     if (engine) kindTally?.see(engine.hud(), 0);
+    if (engine) statusTally?.see(engine.hud());
     let fault = false;
     const path: string[] = [];
     for (;;) {
@@ -182,6 +194,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
       step = session.choose(pick.index, payload);
       steps++;
       if (engine) kindTally?.see(engine.hud(), steps);
+      if (engine) statusTally?.see(engine.hud());
     }
     stepCounts.push(steps);
     if (!fault && step.ended) {
@@ -192,8 +205,12 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
     if (engine) {
       tally?.add(engine.rolls);
       kindTally?.endRun();
+      statusTally?.endRun();
       const hud = engine.hud();
-      const views = [...hud.resources.map((r) => ({ ...r, resource: r.id })), ...hud.companions.flatMap((c) => c.resources.map((r) => ({ ...r, resource: `${r.id}_${c.id}` })))];
+      // Stacking items' counts are spread like resources (0 up, no top).
+      const stackSuffix = options.game ? inkNames(options.game).stackSuffix : "_n";
+      const stacks = (options.game?.items ?? []).filter((i) => i.stack).map((i) => ({ resource: `${i.id}${stackSuffix}`, value: hud.items?.find((v) => v.id === i.id)?.count ?? 0, min: 0, max: Infinity }));
+      const views = [...hud.resources.map((r) => ({ ...r, resource: r.id })), ...hud.companions.flatMap((c) => c.resources.map((r) => ({ ...r, resource: `${r.id}_${c.id}` }))), ...stacks];
       const overflowed = new Set(engine.takeOverflows().map((o) => o.resource));
       for (const v of views) {
         const e = ends.get(v.resource) ?? { values: [], outOfRange: 0, atMin: 0, atMax: 0 };
@@ -218,7 +235,49 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
   }
   if (tally) Object.assign(result, tally.result(runs));
   if (kindTally) result.kinds = kindTally.result();
+  if (statusTally && options.game) {
+    const lang = engine?.language ?? "";
+    result.statuses = (options.game.statuses ?? []).map((st) => ({ status: st.id, name: localize(st.name, lang, st.id), ...statusTally.of(st.id) }));
+  }
   return result;
+}
+
+/** Counts statuses as they appear on someone between steps. */
+class StatusTally {
+  private before = new Set<string>();
+  private inRun = new Set<string>();
+  private counts = new Map<string, { times: number; runs: number }>();
+
+  see(hud: HudView): void {
+    const now = new Set<string>();
+    const add = (who: string, list: { id: string }[] | undefined) => {
+      for (const st of list ?? []) now.add(`${who}\u0000${st.id}`);
+    };
+    add("", hud.statuses);
+    for (const m of hud.party?.members ?? []) add(m.id, m.statuses);
+    for (const k of hud.kinds ?? []) for (const e of k.entities) add(e.id, e.statuses);
+    for (const key of now) {
+      if (this.before.has(key)) continue;
+      const id = key.slice(key.indexOf("\u0000") + 1);
+      const c = this.counts.get(id) ?? { times: 0, runs: 0 };
+      c.times++;
+      if (!this.inRun.has(id)) {
+        c.runs++;
+        this.inRun.add(id);
+      }
+      this.counts.set(id, c);
+    }
+    this.before = now;
+  }
+
+  endRun(): void {
+    this.before = new Set();
+    this.inRun = new Set();
+  }
+
+  of(id: string): { times: number; runs: number } {
+    return this.counts.get(id) ?? { times: 0, runs: 0 };
+  }
 }
 
 /** Follows each kind's entities from step to step: who came, who went, how long they stayed. */
