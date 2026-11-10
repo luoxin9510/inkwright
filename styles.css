@@ -137,6 +137,8 @@
 .inkwright-hud-set { width: 4.5em; font-variant-numeric: tabular-nums; }
 .inkwright-hud-companion { color: var(--text-muted); }
 .inkwright-party-name { color: var(--text-muted); margin-bottom: 2px; }
+.inkwright-kind { margin: 0.6em 0; }
+.inkwright-kind > summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-small); margin-bottom: 4px; }
 .inkwright-party-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr)); gap: 6px; }
 .inkwright-party-member { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; }
 .inkwright-party-down { opacity: 0.45; }

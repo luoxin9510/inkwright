@@ -1,4 +1,4 @@
-import { inkNames, localize, playableCharacters, type GameConfig, type LocalizedText, type TableRow } from "./config";
+import { inkNames, localize, playableCharacters, type GameConfig, type InkNames, type LocalizedText, type TableDef, type TableRow } from "./config";
 import { averageFormula, averageRoll, formatFormula } from "./dice";
 import { parseRange, tableFormula } from "./tables";
 
@@ -130,19 +130,7 @@ export function generateInk(config: GameConfig): string {
     const lookups: [string, (r: TableRow) => string][] = [[n.tableText, (r) => text(r.text)], [n.tableId, (r) => `"${(r.id ?? "").replace(/["{}]/g, "")}"`]];
     for (const [fn, value] of lookups) {
       lines.push("", `=== function ${fn}(${n.tableParam}, ${n.totalParam}) ===`);
-      for (const t of tables) {
-        // Rows with ranges are read in ascending order (`total <= hi`); without, the total is the row number. The last row catches the rest.
-        const ranged = t.rows.some((r) => parseRange(r.range) !== null);
-        // Tie-safe: two open bottoms (`≤N`) both start at -Infinity, and a subtraction of those is NaN.
-        const lo = (r: TableRow) => parseRange(r.range)?.lo ?? 0;
-        const rows = ranged ? [...t.rows].sort((a, b) => (lo(a) < lo(b) ? -1 : lo(a) > lo(b) ? 1 : 0)) : t.rows;
-        rows.forEach((r, i) => {
-          // An open top (`6+`) can only be the last row, which takes the rest anyway.
-          const last = i === rows.length - 1 || parseRange(r.range)?.hi === Infinity;
-          const cond = last ? "" : ranged ? ` and ${n.totalParam} <= ${parseRange(r.range)?.hi ?? 0}` : ` and ${n.totalParam} == ${i + 1}`;
-          lines.push(`{ ${n.tableParam} == "${t.id}"${cond}:`, `    ~ return ${value(r)}`, "}");
-        });
-      }
+      for (const t of tables) for (const b of rowBranches(t, n)) lines.push(`{ ${b.cond}:`, `    ~ return ${value(b.row)}`, "}");
       lines.push(`~ return ""`);
     }
     lines.push("", `=== function ${n.table}(${n.tableParam}) ===`, `~ return ${n.tableText}(${n.tableParam}, ${n.tableRoll}(${n.tableParam}))`);
@@ -297,7 +285,241 @@ export function generateInk(config: GameConfig): string {
     );
   }
   if (config.records?.length) lines.push(...recordInk(config));
+  if (config.kinds?.length) lines.push(...entityInk(config), ...spawnRowInk(config));
   return lines.join("\n") + "\n";
+}
+
+/**
+ * A table's rows as branches of a lookup on (table name, total), each to be closed by a return, in the order they
+ * must be tested: rows with ranges ascending (`total <= hi`); without, the total is the row number. The last row
+ * catches the rest.
+ */
+function rowBranches(t: TableDef, n: InkNames): { cond: string; row: TableRow }[] {
+  const all = t.rows ?? [];
+  const ranged = all.some((r) => parseRange(r.range) !== null);
+  // Tie-safe: two open bottoms (`≤N`) both start at -Infinity, and a subtraction of those is NaN.
+  const lo = (r: TableRow) => parseRange(r.range)?.lo ?? 0;
+  const rows = ranged ? [...all].sort((a, b) => (lo(a) < lo(b) ? -1 : lo(a) > lo(b) ? 1 : 0)) : all;
+  return rows.map((r) => {
+    const i = all.indexOf(r);
+    const k = rows.indexOf(r);
+    // An open top (`6+`) can only be the last row, which takes the rest anyway.
+    const last = k === rows.length - 1 || parseRange(r.range)?.hi === Infinity;
+    const cond = last ? "" : ranged ? ` and ${n.totalParam} <= ${parseRange(r.range)?.hi ?? 0}` : ` and ${n.totalParam} == ${i + 1}`;
+    return { cond: `${n.tableParam} == "${t.id}"${cond}`, row: r };
+  });
+}
+
+/**
+ * The party as fixed entities (RPG PRD §4.1, "party is a kind with fixed members"): branches for the entity
+ * wrappers. A member id reads and writes its `<stat>_<id>` VARs; `despawn` sets the `present` stat to 0 (no-op
+ * without one); the kind name `party` (InkNames.partyKind) counts and picks the standing members (present and not
+ * down, where those stats are set), in the members' order; ties pick the first. Empty without a party.
+ */
+function partyEntity(config: GameConfig) {
+  const n = inkNames(config);
+  const party = config.party;
+  const none = { stat: [], setStat: [], despawn: [], alive: [], pick: [], nth: [], name: [] } as Record<string, string[]>;
+  if (!party || party.members.length === 0) return none;
+  const k = n.kindParam, w = n.entityParam, st = n.statParam, a = n.amountParam, h = n.howParam, c = n.tempPickNo, best = n.tempEntity;
+  const pk = `"${n.partyKind}"`;
+  const [first, second] = config.languages ?? [];
+  const esc = (x: string) => x.replace(/["{}]/g, "").replace(/\s+/g, " ");
+  const name = (t: LocalizedText | undefined, id: string) => first !== undefined && second !== undefined
+    ? `${n.textFn}("${esc(localize(t, first, id))}", "${esc(localize(t, second, id))}")`
+    : `"${esc(localize(t, "", id))}"`;
+  const members = party.members.map((m) => m.id);
+  const standing = (m: string) => [party.present, party.down].filter((x): x is string => x !== undefined).map((x) => `${x}_${m} > 0`).join(" and ") || "true";
+  const byMember = (body: (m: string) => string[]) => members.flatMap((m) => [`{ ${w} == "${m}":`, ...body(m).map((l) => `    ${l}`), "}"]);
+  const byStat = (m: string, body: (v: string) => string) => party.stats.flatMap((s) => [`{ ${st} == "${s.id}":`, `    ${body(`${s.id}_${m}`)}`, "}"]);
+  // The k-th standing member, counting in `c`.
+  const nth = (target: string) => [`~ ${c} = 0`, ...members.flatMap((m) => [`{ ${standing(m)}:`, `    ~ ${c} = ${c} + 1`, `    { ${c} == ${target}:`, `        ~ return "${m}"`, "    }", "}"])];
+  const count = [`~ ${c} = 0`, ...members.flatMap((m) => [`{ ${standing(m)}:`, `    ~ ${c} = ${c} + 1`, "}"])];
+  const extreme = (dir: "lowest" | "highest") => party.stats.flatMap((s) => [
+    `{ ${h} == "${dir}:${s.id}":`,
+    `    ~ ${best} = ""`,
+    ...members.flatMap((m) => [`    { ${standing(m)} and (${best} == "" or ${s.id}_${m} ${dir === "lowest" ? "<" : ">"} ${n.stat}(${best}, "${s.id}")):`, `        ~ ${best} = "${m}"`, "    }"]),
+    `    ~ return ${best}`,
+    "}",
+  ]);
+  const inParty = (body: string[]) => [`{ ${k} == ${pk}:`, ...body.map((l) => `    ${l}`), "}"];
+  return {
+    stat: byMember((m) => [...byStat(m, (v) => `~ return ${v}`), "~ return 0"]),
+    setStat: byMember((m) => [...byStat(m, (v) => `~ ${v} = ${a}`), "~ return"]),
+    despawn: byMember((m) => [...(party.present ? [`~ ${party.present}_${m} = 0`] : []), "~ return"]),
+    alive: [`~ temp ${c} = 0`, ...inParty([...count, `~ return ${c}`])],
+    pick: inParty([
+      ...count,
+      `{ ${c} <= 0:`, `    ~ return ""`, "}",
+      ...extreme("lowest"),
+      ...extreme("highest"),
+      // One standing member is no choice (and "1d1" is no die).
+      "{", `- ${h} == "first" or ${c} == 1:`, `    ~ ${c} = 1`, `- ${h} == "last":`, `    ~ ${c} = ${c}`, `- ${h} == "random":`, `    ~ ${c} = ${n.dice}("1d" + ${c}, "pick:${n.partyKind}")`, "- else:", `    ~ ${c} = 0`, "}",
+      `~ return ${n.nthOne}(${k}, ${c})`,
+    ]),
+    nth: inParty([...nth(a), `~ return ""`]),
+    name: byMember((m) => [`~ return ${name(party.members.find((x) => x.id === m)?.name, m)}`]),
+  };
+}
+
+/**
+ * Table rows that spawn (RPG PRD §4.1): `spawn_from(table)` rolls the table, spawns its row and returns the total
+ * (so the story can tell it with `table_text`); `spawn_row(table, total)` spawns a total's row and returns how
+ * many came. Each entity of a row is spawned by `spawn_row_one` (the template's kind is known, the row's stats
+ * set after), `spawn_times` repeats it. Plain ink over `spawn` and `roll`, so nothing new for the engine.
+ */
+function spawnRowInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const tables = (config.tables ?? []).filter((t) => (t.rows ?? []).some((r) => r.spawn !== undefined));
+  if (tables.length === 0) return [];
+  const kindOf = new Map((config.kinds ?? []).flatMap((k) => k.templates.map((t) => [t.id, k.id] as const)));
+  const tb = n.tableParam, tot = n.totalParam, a = n.amountParam, id = n.tempEntity;
+  const count = (r: TableRow) => (typeof r.count === "number" ? String(Math.max(0, Math.floor(r.count))) : r.count !== undefined ? `${n.roll}("${r.count.replace(/["{}]/g, "")}")` : "1");
+  const one: string[] = [`=== function ${n.spawnRowOne}(${tb}, ${tot}) ===`, `~ temp ${id} = ""`];
+  const row: string[] = [`=== function ${n.spawnRow}(${tb}, ${tot}) ===`];
+  for (const t of tables) {
+    for (const b of rowBranches(t, n)) {
+      const kind = b.row.spawn !== undefined ? kindOf.get(b.row.spawn) : undefined;
+      if (kind === undefined) {
+        one.push(`{ ${b.cond}:`, `    ~ return ""`, "}");
+        row.push(`{ ${b.cond}:`, "    ~ return 0", "}");
+        continue;
+      }
+      one.push(
+        `{ ${b.cond}:`,
+        `    ~ ${id} = ${n.spawn}("${kind}", "${b.row.spawn}")`,
+        ...Object.entries(b.row.stats ?? {}).map(([st, v]) => `    ~ ${n.setStat}(${id}, "${st}", ${v})`),
+        `    ~ return ${id}`,
+        "}",
+      );
+      row.push(`{ ${b.cond}:`, `    ~ return ${n.spawnTimes}(${tb}, ${tot}, ${count(b.row)})`, "}");
+    }
+  }
+  one.push(`~ return ""`);
+  row.push("~ return 0");
+  return [
+    "",
+    `// Table rows that spawn: ~ temp ${n.tempRowNo} = ${n.spawnFrom}("${tables[0].id}") spawns what the roll's row says and gives the total ({${n.tableText}("${tables[0].id}", ${n.tempRowNo})} tells it).`,
+    `=== function ${n.spawnFrom}(${tb}) ===`,
+    `~ temp ${n.tempRowNo} = ${n.tableRoll}(${tb})`,
+    `~ ${n.spawnRow}(${tb}, ${n.tempRowNo})`,
+    `~ return ${n.tempRowNo}`,
+    "",
+    ...row,
+    "",
+    ...one,
+    "",
+    `=== function ${n.spawnTimes}(${tb}, ${tot}, ${a}) ===`,
+    `{ ${a} <= 0:`, `    ~ return 0`, "}",
+    `~ ${n.spawnRowOne}(${tb}, ${tot})`,
+    `~ return 1 + ${n.spawnTimes}(${tb}, ${tot}, ${a} - 1)`,
+  ];
+}
+
+/**
+ * Entities (RPG PRD §4.1): one string VAR per kind holding its entities and a serial counter; the pure EXTERNALs
+ * on a store (src/game/entities.ts), and wrappers taking kinds and entity ids as strings. A random pick rolls
+ * through the dice EXTERNAL with the label "pick:<kind>", so it follows the run's seed. Without the engine
+ * nothing is ever spawned (the fallbacks keep stores empty): the story compiles and runs, but no fight happens.
+ */
+function entityInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const kinds = config.kinds ?? [];
+  const k = n.kindParam, w = n.entityParam, st = n.statParam, a = n.amountParam, h = n.howParam, tp = n.templateParam, s = n.entStoreParam;
+  const indent = (lines: string[]) => lines.map((l) => `    ${l}`);
+  // A branch per kind, on the kind's name or on the store holding the entity.
+  const byKind = (body: (id: string) => string[]) => kinds.flatMap((kd) => [`{ ${k} == "${kd.id}":`, ...indent(body(kd.id)), "}"]);
+  const byOwner = (body: (id: string) => string[]) => kinds.flatMap((kd) => [`{ ${n.entHas}(${kd.id}, ${w}):`, ...indent(body(kd.id)), "}"]);
+  // The party's members, fixed entities with a VAR per stat (plain ink, so they work without the engine too).
+  const party = partyEntity(config);
+  const first = kinds[0].id;
+  return [
+    "",
+    `// Entities: ${n.spawn}("${first}", "<template>") gives the new id; ${n.stat}(id, "<stat>"), ${n.setStat}(id, "<stat>", v), ${n.addStat}(id, "<stat>", d),`,
+    `// ${n.despawn}(id), ${n.alive}("${first}"), ${n.pickOne}("${first}", "random" | "first" | "last" | "lowest:<stat>" | "highest:<stat>"), ${n.nthOne}("${first}", k), ${n.nameOf}(id).`,
+    ...kinds.flatMap((kd) => [`VAR ${kd.id} = ""`, `VAR ${kd.id}${n.serialSuffix} = 0`]),
+    `EXTERNAL ${n.entSpawn}(${s}, ${k}, ${tp}, ${w})`,
+    `EXTERNAL ${n.entHas}(${s}, ${w})`,
+    `EXTERNAL ${n.entGet}(${s}, ${w}, ${st})`,
+    `EXTERNAL ${n.entSet}(${s}, ${w}, ${st}, ${a}, ${h})`,
+    `EXTERNAL ${n.entDrop}(${s}, ${w})`,
+    `EXTERNAL ${n.entCount}(${s})`,
+    `EXTERNAL ${n.entAt}(${s}, ${a})`,
+    `EXTERNAL ${n.entPick}(${s}, ${h})`,
+    `EXTERNAL ${n.entName}(${s}, ${k}, ${w})`,
+    "",
+    "// Without the engine: nothing is spawned, so every store stays empty.",
+    `=== function ${n.entSpawn}(${s}, ${k}, ${tp}, ${w}) ===`, `~ return ${s}`,
+    `=== function ${n.entHas}(${s}, ${w}) ===`, "~ return false",
+    `=== function ${n.entGet}(${s}, ${w}, ${st}) ===`, "~ return 0",
+    `=== function ${n.entSet}(${s}, ${w}, ${st}, ${a}, ${h}) ===`, `~ return ${s}`,
+    `=== function ${n.entDrop}(${s}, ${w}) ===`, `~ return ${s}`,
+    `=== function ${n.entCount}(${s}) ===`, "~ return 0",
+    `=== function ${n.entAt}(${s}, ${a}) ===`, `~ return ""`,
+    `=== function ${n.entPick}(${s}, ${h}) ===`, `~ return ""`,
+    `=== function ${n.entName}(${s}, ${k}, ${w}) ===`, `~ return ${w}`,
+    "",
+    // The temps are named like parameters, names reserved for entities, so no id can clash with them.
+    `=== function ${n.spawn}(${k}, ${tp}) ===`,
+    `~ temp ${n.tempEntity} = ""`,
+    ...byKind((id) => [
+      `~ ${id}${n.serialSuffix} = ${id}${n.serialSuffix} + 1`,
+      `~ ${n.tempEntity} = ${tp} + "_" + ${id}${n.serialSuffix}`,
+      `~ ${id} = ${n.entSpawn}(${id}, "${id}", ${tp}, ${n.tempEntity})`,
+      `{ ${n.entHas}(${id}, ${n.tempEntity}):`, `    ~ return ${n.tempEntity}`, "}",
+    ]),
+    `~ return ""`,
+    "",
+    `=== function ${n.stat}(${w}, ${st}) ===`,
+    ...party.stat,
+    ...byOwner((id) => [`~ return ${n.entGet}(${id}, ${w}, ${st})`]),
+    "~ return 0",
+    "",
+    `=== function ${n.setStat}(${w}, ${st}, ${a}) ===`,
+    ...party.setStat,
+    ...byOwner((id) => [`~ ${id} = ${n.entSet}(${id}, ${w}, ${st}, ${a}, "${kinds.find((x) => x.id === id)?.remove ?? ""}")`, "~ return"]),
+    "",
+    `=== function ${n.addStat}(${w}, ${st}, ${a}) ===`,
+    `~ ${n.setStat}(${w}, ${st}, ${n.stat}(${w}, ${st}) + ${a})`,
+    "",
+    `=== function ${n.despawn}(${w}) ===`,
+    ...party.despawn,
+    ...byOwner((id) => [`~ ${id} = ${n.entDrop}(${id}, ${w})`, "~ return"]),
+    "",
+    `=== function ${n.alive}(${k}) ===`,
+    ...party.alive,
+    ...byKind((id) => [`~ return ${n.entCount}(${id})`]),
+    "~ return 0",
+    "",
+    `=== function ${n.pickOne}(${k}, ${h}) ===`,
+    `~ temp ${n.tempPickNo} = 0`,
+    `~ temp ${n.tempEntity} = ""`,
+    ...party.pick,
+    // One entity is no choice (and "1d1" is no die): it is the pick, nothing rolled.
+    ...byKind((id) => [
+      `{ ${h} == "random":`,
+      ...indent([
+        `~ ${n.tempPickNo} = ${n.entCount}(${id})`,
+        `{ ${n.tempPickNo} <= 0:`, `    ~ return ""`, "}",
+        `{ ${n.tempPickNo} == 1:`, `    ~ return ${n.entAt}(${id}, 1)`, "}",
+        `~ return ${n.entAt}(${id}, ${n.dice}("1d" + ${n.tempPickNo}, "pick:${id}"))`,
+      ]),
+      "}",
+      `~ return ${n.entPick}(${id}, ${h})`,
+    ]),
+    `~ return ""`,
+    "",
+    `=== function ${n.nthOne}(${k}, ${a}) ===`,
+    `~ temp ${n.tempPickNo} = 0`,
+    ...party.nth,
+    ...byKind((id) => [`~ return ${n.entAt}(${id}, ${a})`]),
+    `~ return ""`,
+    "",
+    `=== function ${n.nameOf}(${w}) ===`,
+    ...party.name,
+    ...byOwner((id) => [`~ return ${n.entName}(${id}, "${id}", ${w})`]),
+    `~ return ${w}`,
+  ];
 }
 
 /**

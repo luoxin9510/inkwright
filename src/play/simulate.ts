@@ -1,6 +1,6 @@
 import { Story } from "inkjs/full";
 import { localize, type GameConfig } from "../game/config";
-import { GameEngine, type CardView, type RollRecord } from "../game/engine";
+import { GameEngine, type CardView, type HudView, type RollRecord } from "../game/engine";
 import { inputOf, inputPlaceholder } from "./input";
 import { PlaySession } from "./session";
 
@@ -50,6 +50,22 @@ export interface SimulateResult {
   decks?: DeckCount[];
   /** Game mode: each check met (skill and difficulty), how often, and the share of successes (band 3 or 4). */
   checks?: CheckCount[];
+  /** Game mode with kinds: what came and went of each kind (RPG PRD §4.1). */
+  kinds?: KindCount[];
+}
+
+/**
+ * One kind's entities over the runs, seen after each step (an entity spawned and removed within one step is not
+ * seen). Per template: how many came, how many were taken out, the mean choices a removed one stayed in play, and
+ * how many were still there when the runs ended. `most` = the most in play at once, per run; `overMax` = entities
+ * seen with a stat above its maximum (each entity and stat once).
+ */
+export interface KindCount {
+  kind: string;
+  name: string;
+  templates: { template: string; name: string; spawned: number; removed: number; turns: number; left: number }[];
+  most: Spread;
+  overMax: number;
 }
 
 export interface Percentiles {
@@ -109,6 +125,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
   // Cards in the paths are named in the story's language.
   if (engine && options.language === "en") engine.language = "en";
   const tally = engine && options.game ? new Tally(options.game, engine.language) : null;
+  const kindTally = engine && options.game?.kinds?.length ? new KindTally(options.game, engine.language) : null;
   // A fresh Story: the one given may be mid-play, and the engine binds its check function once per Story.
   const session = new PlaySession(new Story(story.ToJson() as string), {
     language: options.language,
@@ -124,6 +141,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
   for (let i = 0; i < runs; i++) {
     let step = i === 0 ? session.start() : session.restart();
     let steps = 0;
+    if (engine) kindTally?.see(engine.hud(), 0);
     let fault = false;
     const path: string[] = [];
     for (;;) {
@@ -163,6 +181,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
       path.push(picks.length > 0 ? `${pick.text} ▸ ${picks.map((c) => c.name).join(" + ")}` : variable !== null ? `${pick.text} ▸ ${inputPlaceholder(variable)}` : pick.text);
       step = session.choose(pick.index, payload);
       steps++;
+      if (engine) kindTally?.see(engine.hud(), steps);
     }
     stepCounts.push(steps);
     if (!fault && step.ended) {
@@ -172,6 +191,7 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
     }
     if (engine) {
       tally?.add(engine.rolls);
+      kindTally?.endRun();
       const hud = engine.hud();
       const views = [...hud.resources.map((r) => ({ ...r, resource: r.id })), ...hud.companions.flatMap((c) => c.resources.map((r) => ({ ...r, resource: `${r.id}_${c.id}` })))];
       const overflowed = new Set(engine.takeOverflows().map((o) => o.resource));
@@ -197,7 +217,93 @@ export function simulateStory(story: Story, options: SimulateOptions = {}): Simu
     result.resources = [...ends].map(([resource, e]) => ({ resource, end: spread(e.values), percentiles: percentiles(e.values), atMin: e.atMin, atMax: e.atMax, outOfRange: e.outOfRange }));
   }
   if (tally) Object.assign(result, tally.result(runs));
+  if (kindTally) result.kinds = kindTally.result();
   return result;
+}
+
+/** Follows each kind's entities from step to step: who came, who went, how long they stayed. */
+/** One template's entities over the runs: spawned, removed, choices the removed ones stayed, left at the end. */
+interface TemplateCount { spawned: number; removed: number; stayed: number; left: number }
+
+class KindTally {
+  private readonly counts = new Map<string, Map<string, TemplateCount>>();
+  private readonly most = new Map<string, number[]>();
+  private readonly over = new Map<string, number>();
+  /** This run: each entity in play (kind, template, the step it was first seen), the most at once, stats seen over. */
+  private live = new Map<string, { kind: string; template: string; since: number }>();
+  private runMost = new Map<string, number>();
+  private seenOver = new Set<string>();
+
+  constructor(private readonly config: GameConfig, private readonly language: string) {
+    for (const k of config.kinds ?? []) this.counts.set(k.id, new Map(k.templates.map((t) => [t.id, { spawned: 0, removed: 0, stayed: 0, left: 0 }])));
+  }
+
+  private count(kind: string, template: string): TemplateCount {
+    const byTemplate = this.counts.get(kind) ?? new Map<string, TemplateCount>();
+    this.counts.set(kind, byTemplate);
+    const c = byTemplate.get(template) ?? { spawned: 0, removed: 0, stayed: 0, left: 0 };
+    byTemplate.set(template, c);
+    return c;
+  }
+
+  see(hud: HudView, step: number): void {
+    const now = new Set<string>();
+    for (const k of hud.kinds ?? []) {
+      this.runMost.set(k.id, Math.max(this.runMost.get(k.id) ?? 0, k.entities.length));
+      for (const e of k.entities) {
+        const key = `${k.id}\n${e.id}`;
+        now.add(key);
+        if (!this.live.has(key)) {
+          this.live.set(key, { kind: k.id, template: e.template, since: step });
+          this.count(k.id, e.template).spawned++;
+        }
+        for (const st of e.stats) {
+          const mark = `${key}\n${st.id}`;
+          if (st.max !== undefined && st.value > st.max && !this.seenOver.has(mark)) {
+            this.seenOver.add(mark);
+            this.over.set(k.id, (this.over.get(k.id) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    for (const [key, e] of this.live) {
+      if (now.has(key)) continue;
+      const c = this.count(e.kind, e.template);
+      c.removed++;
+      c.stayed += step - e.since;
+      this.live.delete(key);
+    }
+  }
+
+  endRun(): void {
+    for (const e of this.live.values()) this.count(e.kind, e.template).left++;
+    for (const k of this.config.kinds ?? []) {
+      const most = this.most.get(k.id) ?? [];
+      most.push(this.runMost.get(k.id) ?? 0);
+      this.most.set(k.id, most);
+    }
+    this.live = new Map();
+    this.runMost = new Map();
+    this.seenOver = new Set();
+  }
+
+  result(): KindCount[] {
+    const lang = this.language;
+    return (this.config.kinds ?? []).map((k): KindCount => ({
+      kind: k.id,
+      name: localize(k.name, lang, k.id),
+      templates: [...(this.counts.get(k.id) ?? new Map<string, TemplateCount>())].map(([id, c]) => ({
+        template: id,
+        name: localize(k.templates.find((t) => t.id === id)?.name, lang, id),
+        spawned: c.spawned,
+        removed: c.removed,
+        turns: c.removed > 0 ? c.stayed / c.removed : 0,
+        left: c.left,
+      })),
+      most: spread(this.most.get(k.id) ?? []),
+      overMax: this.over.get(k.id) ?? 0,
+    }));
+  }
 }
 
 /** Counts the rolls of many runs by table row, deck card and check. */

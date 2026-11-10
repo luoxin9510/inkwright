@@ -607,3 +607,19 @@ test("a game page lets several cards be picked for a #play:hand:1-2 choice and p
   play().click();
   expect(texts("#story p").slice(-2)).toEqual(["投入 · 乙 + 丙", "投入了 2 张。"]);
 });
+
+test("a game page lists the entities in play under their kind, and they go when they are gone", () => {
+  setLanguage("en");
+  const config = {
+    ...CONFIG, ink: "en" as const, languages: undefined,
+    kinds: [{ id: "foe", name: { zh: "敌人", en: "Foes" }, stats: [{ id: "life", name: { zh: "生命", en: "Life" }, max: "life_max" }, { id: "life_max", hidden: true }], templates: [{ id: "rat", name: { zh: "老鼠", en: "Rat" }, stats: { life: 1, life_max: 1 } }], remove: "life" }],
+  };
+  const src = `-> start\n${generateInk(config)}\n=== start ===\n~ temp a = spawn("foe", "rat")\n~ spawn("foe", "rat")\nTwo rats.\n* [Hit] \n    ~ set_stat(a, "life", 0)\n    One left.\n    -> END\n`;
+  mount(buildWebPage({ title: "R", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "rats", game: config, engine: GAME_ENGINE }));
+  const hud = () => document.querySelector("#hud")?.textContent ?? "";
+  expect(hud()).toContain("Foes2");
+  expect(hud()).toContain("Rat 1Life 1/1");
+  (document.querySelector("#choices button") as HTMLElement).click();
+  expect(hud()).toContain("Foes1");
+  expect(hud()).toContain("RatLife 1/1");
+});
