@@ -91,6 +91,7 @@ export interface PlayController {
   saveGame(): Promise<unknown>;
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
+  renameSave(id: string, name: string): Promise<void>;
   startAt(path: string | null): void;
   /** Takes a choice; a `#play` choice is taken with the id of a card picked from its hand, an `#input` choice with the text typed. */
   choose(index: number, value?: string | string[]): void;
@@ -130,6 +131,8 @@ export class PlayView extends ItemView {
   private state: PlayState | null = null;
   private inspectorOpen = false;
   private savesOpen = false;
+  /** The save whose name is being edited in the list. */
+  private renaming: string | null = null;
   private diceOpen = false;
   /** Story and paragraph count last rendered, to scroll new text into view. */
   private shownRoot: string | null = null;
@@ -264,7 +267,7 @@ export class PlayView extends ItemView {
     this.fitSide();
 
     if (s.flows.length > 0 && !player) this.renderStartFrom(main, s);
-    if (s.hasStory && s.game) renderHud(side, s.game, { adjust: (id, d) => this.controller.adjustResource(id, d), changeRecord: (id, op, e) => this.controller.changeRecord(id, op, e) }, this.focus);
+    if (s.hasStory && s.game) renderHud(side, s.game, { adjust: (id, d, value) => this.controller.adjustResource(id, d, value), changeRecord: (id, op, e) => this.controller.changeRecord(id, op, e) }, this.focus);
     if (s.hasStory && s.game?.map) {
       renderMap(side, s.game.map, s.game.mapImage, (index) => {
         this.afterChoice = true;
@@ -647,9 +650,31 @@ export class PlayView extends ItemView {
     for (const slot of s.saves) {
       const row = box.createDiv({ cls: "inkwright-save-row" });
       const info = row.createDiv({ cls: "inkwright-save-info" });
-      info.createDiv({ text: slot.name });
+      if (this.renaming === slot.id) {
+        // The name edited in place: Enter keeps it, Escape (or leaving the box) leaves it as it was.
+        const input = info.createEl("input", { type: "text", value: slot.name, cls: "inkwright-save-rename" });
+        const done = (keep: boolean) => {
+          if (this.renaming !== slot.id) return;
+          this.renaming = null;
+          if (keep && input.value.trim() !== "" && input.value.trim() !== slot.name) void this.controller.renameSave(slot.id, input.value);
+          else this.render();
+        };
+        input.onkeydown = (e) => {
+          if (e.isComposing) return;
+          if (e.key === "Enter") done(true);
+          else if (e.key === "Escape") done(false);
+        };
+        input.onblur = () => done(false);
+        window.setTimeout(() => input.select(), 0);
+      } else {
+        info.createDiv({ text: slot.name });
+      }
       info.createDiv({ cls: "inkwright-save-time", text: new Date(slot.savedAt).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en") });
       row.createEl("button", { text: T().load }).onclick = () => this.controller.loadGame(slot.id);
+      row.createEl("button", { text: T().rename }).onclick = () => {
+        this.renaming = slot.id;
+        this.render();
+      };
       // A save cannot be got back: the first tap asks, a second within a few seconds deletes.
       const del = row.createEl("button", { text: T().delete });
       let armed = false;

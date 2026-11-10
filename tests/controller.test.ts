@@ -30,6 +30,8 @@ interface Rig {
   fs: MemoryFiles;
   notes: string[];
   settings: { playerMode: boolean };
+  /** How many times a run read from the folder replayed all the way. */
+  resumed: { count: number };
 }
 
 function rig(fs = new MemoryFiles(), device = "A", playerMode = false): Rig {
@@ -37,6 +39,7 @@ function rig(fs = new MemoryFiles(), device = "A", playerMode = false): Rig {
   const notes: string[] = [];
   const settings = { playerMode };
   let t = Date.parse("2026-11-10T10:00:00Z");
+  const resumed = { count: 0 };
   const host: RunHost = {
     store: () => store,
     playerMode: () => settings.playerMode,
@@ -46,8 +49,9 @@ function rig(fs = new MemoryFiles(), device = "A", playerMode = false): Rig {
     now: () => new Date((t += 1000)),
     wait: () => Promise.resolve(),
     replayBudget: 5000,
+    afterResume: () => resumed.count++,
   };
-  return { run: new RunController(host), fs, notes, settings };
+  return { run: new RunController(host), fs, notes, settings, resumed };
 }
 
 /** Waits for a replay under way, then for the writes queued. */
@@ -228,5 +232,41 @@ describe("run controller", () => {
     run.choose(0);
     await idle(run);
     expect(runFiles(fs)).toEqual([]);
+  });
+
+  test("a save can be renamed; its time stays", async () => {
+    const { run } = rig();
+    await run.compiledVersion(ROOT, version(source()), []);
+    run.choose(0);
+    const saved = await run.save("一");
+    await run.rename(saved!.id, "  岔路口前 ");
+    expect(run.saves).toEqual([{ id: saved!.id, name: "岔路口前", savedAt: run.saves[0].savedAt }]);
+    expect(run.saves[0].savedAt).toBe((await run.runs()).find((r) => r.id === saved!.id)?.updatedAt);
+    await run.rename(saved!.id, " ");
+    expect(run.saves[0].name).toBe("岔路口前");
+    await run.rename("draft", "x");
+    expect((await run.runs()).find((r) => r.draft)?.name).toBe("");
+  });
+
+  test("a run picked up from the folder says so once it has replayed all the way, not when it stopped", async () => {
+    const a = rig();
+    await a.run.compiledVersion(ROOT, version(source()), []);
+    a.run.choose(0);
+    a.run.choose(0);
+    await idle(a.run);
+    expect(a.resumed.count).toBe(0);
+    const b = rig(a.fs);
+    await b.run.compiledVersion(ROOT, version(source()), []);
+    await idle(b.run);
+    expect(b.resumed.count).toBe(1);
+    // A later version replays the run in memory: not a pick-up.
+    await b.run.compiledVersion(ROOT, version(source() + "\n"), []);
+    await idle(b.run);
+    expect(b.resumed.count).toBe(1);
+    const c = rig(a.fs);
+    await c.run.compiledVersion(ROOT, version(source("Up] -> c\n+ [Down")), []);
+    await idle(c.run);
+    expect(c.run.stopped).not.toBeNull();
+    expect(c.resumed.count).toBe(0);
   });
 });

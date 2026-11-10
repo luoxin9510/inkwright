@@ -64,6 +64,8 @@ export interface RunHost {
   replayBudget: number;
   /** After a move is recorded and before the run is written (the live journal); may `enqueue` work. */
   afterMove?(): void;
+  /** A run read from the save folder replayed all the way (nothing stopped it): the live journal catches up. */
+  afterResume?(): void;
 }
 
 /**
@@ -382,6 +384,20 @@ export class RunController {
     // Loading is the player's doing: the draft is now the save's run (not what the session played before).
     this.writeRun();
     this.playRun();
+  }
+
+  /** Gives a saved run a new name (empty: kept as it was). */
+  async rename(id: string, name: string): Promise<void> {
+    const store = this.host.store(), root = this.root, next = name.trim();
+    if (!store || root === null || next === "") return;
+    const saved = await store.read(root, id);
+    if (!saved || saved.draft) return;
+    try {
+      await store.write({ ...saved, name: next });
+    } catch (e) {
+      this.writeFailed(e);
+    }
+    await this.refreshSaves();
   }
 
   async remove(id: string): Promise<void> {
@@ -755,6 +771,7 @@ export class RunController {
     // Picked up after more than an hour: a line where the player left off.
     if (resuming && this.host.now().getTime() - Date.parse(run.updatedAt) > 60 * 60 * 1000) this.recap = { at: session.log.length, when: stamp(new Date(run.updatedAt)) };
     this.apply(result.step);
+    if (resuming && left.length === 0) this.host.afterResume?.();
   }
 
   /** A stop can go back to the version the run was last played on, when that version is kept and is not this one. */

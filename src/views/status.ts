@@ -10,7 +10,8 @@ import type { GameView } from "./PlayView";
 
 /** What the HUD lets the player do by hand. */
 export interface HudActions {
-  adjust(id: string, delta: number): void;
+  /** By `delta`, or to `value` when one is given. */
+  adjust(id: string, delta: number, value?: number): void;
   changeRecord(id: string, op: "add" | "remove", entry: string): void;
 }
 
@@ -26,9 +27,38 @@ export function renderHud(el: HTMLElement, game: GameView, act: HudActions, focu
     if (r.display === "clock") renderClock(row, r.value - r.min, r.max - r.min);
     else if (r.display === "track") renderTrack(row, r.value - r.min, (r.max - r.min) / 4);
     else renderBar(row, (r.value - r.min) / Math.max(1, r.max - r.min));
-    row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
-    // The player is the game master: a resource marked manual can be changed here (a tick on a track).
+    const value = row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
+    // The player is the game master: a resource marked manual can be changed here (a tick on a track), or set by typing its value.
     if (r.manual) {
+      value.addClass("inkwright-hud-value-set");
+      value.setAttrs({ role: "button", tabindex: "0", title: t.setValue(r.name), "aria-label": t.setValue(r.name) });
+      const edit = () => {
+        const input = createEl("input", { type: "number", cls: "inkwright-hud-set", value: String(r.value), attr: { min: String(r.min), max: String(r.max), "aria-label": t.setValue(r.name) } });
+        value.replaceWith(input);
+        let gone = false;
+        const done = (keep: boolean) => {
+          if (gone) return;
+          gone = true;
+          const n = Number(input.value);
+          input.replaceWith(value);
+          if (keep && input.value.trim() !== "" && Number.isFinite(n) && n !== r.value) act.adjust(r.id, 0, Math.round(n));
+        };
+        input.onkeydown = (e) => {
+          if (e.isComposing) return;
+          if (e.key === "Enter") done(true);
+          else if (e.key === "Escape") done(false);
+        };
+        input.onblur = () => done(true);
+        input.focus();
+        input.select();
+      };
+      value.onclick = edit;
+      value.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          edit();
+        }
+      };
       const down = row.createEl("button", { cls: "inkwright-hud-adjust", text: "−", attr: { "aria-label": t.adjustDown(r.name), title: t.adjustHint } });
       down.disabled = r.value <= r.min;
       down.onclick = () => act.adjust(r.id, -1);
