@@ -1,4 +1,4 @@
-import { inkNames, localize, playableCharacters, type GameConfig, type InkNames, type LocalizedText, type TableDef, type TableRow } from "./config";
+import { inkNames, localize, playableCharacters, type GameConfig, type InkNames, type LevelsDef, type LocalizedText, type TableDef, type TableRow } from "./config";
 import { averageFormula, averageRoll, formatFormula } from "./dice";
 import { inkId, inkText, lookupOrder, tableFormula } from "./tables";
 
@@ -82,13 +82,22 @@ export function generateInk(config: GameConfig): string {
     if (config.items?.length) {
       // Stacks with a count above 0 are carried too; the first carried item of each slot starts equipped.
       const counted = Object.entries(c.counts ?? {}).filter(([, k]) => k > 0).map(([id]) => id);
-      const carried = [...new Set([...(c.items ?? []), ...counted])];
+      const carried = [...new Set([...(c.items ?? []), ...counted, ...(c.equipped ?? [])])];
       lines.push(`    ~ ${n.inventory} = (${carried.join(", ")})`);
       for (const i of config.items.filter((it) => it.stack)) lines.push(`    ~ ${i.id}${n.stackSuffix} = ${Math.max(0, Math.floor(c.counts?.[i.id] ?? 0))}`);
       if (config.slots?.length) {
-        const worn = config.slots.map((sl) => carried.find((id) => config.items?.find((it) => it.id === id)?.slot === sl.id)).filter((id): id is string => id !== undefined);
+        const slotOf = (id: string) => config.items?.find((it) => it.id === id)?.slot;
+        // What the character says it wears (a sheet does), else the first carried item of each slot.
+        const worn = config.slots.map((sl) => (c.equipped ?? []).find((id) => slotOf(id) === sl.id) ?? carried.find((id) => slotOf(id) === sl.id)).filter((id): id is string => id !== undefined);
         lines.push(`    ~ ${n.equipped} = (${worn.join(", ")})`);
       }
+    }
+    // A character sheet carries its level, resources and statuses (RPG PRD §4.4, §4.6).
+    if (config.levels) lines.push(`    ~ ${n.level} = ${Math.max(1, Math.floor(c.level ?? 1))}`);
+    for (const [id, v] of Object.entries(c.resources ?? {})) if (config.resources.some((r) => r.id === id)) lines.push(`    ~ ${id} = ${v}`);
+    if (config.statuses?.length) {
+      lines.push(`    ~ ${n.statusVar} = ""`);
+      for (const [id, turns] of Object.entries(c.statuses ?? {})) lines.push(`    ~ ${n.addStatus}("${n.self}", "${id}", ${turns})`);
     }
     lines.push("}");
   }
@@ -300,6 +309,7 @@ export function generateInk(config: GameConfig): string {
   if (config.items?.some((i) => i.stack)) lines.push(...stackInk(config));
   if (config.slots?.length && config.items?.length) lines.push(...slotInk(config));
   if (config.statuses?.length) lines.push(...statusInk(config));
+  if (config.levels) lines.push(...levelInk(config));
   if (config.kinds?.length) lines.push(...entityInk(config), ...spawnRowInk(config));
   return lines.join("\n") + "\n";
 }
@@ -570,12 +580,25 @@ function entityInk(config: GameConfig): string[] {
   ];
 }
 
-/**
- * Records (solo PRD §4.5): one string VAR per record holding its entries and a counter VAR; the pure
- * EXTERNALs on a store (the engine escapes; the fallback joins with a plain ";"), and wrappers that take the
- * record's id as a string. A pick rolls through the dice EXTERNAL with the label "record:<id>", so it follows the
- * run's seed and shows as a roll; without the engine it reads the whole store.
- */
+/** Levels (RPG PRD §4.4): the level, the experience the next one needs, whether it can be taken, taking it. */
+function levelInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const lv = config.levels as LevelsDef;
+  return [
+    "",
+    `// Levels by ${lv.resource}: ${n.nextLevelAt}() (0 at the top), ${n.levelUpReady}(), ${n.levelUp}() (gives back whether it went up). What a level gives is the story's.`,
+    `VAR ${n.level} = 1`,
+    `=== function ${n.nextLevelAt}() ===`,
+    ...(lv.at.length > 1 ? [`{ ${n.level}:`, ...lv.at.slice(1).flatMap((need, i) => [`- ${i + 1}:`, `    ~ return ${need}`]), "}"] : []),
+    "~ return 0",
+    `=== function ${n.levelUpReady}() ===`,
+    `~ return ${n.nextLevelAt}() > 0 && ${lv.resource} >= ${n.nextLevelAt}()`,
+    `=== function ${n.levelUp}() ===`,
+    `{ ${n.levelUpReady}():`, `    ~ ${n.level} = ${n.level} + 1`, "    ~ return true", "}",
+    "~ return false",
+  ];
+}
+
 /** Stacking items (RPG PRD §4.2): a count per item, the item in the inventory while its count is above 0. */
 function stackInk(config: GameConfig): string[] {
   const n = inkNames(config);
@@ -661,6 +684,12 @@ function statusInk(config: GameConfig): string[] {
   ];
 }
 
+/**
+ * Records (solo PRD §4.5): one string VAR per record holding its entries and a counter VAR; the pure
+ * EXTERNALs on a store (the engine escapes; the fallback joins with a plain ";"), and wrappers that take the
+ * record's id as a string. A pick rolls through the dice EXTERNAL with the label "record:<id>", so it follows the
+ * run's seed and shows as a roll; without the engine it reads the whole store.
+ */
 function recordInk(config: GameConfig): string[] {
   const n = inkNames(config);
   const records = config.records ?? [];

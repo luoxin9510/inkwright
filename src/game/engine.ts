@@ -1,7 +1,8 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
+import { sheetOf } from "./sheet";
 import { statusAdd, statusClear, statusEntries, statusHas, statusRest, statusTick, statusTurns } from "./statuses";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseUseTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type KindDef, type LocalizedText, type PartyDef } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseUseTag, parseVoiceTag, playableCharacters, type CardDef, type CharacterDef, type CheckTag, type GameConfig, type KindDef, type LocalizedText, type PartyDef } from "./config";
 import { boardOf, freeDoors, markRoom, nearestFreeRoom, noteGet, noteSet, parseLayout, placeRoom, placeSecret, startLayout, stepsBetween, wayBetween, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { recordAdd, recordAt, recordDrop, recordEntries } from "./records";
 import { entAt, entCount, entDrop, entGet, entHas, entLabel, entPick, entSet, entSpawn, entities } from "./entities";
@@ -232,6 +233,8 @@ export interface HudView {
   turn?: { round: number; phase: string };
   /** Each record's entries, absent when the game has no records. */
   records?: { id: string; name: string; entries: string[] }[];
+  /** The character's level (with `levels`): `next` = experience the next level needs (0 at the top), `ready` when it can be taken. */
+  level?: { level: number; next: number; ready: boolean };
   /** The character's own statuses, absent when the game has no statuses. */
   statuses?: StatusView[];
   /** Each kind's entities in play, absent when the game has no kinds. */
@@ -828,6 +831,7 @@ export class GameEngine {
       ...(this.config.turn ? { turn: this.turn(this.config.turn) } : {}),
       ...(this.config.kinds?.length ? { kinds: this.kindViews(this.config.kinds) } : {}),
       ...this.statusesOf(inkNames(this.config).self),
+      ...(this.config.levels ? { level: this.levelView(this.config.levels) } : {}),
       ...(this.config.records?.length ? { records: this.config.records.filter(shown).map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
     };
   }
@@ -869,6 +873,17 @@ export class GameEngine {
         ...(slot ? { slot: localize(slot.name, this.language, slot.id), equipped: carries(equipped, v.id) } : {}),
       };
     });
+  }
+
+  /** The character being played as a sheet (a `characters` entry), for the next adventure (RPG PRD §4.6). */
+  sheet(): CharacterDef | null {
+    return sheetOf(this.config, (n) => this.read(n), this.character());
+  }
+
+  private levelView(lv: { resource: string; at: number[] }): { level: number; next: number; ready: boolean } {
+    const level = Math.max(1, Number(this.read(inkNames(this.config).level) ?? 1));
+    const next = level < lv.at.length ? lv.at[level] : 0;
+    return { level, next, ready: next > 0 && Number(this.read(lv.resource) ?? 0) >= next };
   }
 
   /** `{ statuses }` for one who (absent when the game has none), in the order they were put on. */

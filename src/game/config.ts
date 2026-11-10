@@ -72,6 +72,20 @@ export interface CharacterDef {
   items?: string[];
   /** Starting counts of stacking items (`arrow: 12`); a count above 0 also puts the item in the inventory. */
   counts?: Record<string, number>;
+  /** Items worn from the start (with `slots`); default: the first carried item of each slot. */
+  equipped?: string[];
+  /** Starting level (with `levels`; default 1). */
+  level?: number;
+  /** Starting values of resources, over their `initial` (a character sheet carries life, gold, experience). */
+  resources?: Record<string, number>;
+  /** Statuses it starts with: id → turns (0 = until cleared). */
+  statuses?: Record<string, number>;
+}
+
+/** Levels (RPG PRD §4.4): the experience resource and the experience each level needs (`at[0]` for level 1). */
+export interface LevelsDef {
+  resource: string;
+  at: number[];
 }
 
 /** Something the character can carry: an ink list item, so the story can `~ inv += knife` and `{inv ? knife: …}`. */
@@ -334,6 +348,12 @@ export interface GameConfig {
   characters: CharacterDef[];
   /** Things the character can carry; the generated ink declares them as a LIST and an inventory VAR. */
   items?: ItemDef[];
+  /** Levels by experience: `level_up_ready()`, `level_up()`, `next_level_at()`. */
+  levels?: LevelsDef;
+  /** Where a character sheet is written (`#sheet` on a line; a folder relative to the game's), default `角色`/`Characters`. */
+  sheets?: string;
+  /** `characters: { from: folder }`: the characters are the sheets in that folder (relative to the game's), read by resolveConfig. */
+  charactersFrom?: string;
   /** Equipment slots; an item names its slot (`slot: weapon`). */
   slots?: SlotDef[];
   /** Status effects the story puts on the character, party members and entities. */
@@ -541,6 +561,11 @@ export interface InkNames {
    * taken), `inv_count(item)`, counts in `<item><stackSuffix>`; `equip(item)`, `unequip(item)` on the `equipped` list;
    * the statuses VAR, the pure EXTERNALs on it and the wrappers taking who (an id, or `self` for the character).
    */
+  /** Levels (RPG PRD §4.4): the level VAR and its functions. */
+  level: string;
+  levelUpReady: string;
+  levelUp: string;
+  nextLevelAt: string;
   give: string;
   take: string;
   invCount: string;
@@ -600,6 +625,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     recordAdd: "record_add", recordRemove: "record_remove", recordCount: "record_count", recordPick: "record_pick", recordList: "record_list",
     recordJoin: "record_join", recordDrop: "record_drop", recordSize: "record_size", recordAt: "record_at", recordText: "record_text",
     countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no", tempCard: "drawn_card", tempBefore: "rooms_before",
+    level: "level", levelUpReady: "level_up_ready", levelUp: "level_up", nextLevelAt: "next_level_at",
     give: "give", take: "take", invCount: "inv_count", stackSuffix: "_n", itemParam: "item_id", tempTaken: "taken",
     equipped: "equipped", equip: "equip", unequip: "unequip",
     statusVar: "statuses", self: "me", addStatus: "add_status", hasStatus: "has_status", statusTurns: "status_turns", clearStatus: "clear_status", tickStatuses: "tick_statuses", restStatuses: "rest_statuses",
@@ -626,6 +652,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     recordAdd: "记录_加", recordRemove: "记录_删", recordCount: "记录_数", recordPick: "记录_抽", recordList: "记录_列",
     recordJoin: "记录_并", recordDrop: "记录_去", recordSize: "记录_长", recordAt: "记录_取", recordText: "记录_文",
     countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条", tempCard: "抽出的牌", tempBefore: "原房数",
+    level: "等级", levelUpReady: "可以升级", levelUp: "升级", nextLevelAt: "下一级经验",
     give: "给", take: "拿走", invCount: "有几个", stackSuffix: "_数量", itemParam: "物品名", tempTaken: "拿走的",
     equipped: "装备着", equip: "装备上", unequip: "卸下",
     statusVar: "状态", self: "我", addStatus: "加状态", hasStatus: "有状态", statusTurns: "状态回合", clearStatus: "去状态", tickStatuses: "状态过回合", restStatuses: "休息去状态",
@@ -830,7 +857,7 @@ export const CONFIG_PROBLEM_CODES = [
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
   "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat", "rowSpawn", "systemMissing", "systemVersion",
-  "itemSlot", "statusSkill", "countItem",
+  "itemSlot", "statusSkill", "countItem", "levelsResource", "levelsOrder", "characterResource", "characterStatus", "characterLevel", "charactersFolder",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -1027,16 +1054,22 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   const entityNames = ["entSpawn", "entHas", "entGet", "entSet", "entDrop", "entCount", "entAt", "entPick", "entName", "spawn", "stat", "setStat", "addStat", "despawn", "alive", "pickOne", "nthOne", "nameOf", "kindParam", "entityParam", "statParam", "amountParam", "howParam", "templateParam", "entStoreParam", "tempEntity", "tempPickNo", "spawnFrom", "spawnRow", "spawnRowOne", "spawnTimes", "tempRowNo"];
   const stackNames = ["give", "take", "invCount", "itemParam", "tempTaken"];
   const slotNames = ["equipped", "equip", "unequip"];
+  const levelNames = ["level", "levelUpReady", "levelUp", "nextLevelAt"];
   const statusNames = ["statusVar", "addStatus", "hasStatus", "statusTurns", "clearStatus", "tickStatuses", "restStatuses", "stPut", "stHas", "stLeft", "stTake", "stTick", "stRest", "statusParam", "turnsParam", "statusStoreParam"];
   const unused = new Set(["partyKind", "pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", "stackSuffix", "self",
-    ...(config.items?.some((i) => i.stack) ? [] : stackNames), ...(config.slots?.length ? [] : slotNames), ...(config.statuses?.length ? [] : statusNames), ...(config.kinds?.length ? [] : entityNames), ...(config.party?.members.length ? [] : partyNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
+    ...(config.items?.some((i) => i.stack) ? [] : stackNames), ...(config.levels ? [] : levelNames), ...(config.slots?.length ? [] : slotNames), ...(config.statuses?.length ? [] : statusNames), ...(config.kinds?.length ? [] : entityNames), ...(config.party?.members.length ? [] : partyNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
   // The stack functions share the entities' amount parameter.
   if (config.items?.some((i) => i.stack)) unused.delete("amountParam");
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
   }
-  if (playableCharacters(config).length === 0) bad("noCharacters");
+  // Characters read from a folder come in when the config is resolved; until then there are none to count.
+  if (playableCharacters(config).length === 0 && config.charactersFrom === undefined) bad("noCharacters");
+  if (config.levels) {
+    if (!config.resources.some((r) => r.id === config.levels?.resource)) bad("levelsResource", config.levels.resource);
+    if (config.levels.at.length === 0 || config.levels.at.some((v, i, a) => !Number.isFinite(v) || (i > 0 && v <= a[i - 1]))) bad("levelsOrder", config.levels.resource);
+  }
   for (const r of [...config.resources, ...(config.companionResources ?? [])]) {
     if (!(r.min <= r.initial && r.initial <= r.max)) bad("resourceRange", r.id);
   }
@@ -1064,6 +1097,10 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const c of config.characters) {
     for (const id of c.items ?? []) if (!items.has(id)) bad("unknownItem", c.id, id);
     for (const id of Object.keys(c.counts ?? {})) if (!stacks.has(id)) bad("countItem", c.id, id);
+    for (const id of c.equipped ?? []) if (!items.has(id)) bad("unknownItem", c.id, id);
+    for (const id of Object.keys(c.resources ?? {})) if (!config.resources.some((r) => r.id === id)) bad("characterResource", c.id, id);
+    for (const id of Object.keys(c.statuses ?? {})) if (!statusIds.has(id)) bad("characterStatus", c.id, id);
+    if (c.level !== undefined && (!config.levels || !Number.isInteger(c.level) || c.level < 1 || c.level > config.levels.at.length)) bad("characterLevel", c.id, c.level);
     for (const [id, level] of Object.entries(c.skills)) {
       const s = skills.get(id);
       if (!s) bad("unknownSkill", c.id, id);
@@ -1178,7 +1215,11 @@ export function readConfig(fm: unknown): LoadedConfig {
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr) && opt(v.live, isBool))) shape("journal");
   const oddsMap = (v: unknown) => isObj(v) && Object.entries(v).every(([k, n]) => (ODDS as readonly string[]).includes(k) && isNum(n));
   if (!opt(fm.oracle, (v) => isObj(v) && opt(v.odds, oddsMap) && opt(v.chaos, isStr) && opt(v.chaosStep, isNum))) shape("oracle");
-  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)) && opt(e.counts, numMap));
+  // `characters: { from: folder }` names a folder of character sheets, read when the config is resolved.
+  const charactersFrom = isObj(fm.characters) && isStr(fm.characters.from) && fm.characters.from.trim() !== "" ? fm.characters.from.trim() : undefined;
+  if (charactersFrom === undefined) entries("characters", true, isCharacter);
+  if (fm.levels !== undefined && !(isObj(fm.levels) && isStr(fm.levels.resource) && Array.isArray(fm.levels.at) && fm.levels.at.every(isNum))) shape("levels");
+  if (fm.sheets !== undefined && !isStr(fm.sheets)) shape("sheets");
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
     if (!Array.isArray(mods)) shape("modifiers");
@@ -1197,7 +1238,10 @@ export function readConfig(fm: unknown): LoadedConfig {
     skills: fm.skills as SkillDef[],
     resources: (fm.resources ?? []) as ResourceDef[],
     companionResources: (fm.companionResources ?? []) as ResourceDef[],
-    characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
+    characters: charactersFrom === undefined ? (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })) : [],
+    ...(charactersFrom !== undefined ? { charactersFrom } : {}),
+    ...(isObj(fm.levels) ? { levels: { resource: String(fm.levels.resource), at: (fm.levels.at as number[]).slice() } } : {}),
+    ...(isStr(fm.sheets) ? { sheets: fm.sheets } : {}),
     items: (fm.items ?? []) as ItemDef[],
     ...(Array.isArray(fm.slots) && fm.slots.length > 0 ? { slots: (fm.slots as Record<string, unknown>[]).map((e) => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}) })) } : {}),
     ...(Array.isArray(fm.statuses) && fm.statuses.length > 0 ? { statuses: (fm.statuses as Record<string, unknown>[]).map((e): StatusDef => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}), ...(isText(e.desc) ? { desc: e.desc } : {}), ...(numMap(e.modifiers) ? { modifiers: e.modifiers } : {}), ...(e.rest === true ? { rest: true } : {}) })) } : {}),
@@ -1222,6 +1266,12 @@ export function readConfig(fm: unknown): LoadedConfig {
     ink: fm.ink ?? undefined,
   };
   return { config, problems: validateConfig(config) };
+}
+
+/** Whether a characters entry (in game.md or a character sheet's frontmatter) has the right shape. */
+export function isCharacter(e: Record<string, unknown>): boolean {
+  return opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr))
+    && opt(e.counts, numMap) && opt(e.equipped, (v) => Array.isArray(v) && v.every(isStr)) && opt(e.level, isNum) && opt(e.resources, numMap) && opt(e.statuses, numMap);
 }
 
 /** A string or a number from the frontmatter as text; undefined for anything else. */

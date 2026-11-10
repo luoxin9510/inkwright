@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, type App, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, stringifyYaml, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -17,11 +17,12 @@ import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { GameFiles, findGameNote, loadGameNote, vaultConfigSource } from "./game/obsidian";
 import { folderOf, storyName } from "./paths";
-import { engineFile, localize, playableCharacters, readConfig, type ConfigProblem, type GameConfig } from "./game/config";
+import { engineFile, localize, playableCharacters, readConfig, type CharacterDef, type ConfigProblem, type GameConfig } from "./game/config";
 import { splitNote } from "./game/frontmatter";
 import { journalTemplate } from "./templates/journal";
 import { packGame, packList } from "./templates/packs";
-import { withSystem } from "./game/system";
+import { joinPath, withSystem } from "./game/system";
+import { sheetName, sheetNote } from "./game/sheet";
 import PACKS from "virtual:packs";
 import { generateInk } from "./game/inkgen";
 import { resolveConfig } from "./game/resolve";
@@ -66,6 +67,9 @@ interface GameNoteRead {
   files: string[];
 }
 
+/** How long the change events of a file the panel wrote itself (a character sheet) are ignored. */
+const OWN_WRITE_MS = 3000;
+
 export default class InkwrightPlugin extends Plugin implements PlayController, GraphController {
   private config: Settings = { locked: null, language: "auto", saves: {}, storyLanguage: null };
   private latest = new LatestOnly();
@@ -90,6 +94,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
     replayBudget: Platform.isMobile ? 10000 : 5000,
     afterMove: () => this.liveJournal(),
+    // A line tagged #sheet among the text a choice produced writes the character sheet, that line as the epilogue.
+    afterChoose: (paragraphs) => {
+      const line = paragraphs.find((p) => p.tags.some((t) => t.trim() === "sheet"));
+      if (line) void this.saveSheet(line.text);
+    },
     // A journal begun earlier gets what was played since it was last written (the app was closed before it could be).
     afterResume: () => {
       if (this.runs.run?.journal) this.liveJournal();
@@ -127,6 +136,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "export-run", name: T().exportRun, callback: () => void this.exportRun() });
     this.addCommand({ id: "import-run", name: T().importRun, callback: () => this.pickRunToImport() });
     this.addCommand({ id: "new-game", name: T().newGame, callback: () => this.pickNewGame() });
+    this.addCommand({ id: "save-sheet", name: T().saveSheet, callback: () => void this.saveSheet() });
     this.addCommand({ id: "new-journal-game", name: T().newJournalGame, callback: () => new FolderModal(this.app, T().templateFolder, (f) => void this.newJournalGame(f)).open() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
@@ -140,6 +150,9 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         if (!this.store.isOwnFile(path)) void this.runFileChanged();
         return;
       }
+      // A character sheet just written by the panel (its game may read that folder): not an edit to compile for.
+      const own = this.ownWrites.get(path);
+      if (own !== undefined && Date.now() - own < OWN_WRITE_MS) return;
       // A note added to or removed from a deck's folder changes the deck: the folder itself is a dependency.
       if (isDependency(path, this.files) || this.files.includes(path.slice(0, path.lastIndexOf("/")))) this.schedule();
     };
@@ -536,6 +549,67 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   dismissNote(): void {
     this.runs.dismissNote();
+  }
+
+  /**
+   * Writes the character being played as a sheet note (RPG PRD §4.6) into the game's `sheets` folder (relative to the
+   * story's folder; default 角色/Characters): frontmatter replaced, the body kept, this adventure's epilogue added.
+   */
+  saveSheet(epilogue = ""): Promise<{ path: string | null }> {
+    const engine = this.runs.game, root = this.runs.root;
+    // Read now (the state as the line appeared), written in turn with the run's other writes.
+    const sheet = engine?.sheet() ?? null;
+    if (!engine || root === null || !sheet) {
+      new Notice(T().sheetNoCharacter);
+      return Promise.resolve({ path: null });
+    }
+    const folder = joinPath(`${folderOf(root)}${engine.config.sheets ?? T().sheetsFolder}`);
+    if (folder === "" || folder.startsWith("..") || folder.startsWith("/")) {
+      new Notice(T().templateBadFolder(engine.config.sheets ?? ""));
+      return Promise.resolve({ path: null });
+    }
+    return new Promise((resolve) => {
+      this.runs.enqueue(async () => resolve(await this.writeSheet(sheet, folder, root, epilogue, engine.language || getLanguage())));
+    });
+  }
+
+  /** Time after the panel writes a sheet during which that file's change events are its own, not edits. */
+  private ownWrites = new Map<string, number>();
+
+  private async writeSheet(sheet: CharacterDef, folder: string, root: string, epilogue: string, lang: string): Promise<{ path: string | null }> {
+    // The character's sheet already in the folder (found by id, whatever its file is called), else one named after it.
+    const dir = this.app.vault.getAbstractFileByPath(folder);
+    let found: TFile | null = null;
+    if (dir instanceof TFolder) {
+      for (const f of dir.children) {
+        if (!(f instanceof TFile) || f.extension !== "md") continue;
+        const fm = splitNote(await this.app.vault.read(f), parseYaml).frontmatter as { id?: unknown } | undefined;
+        if ((typeof fm?.id === "string" && fm.id !== "" ? fm.id : f.basename) === sheet.id) {
+          found = f;
+          break;
+        }
+      }
+    }
+    const path = found?.path ?? normalizePath(`${folder}/${sheetName(sheet, lang)}.md`);
+    try {
+      let at = "";
+      for (const part of folder.split("/")) {
+        at = at === "" ? part : `${at}/${part}`;
+        if (!this.app.vault.getAbstractFileByPath(at)) await this.app.vault.createFolder(at);
+      }
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      const oldBody = existing instanceof TFile ? splitNote(await this.app.vault.read(existing), parseYaml).body : "";
+      const text = sheetNote(stringifyYaml(sheet), oldBody, epilogue, storyName(root, this.app.vault.getName()), stamp(new Date()));
+      this.ownWrites.set(path, Date.now());
+      this.ownWrites.set(folder, Date.now());
+      if (existing instanceof TFile) await this.app.vault.modify(existing, text);
+      else await this.app.vault.create(path, text);
+    } catch (e) {
+      new Notice(T().sheetFailed(e instanceof Error ? e.message : String(e)));
+      return { path: null };
+    }
+    new Notice(T().sheetWritten(path));
+    return { path };
   }
 
   /**

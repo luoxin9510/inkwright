@@ -2,6 +2,10 @@
 
 Release notes for each version; the GitHub release carries the same text and the built plugin.
 
+## Unreleased
+
+- Levels and campaigns (RPG R5). `levels: { resource: xp, at: [0, 4, 10] }` gives the story `level`, `next_level_at()`, `level_up_ready()` and `level_up()`; the status bar shows the level and marks when one can be taken. Perks are ordinary items. A line tagged `#sheet` (or the command "Save character sheet", `api.saveSheet()`) writes the character being played as a note in the game's `sheets:` folder: its frontmatter is a `characters` entry (skills, items, what is worn, counts, level, resources, statuses), its body gets the adventure's epilogue. The next adventure reads such notes with `characters: { from: ../角色 }`. Characters written in `game.md` can also set `equipped`, `level`, `resources` and `statuses`.
+
 ## 0.6.0 — 2026-11-10
 
 The RPG engine's first pieces: entities (monsters and other things that come and go), faster long games, rule-system packs with a first pack (Dungeon crawl) and a "New game" command, counted items, equipment slots and statuses. Requires Obsidian 1.13.0 or later.

@@ -46,6 +46,7 @@ export interface ApiHost {
   importRun(path: string): Promise<{ id: string; name: string } | null>;
   newJournalGame(folder?: string): Promise<{ path: string | null }>;
   newGame(pack: string | null, folder?: string): Promise<{ path: string | null }>;
+  saveSheet(epilogue?: string): Promise<{ path: string | null }>;
 }
 
 export interface ApiDiagnostic {
@@ -170,6 +171,8 @@ Visible play panel (the user sees what you do):
   newGame(pack, folder?)  a game on a bundled rule-system pack ("dungeon-crawl"; null = the journal template): the pack
                        goes to 规则包/<id> / Rule packs/<id> unless already there, its template to the new folder (default:
                        the pack's name), system: pointing at the pack, engine generated -> { path }
+  saveSheet(epilogue?)  game mode: write the character being played as a sheet note in the game's sheets folder
+                       (default 角色/Characters next to the story); a line tagged #sheet does it after a choice -> { path }
 
 Export:
   exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
@@ -352,6 +355,10 @@ export class InkwrightApi {
 
   newGame(pack: string | null = null, folder?: string): Promise<{ path: string | null }> {
     return this.host.newGame(pack, folder);
+  }
+
+  saveSheet(epilogue?: string): Promise<{ path: string | null }> {
+    return this.host.saveSheet(epilogue);
   }
 
   async runs(): Promise<{ id: string; name: string; draft: boolean; updatedAt: string; actions: number; conflictOf?: string }[]> {

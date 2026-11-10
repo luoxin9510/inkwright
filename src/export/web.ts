@@ -64,7 +64,7 @@ export function buildWebPage(o: WebPageOptions): string {
     return {
       restart: t.restart, back: t.back, ended: t.ended, language: t.storyLanguage, loop: t.infiniteLoop(LOOP_SECONDS),
       character: t.character, status: t.status, diceLog: t.diceLog, bands: t.bands, redCheck: t.redCheck, unknownSkill: t.unknownSkill,
-      inventory: t.inventory, nothingCarried: t.nothingCarried, statuses: t.statuses, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), pickN: t.pickCardsN, pickRange: t.pickCardsRange, updatedStop: t.webUpdatedStop("{n}"),
+      inventory: t.inventory, nothingCarried: t.nothingCarried, statuses: t.statuses, levelLine: t.levelLine("{n}"), levelNext: t.levelNext("{n}"), levelReady: t.levelReady, needs: t.needs, decks: t.decks, pickCard: t.pickCard, autoFail: t.autoFail, autoSuccess: t.autoSuccess, typeHere: t.typeHere, writeHere: t.writeHere, pickItem: t.pickItem, turnRound: t.turnLine("{r}", "{p}"), pickN: t.pickCardsN, pickRange: t.pickCardsRange, updatedStop: t.webUpdatedStop("{n}"),
     };
   };
   // "<" only occurs inside JSON strings, where \u003c is equivalent.
@@ -516,6 +516,7 @@ const PLAYER = `(function () {
     function itemText(i) { return (i.equipped ? "◆ " : "") + i.name + (i.count !== undefined ? " ×" + i.count : ""); }
     function statusText(list) { return list.map(function (st) { return st.turns > 0 ? st.name + " " + st.turns : st.name; }).join(", "); }
     if (h.items && !(h.party && h.items.length === 0)) line(s.inventory, h.items.length ? h.items.map(itemText).join(" · ") : s.nothingCarried);
+    if (h.level) line(s.levelLine.split("{n}").join(String(h.level.level)), (h.level.next > 0 ? s.levelNext.split("{n}").join(String(h.level.next)) : "") + (h.level.ready ? " · " + s.levelReady : ""));
     if (h.statuses && h.statuses.length) line(s.statuses, statusText(h.statuses));
     if (h.decks) line(s.decks, h.decks.map(function (d) { return d.name + " " + d.left + "/" + d.total; }).join(" · "));
     (h.records || []).forEach(function (r) { line(r.name, r.entries.length ? r.entries.join(language() === "en" ? ", " : "、") : "—"); });
