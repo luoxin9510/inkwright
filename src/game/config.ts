@@ -342,6 +342,11 @@ export interface GameConfig {
   languages?: string[];
   /** File the generated ink is written to, next to the main story (default `_engine.ink`). */
   engineFile?: string;
+  /**
+   * Set by the loaders, not written in the note: the rule-system pack's `rules.ink` as the engine INCLUDEs it
+   * (relative to the game's folder), when the game names a pack (`system:`) that has one (src/game/system.ts).
+   */
+  systemRules?: string;
   /** ink identifiers the generated code uses: a preset ("en" is the default, "zh" for Chinese names) or overrides. */
   ink?: InkPreset | Partial<InkNames>;
 }
@@ -743,7 +748,7 @@ export const CONFIG_PROBLEM_CODES = [
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
-  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat", "rowSpawn",
+  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat", "rowSpawn", "systemMissing", "systemVersion",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 

@@ -6,6 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { GAME_NOTE_NAMES, readConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { resolveConfig, type ConfigSource } from "../src/game/resolve";
 import { splitNote } from "../src/game/frontmatter";
+import { withSystem } from "../src/game/system";
 
 export interface GameNote {
   name: string;
@@ -57,8 +58,12 @@ export async function loadGameConfig(storyFile: string): Promise<{ note: GameNot
   const note = await gameNote(storyFile);
   if (!note) return null;
   if (note.error) return { note, config: null, problems: [] };
-  const read = readConfig(note.frontmatter);
-  if (!read.config) return { note, config: null, problems: read.problems };
-  const r = await resolveConfig(read.config, diskSource(dirname(storyFile)), "");
-  return { note, config: r.config, problems: [...read.problems, ...r.problems] };
+  const dir = dirname(storyFile);
+  // A rule-system pack named by `system:` goes under the game's config (paths relative to the game's folder).
+  const sys = await withSystem(note.frontmatter, "", (p) => readFile(join(dir, p), "utf8").catch(() => null), parseYaml, splitNote);
+  const read = readConfig(sys.frontmatter);
+  if (!read.config) return { note, config: null, problems: [...sys.problems, ...read.problems] };
+  if (sys.rules) read.config.systemRules = sys.rules;
+  const r = await resolveConfig(read.config, diskSource(dir), "");
+  return { note, config: r.config, problems: [...sys.problems, ...read.problems, ...r.problems] };
 }

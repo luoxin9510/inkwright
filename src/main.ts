@@ -15,7 +15,7 @@ import INK_RUNTIME from "virtual:ink-runtime";
 import GAME_ENGINE from "virtual:game-engine";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
-import { GameFiles, findGameNote, loadGameConfig, vaultConfigSource } from "./game/obsidian";
+import { GameFiles, findGameNote, loadGameNote, vaultConfigSource } from "./game/obsidian";
 import { folderOf, storyName } from "./paths";
 import { engineFile, localize, playableCharacters, readConfig, type ConfigProblem, type GameConfig } from "./game/config";
 import { splitNote } from "./game/frontmatter";
@@ -674,7 +674,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   async gameConfigFor(path: string): Promise<GameConfig | null> {
     const note = findGameNote(this.app, path);
-    const config = note ? loadGameConfig(this.app, note).config : null;
+    const config = note ? (await loadGameNote(this.app, note, this.readFile)).config : null;
     return config ? (await this.resolveConfig(path, config)).config : null;
   }
 
@@ -724,7 +724,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       new Notice(T().noGameNote);
       return { path: null, problems: [] };
     }
-    const read = loadGameConfig(this.app, note);
+    const read = await loadGameNote(this.app, note, this.readFile);
     if (!read.config) {
       new Notice(T().gameConfigUnusable(read.problems.map((p) => T().configProblem(p)).join("; ")));
       return { path: null, problems: read.problems };
@@ -858,7 +858,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private async readGameNote(root: string, included: string[]): Promise<GameNoteRead | null> {
     const note = findGameNote(this.app, root);
     if (!note) return null;
-    const read = loadGameConfig(this.app, note);
+    const read = await loadGameNote(this.app, note, this.readFile);
     const resolved = read.config ? await this.resolveConfig(root, read.config) : null;
     const config = resolved?.config ?? null;
     const message = config ? T().gameConfigProblem : T().gameConfigUnusable;
@@ -871,7 +871,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     // Images drawn by the panel are dependencies too, so a replaced or renamed picture shows up.
     const images = config ? new GameFiles(this.app, root).paths(config) : [];
-    return { note, config, warnings, files: [...(resolved?.files ?? []), ...images] };
+    return { note, config, warnings, files: [...read.files, ...(resolved?.files ?? []), ...images] };
   }
 
   /** Installs what readGameNote found (dependencies, warnings, card art) and returns the engine for its config; null when there is none. */

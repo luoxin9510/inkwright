@@ -2,7 +2,7 @@
 // folders of notes, a map drawn in a canvas. The plugin and check-ink each provide a source.
 import { resolveDecks, type NoteLister } from "./cards";
 import { resolveMap } from "./canvas";
-import type { ConfigProblem, GameConfig } from "./config";
+import { validateConfig, type ConfigProblem, type GameConfig } from "./config";
 import { shapeProblem, shapesFromMarkdown } from "./dungeon";
 import { resolveTables } from "./tables";
 
@@ -48,6 +48,11 @@ export async function resolveConfig(
   dir: string,
 ): Promise<{ config: GameConfig; problems: ConfigProblem[]; files: string[] }> {
   const t = await resolveTables(config, (p) => source.read(p), dir);
+  // Rows read from notes may spawn (a `spawn` column): checked like rows written in the note, only new problems.
+  if (t.files.length > 0) {
+    const before = new Set(validateConfig(config).map((p) => JSON.stringify(p)));
+    for (const p of validateConfig(t.config)) if (!before.has(JSON.stringify(p))) t.problems.push(p);
+  }
   const d = await resolveDecks(t.config, (f) => source.notes(f), dir);
   const m = await resolveMap(d.config, (p) => source.read(p), dir);
   const g = await resolveDungeon(m.config, (p) => source.read(p), dir);
