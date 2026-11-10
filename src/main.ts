@@ -10,7 +10,7 @@ import type { Odds } from "./play/oracle";
 import { RunController, stamp, type SaveInfo } from "./play/controller";
 import { RunStore, type Files, type SyncMode } from "./play/store";
 import { LatestOnly, applyVaultEvent, isDependency, nextRoot } from "./root";
-import { getLanguage, resolveLanguage, setLanguage, T, type LanguageSetting } from "./i18n";
+import { getLanguage, resolveLanguage, setLanguage, stringsFor, T, type LanguageSetting } from "./i18n";
 import INK_RUNTIME from "virtual:ink-runtime";
 import GAME_ENGINE from "virtual:game-engine";
 import { buildWebPage, exportFileName, storyTitle } from "./export/web";
@@ -427,12 +427,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       new Notice(T().packUnknown(pack));
       return Promise.resolve({ path: null });
     }
-    const packDir = normalizePath(`${T().packsFolder}/${pack}`);
-    const installed = this.app.vault.getAbstractFileByPath(`${packDir}/system.md`) instanceof TFile;
+    // A copy already installed (under either language's folder name) is used as it is; a file of the pack that is
+    // missing from it is written, one that is there is left alone.
+    const vault = this.app.vault;
+    const dirs = [...new Set([T().packsFolder, stringsFor("zh").packsFolder, stringsFor("en").packsFolder])].map((f) => normalizePath(`${f}/${pack}`));
+    const packDir = dirs.find((d) => vault.getAbstractFileByPath(`${d}/system.md`) instanceof TFile) ?? normalizePath(`${T().packsFolder}/${pack}`);
     return this.createGame(folder ?? info.name, info.name, (dir) => {
       const out = packGame(PACKS, pack, packDir, dir);
       if (!out) return null;
-      return installed ? out.game : { ...out.pack, ...out.game };
+      const missing = Object.entries(out.pack).filter(([p]) => !vault.getAbstractFileByPath(p));
+      return { ...Object.fromEntries(missing), ...out.game };
     });
   }
 
