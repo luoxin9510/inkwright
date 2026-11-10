@@ -22,7 +22,11 @@ export function findGameNote(app: App, rootPath: string): TFile | null {
  * read, so editing the pack recompiles the game.
  */
 export async function loadGameNote(app: App, note: TFile, read: (path: string) => Promise<string>): Promise<LoadedConfig & { files: string[] }> {
-  const sys = await withSystem(app.metadataCache.getFileCache(note)?.frontmatter, folderOf(note.path), (p) => read(p).catch(() => null), parseYaml, splitNote);
+  // From the file, not the metadata cache: the cache lags behind a note just written (a new game, an edit then
+  // "generate engine" straight away).
+  const text = await read(note.path).catch(() => null);
+  const frontmatter = text === null ? app.metadataCache.getFileCache(note)?.frontmatter : splitNote(text, parseYaml).frontmatter;
+  const sys = await withSystem(frontmatter, folderOf(note.path), (p) => read(p).catch(() => null), parseYaml, splitNote);
   const r = readConfig(sys.frontmatter);
   if (r.config && sys.rules) r.config.systemRules = sys.rules;
   return { config: r.config, problems: [...sys.problems, ...r.problems], files: sys.files };
