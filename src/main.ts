@@ -20,6 +20,9 @@ import { folderOf, storyName } from "./paths";
 import { engineFile, localize, playableCharacters, readConfig, type ConfigProblem, type GameConfig } from "./game/config";
 import { splitNote } from "./game/frontmatter";
 import { journalTemplate } from "./templates/journal";
+import { packGame, packList } from "./templates/packs";
+import { withSystem } from "./game/system";
+import PACKS from "virtual:packs";
 import { generateInk } from "./game/inkgen";
 import { resolveConfig } from "./game/resolve";
 import { liveBlocks, liveHeader, renderJournal } from "./play/journal";
@@ -123,6 +126,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "toggle-player-mode", name: T().togglePlayerMode, callback: () => this.togglePlayerMode() });
     this.addCommand({ id: "export-run", name: T().exportRun, callback: () => void this.exportRun() });
     this.addCommand({ id: "import-run", name: T().importRun, callback: () => this.pickRunToImport() });
+    this.addCommand({ id: "new-game", name: T().newGame, callback: () => this.pickNewGame() });
     this.addCommand({ id: "new-journal-game", name: T().newJournalGame, callback: () => new FolderModal(this.app, T().templateFolder, (f) => void this.newJournalGame(f)).open() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
@@ -403,9 +407,43 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
    * A new solo journal game from the template (solo PRD §4.10): game.md, main.ink, the guide note and the engine
    * generated from game.md, in a new folder (numbered when the name is taken); then the story and the panel are opened.
    */
-  async newJournalGame(folder: string = T().templateFolder): Promise<{ path: string | null }> {
+  newJournalGame(folder: string = T().templateFolder): Promise<{ path: string | null }> {
+    const lang = getLanguage() === "en" ? "en" : "zh";
+    return this.createGame(folder, T().templateFolder, (dir) => {
+      const t = journalTemplate(lang, dir.slice(dir.lastIndexOf("/") + 1));
+      return Object.fromEntries(Object.entries(t.files).map(([name, text]) => [`${dir}/${name}`, text]));
+    });
+  }
+
+  /**
+   * A new game: `pack` null = the journal template, else a bundled rule-system pack (RPG PRD §5). The pack goes to
+   * `<packs folder>/<id>/` unless a copy is there already (the author may have changed it), the pack's template to the
+   * new folder with `system:` pointing at the pack, and the engine is generated.
+   */
+  newGame(pack: string | null = null, folder?: string): Promise<{ path: string | null }> {
+    if (pack === null) return this.newJournalGame(folder);
+    const info = packList(PACKS, getLanguage(), (t) => splitNote(t, parseYaml).frontmatter).find((p) => p.id === pack);
+    if (!info) {
+      new Notice(T().packUnknown(pack));
+      return Promise.resolve({ path: null });
+    }
+    const packDir = normalizePath(`${T().packsFolder}/${pack}`);
+    const installed = this.app.vault.getAbstractFileByPath(`${packDir}/system.md`) instanceof TFile;
+    return this.createGame(folder ?? info.name, info.name, (dir) => {
+      const out = packGame(PACKS, pack, packDir, dir);
+      if (!out) return null;
+      return installed ? out.game : { ...out.pack, ...out.game };
+    });
+  }
+
+  /**
+   * Makes a game in a new folder from `folder` (numbered when taken): `plan(dir)` gives every file to write (vault
+   * paths, the game's `game.md` and `main.ink` among them); the engine is generated from the game note as written, its
+   * pack layered under it. On a failure the folders made here go to the trash, so no half-made game is left.
+   */
+  private async createGame(folder: string, fallback: string, plan: (dir: string) => Record<string, string> | null): Promise<{ path: string | null }> {
     const vault = this.app.vault;
-    const base = normalizePath(folder.trim() || T().templateFolder);
+    const base = normalizePath(folder.trim() || fallback);
     // A folder inside the vault, with names a file system takes.
     if (base.split("/").some((part) => part === "" || part === "." || part === ".." || /[\\:*?"<>|]/.test(part))) {
       new Notice(T().templateBadFolder(folder));
@@ -413,29 +451,40 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     }
     let dir = base;
     for (let n = 2; vault.getAbstractFileByPath(dir); n++) dir = `${base} ${n}`;
-    const t = journalTemplate(getLanguage() === "en" ? "en" : "zh", dir.slice(dir.lastIndexOf("/") + 1));
-    // Read from the text just made: the metadata cache has not seen the note yet.
-    const config = readConfig(splitNote(t.files["game.md"], parseYaml).frontmatter).config;
-    if (!config) {
+    const files = plan(dir);
+    const noteText = files?.[`${dir}/game.md`];
+    if (!files || noteText === undefined) {
       new Notice(T().templateFailed("game.md"));
       return { path: null };
     }
-    // Folders made here, deepest last: on a failure the new game's own folder goes to the trash, so no half-made game is left.
     const made: string[] = [];
     try {
-      let at = "";
-      for (const part of dir.split("/")) {
-        at = at === "" ? part : `${at}/${part}`;
-        if (!vault.getAbstractFileByPath(at)) {
-          await vault.createFolder(at);
-          made.push(at);
+      for (const [path, text] of Object.entries(files)) {
+        let at = "";
+        const parts = path.split("/");
+        for (const part of parts.slice(0, -1)) {
+          at = at === "" ? part : `${at}/${part}`;
+          if (!vault.getAbstractFileByPath(at)) {
+            await vault.createFolder(at);
+            made.push(at);
+          }
         }
+        await vault.create(path, text);
       }
-      for (const [name, text] of Object.entries(t.files)) await vault.create(`${dir}/${name}`, text);
+      // Read from the text just written: the metadata cache has not seen the note yet.
+      const read = (p: string) => (files[p] !== undefined ? Promise.resolve(files[p]) : this.readFile(p).catch(() => null));
+      const sys = await withSystem(splitNote(noteText, parseYaml).frontmatter, `${dir}/`, read, parseYaml, splitNote);
+      const r = readConfig(sys.frontmatter);
+      if (!r.config) throw new Error(r.problems.map((p) => T().configProblem(p)).join("; ") || "game.md");
+      if (sys.rules) r.config.systemRules = sys.rules;
+      const config = (await this.resolveConfig(`${dir}/main.ink`, r.config)).config;
       await vault.create(`${dir}/${engineFile(config)}`, generateInk(config));
     } catch (e) {
-      const first = made[0] === undefined ? null : vault.getAbstractFileByPath(made[0]);
-      if (first) await this.app.fileManager.trashFile(first).catch(() => undefined);
+      // The topmost folders made here (one for the game, one for a newly installed pack).
+      for (const top of made.filter((m) => !made.some((o) => m.startsWith(`${o}/`)))) {
+        const f = vault.getAbstractFileByPath(top);
+        if (f) await this.app.fileManager.trashFile(f).catch(() => undefined);
+      }
       new Notice(T().templateFailed(e instanceof Error ? e.message : String(e)));
       return { path: null };
     }
@@ -444,6 +493,16 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     await this.openPlay();
     new Notice(T().templateCreated(dir));
     return { path: `${dir}/main.ink` };
+  }
+
+  /** The new-game picker: the journal template or a bundled pack, then the folder. */
+  private pickNewGame(): void {
+    const lang = getLanguage();
+    const options: NewGameOption[] = [
+      { pack: null, name: T().newGameJournal, description: T().newGameJournalDesc, folder: T().templateFolder },
+      ...packList(PACKS, lang, (t) => splitNote(t, parseYaml).frontmatter).map((p) => ({ pack: p.id, name: p.name, description: p.description, folder: p.name })),
+    ];
+    new NewGameModal(this.app, options, (o) => new FolderModal(this.app, o.folder, (f) => void this.newGame(o.pack, f)).open()).open();
   }
 
   private pickRunToImport(): void {
@@ -992,6 +1051,33 @@ class FolderModal extends Modal {
 
   onClose(): void {
     this.contentEl.empty();
+  }
+}
+
+interface NewGameOption {
+  pack: string | null;
+  name: string;
+  description: string;
+  folder: string;
+}
+
+/** Picks what a new game is made from. */
+class NewGameModal extends FuzzySuggestModal<NewGameOption> {
+  constructor(app: App, private readonly options: NewGameOption[], private readonly onPick: (o: NewGameOption) => void) {
+    super(app);
+    this.setPlaceholder(T().newGamePick);
+  }
+
+  getItems(): NewGameOption[] {
+    return this.options;
+  }
+
+  getItemText(o: NewGameOption): string {
+    return o.description ? `${o.name} — ${o.description}` : o.name;
+  }
+
+  onChooseItem(o: NewGameOption): void {
+    this.onPick(o);
   }
 }
 
