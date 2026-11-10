@@ -182,6 +182,12 @@ test("a choice that throws shows the error and leaves undo history unchanged", (
   expect(texts("#choices button")).toEqual(["Left", "Right"]);
 });
 
+test("[[note]] links show their text only: a page has no vault to link into", () => {
+  // In ink a bare | does not compile: an alias is written [[note\\|shown]].
+  mount(buildWebPage({ title: "T", storyJson: compileJson("你见到了[[酒馆老板]]和[[人物/阿樱\\|她]]。\n-> END"), runtime: INK_RUNTIME, id: "links" }));
+  expect(texts("#story p")).toEqual(["你见到了酒馆老板和她。"]);
+});
+
 test("a page for a story without a language variable has no language switch", () => {
   mount(buildWebPage({ title: "T", storyJson: compileJson(SOURCE), runtime: INK_RUNTIME, id: "t" }));
   expect((document.querySelector("#language") as HTMLSelectElement).hidden).toBe(true);

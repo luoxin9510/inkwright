@@ -1,6 +1,7 @@
 import { FX, type GameConfig } from "../game/config";
 import { getLanguage, stringsFor, type Language } from "../i18n";
 import { findChoice } from "../play/match";
+import { withoutLinks } from "../play/links";
 import { STORY_LANGUAGES } from "../play/session";
 
 export interface WebPageOptions {
@@ -106,6 +107,7 @@ export function buildWebPage(o: WebPageOptions): string {
 <script>${scriptSafe(o.runtime)}</script>
 ${o.game && o.engine ? `<script>${scriptSafe(o.engine)}</script>\n` : ""}<script>var INKWRIGHT = ${config};
 var findChoice = ${scriptSafe(findChoice.toString())};
+var withoutLinks = ${scriptSafe(withoutLinks.toString())};
 ${PLAYER}</script>
 </body>
 </html>
@@ -810,7 +812,8 @@ const PLAYER = `(function () {
         break;
       }
       if (story.asyncContinueComplete) {
-        var text = (story.currentText || "").replace(/\\n+$/, "");
+        // A page has no vault to link into: [[note]] links show their text only.
+        var text = withoutLinks((story.currentText || "").replace(/\\n+$/, ""));
         if (text !== "") {
           var entry = { text: text, kind: "text", turn: story.state.currentTurnIndex };
           var voice = engine ? engine.voiceOf({ tags: story.currentTags || [] }) : null;

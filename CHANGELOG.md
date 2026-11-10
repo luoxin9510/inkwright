@@ -4,6 +4,8 @@ Release notes for each version; the GitHub release carries the same text and the
 
 ## Unreleased
 
+- `[[note]]` links in a story's text are links in the play panel: a click opens the note, hovering previews it (desktop). The exported page shows the text only; journals keep the links. In ink a bare `|` does not compile, so an alias is written `[[note\|shown]]`.
+- New command "New solo game (journal)": makes a playable journal game in a new folder (a prompt table, a road clock, two records, a live journal, a guide note, the engine generated) and opens it in the panel. `api.newJournalGame(folder?)`.
 - Saves can be renamed: "Rename" in the saves list (Enter keeps the new name, Escape leaves it); the time it was saved stays. `api.renameSave(idOrName, name)`.
 - A resource marked `manual` can be set by typing: click its value on the status bar.
 - Coming back to Obsidian (the window gets the focus again) reads the run again when another device played on meanwhile.
