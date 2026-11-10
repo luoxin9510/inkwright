@@ -297,7 +297,103 @@ export function generateInk(config: GameConfig): string {
     );
   }
   if (config.records?.length) lines.push(...recordInk(config));
+  if (config.kinds?.length) lines.push(...entityInk(config));
   return lines.join("\n") + "\n";
+}
+
+/**
+ * Entities (RPG PRD §4.1): one string VAR per kind holding its entities and a serial counter; the pure EXTERNALs
+ * on a store (src/game/entities.ts), and wrappers taking kinds and entity ids as strings. A random pick rolls
+ * through the dice EXTERNAL with the label "pick:<kind>", so it follows the run's seed. Without the engine
+ * nothing is ever spawned (the fallbacks keep stores empty): the story compiles and runs, but no fight happens.
+ */
+function entityInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const kinds = config.kinds ?? [];
+  const k = n.kindParam, w = n.entityParam, st = n.statParam, a = n.amountParam, h = n.howParam, tp = n.templateParam, s = n.entStoreParam;
+  const indent = (lines: string[]) => lines.map((l) => `    ${l}`);
+  // A branch per kind, on the kind's name or on the store holding the entity.
+  const byKind = (body: (id: string) => string[]) => kinds.flatMap((kd) => [`{ ${k} == "${kd.id}":`, ...indent(body(kd.id)), "}"]);
+  const byOwner = (body: (id: string) => string[]) => kinds.flatMap((kd) => [`{ ${n.entHas}(${kd.id}, ${w}):`, ...indent(body(kd.id)), "}"]);
+  const first = kinds[0].id;
+  return [
+    "",
+    `// Entities: ${n.spawn}("${first}", "<template>") gives the new id; ${n.stat}(id, "<stat>"), ${n.setStat}(id, "<stat>", v), ${n.addStat}(id, "<stat>", d),`,
+    `// ${n.despawn}(id), ${n.alive}("${first}"), ${n.pickOne}("${first}", "random" | "first" | "last" | "lowest:<stat>" | "highest:<stat>"), ${n.nthOne}("${first}", k), ${n.nameOf}(id).`,
+    ...kinds.flatMap((kd) => [`VAR ${kd.id} = ""`, `VAR ${kd.id}${n.serialSuffix} = 0`]),
+    `EXTERNAL ${n.entSpawn}(${s}, ${k}, ${tp}, ${w})`,
+    `EXTERNAL ${n.entHas}(${s}, ${w})`,
+    `EXTERNAL ${n.entGet}(${s}, ${w}, ${st})`,
+    `EXTERNAL ${n.entSet}(${s}, ${w}, ${st}, ${a}, ${h})`,
+    `EXTERNAL ${n.entDrop}(${s}, ${w})`,
+    `EXTERNAL ${n.entCount}(${s})`,
+    `EXTERNAL ${n.entAt}(${s}, ${a})`,
+    `EXTERNAL ${n.entPick}(${s}, ${h})`,
+    `EXTERNAL ${n.entName}(${s}, ${k}, ${w})`,
+    "",
+    "// Without the engine: nothing is spawned, so every store stays empty.",
+    `=== function ${n.entSpawn}(${s}, ${k}, ${tp}, ${w}) ===`, `~ return ${s}`,
+    `=== function ${n.entHas}(${s}, ${w}) ===`, "~ return false",
+    `=== function ${n.entGet}(${s}, ${w}, ${st}) ===`, "~ return 0",
+    `=== function ${n.entSet}(${s}, ${w}, ${st}, ${a}, ${h}) ===`, `~ return ${s}`,
+    `=== function ${n.entDrop}(${s}, ${w}) ===`, `~ return ${s}`,
+    `=== function ${n.entCount}(${s}) ===`, "~ return 0",
+    `=== function ${n.entAt}(${s}, ${a}) ===`, `~ return ""`,
+    `=== function ${n.entPick}(${s}, ${h}) ===`, `~ return ""`,
+    `=== function ${n.entName}(${s}, ${k}, ${w}) ===`, `~ return ${w}`,
+    "",
+    // The temps are named like parameters, names reserved for entities, so no id can clash with them.
+    `=== function ${n.spawn}(${k}, ${tp}) ===`,
+    `~ temp ${n.tempEntity} = ""`,
+    ...byKind((id) => [
+      `~ ${id}${n.serialSuffix} = ${id}${n.serialSuffix} + 1`,
+      `~ ${n.tempEntity} = ${tp} + ${id}${n.serialSuffix}`,
+      `~ ${id} = ${n.entSpawn}(${id}, "${id}", ${tp}, ${n.tempEntity})`,
+      `{ ${n.entHas}(${id}, ${n.tempEntity}):`, `    ~ return ${n.tempEntity}`, "}",
+    ]),
+    `~ return ""`,
+    "",
+    `=== function ${n.stat}(${w}, ${st}) ===`,
+    ...byOwner((id) => [`~ return ${n.entGet}(${id}, ${w}, ${st})`]),
+    "~ return 0",
+    "",
+    `=== function ${n.setStat}(${w}, ${st}, ${a}) ===`,
+    ...byOwner((id) => [`~ ${id} = ${n.entSet}(${id}, ${w}, ${st}, ${a}, "${kinds.find((x) => x.id === id)?.remove ?? ""}")`, "~ return"]),
+    "",
+    `=== function ${n.addStat}(${w}, ${st}, ${a}) ===`,
+    `~ ${n.setStat}(${w}, ${st}, ${n.stat}(${w}, ${st}) + ${a})`,
+    "",
+    `=== function ${n.despawn}(${w}) ===`,
+    ...byOwner((id) => [`~ ${id} = ${n.entDrop}(${id}, ${w})`, "~ return"]),
+    "",
+    `=== function ${n.alive}(${k}) ===`,
+    ...byKind((id) => [`~ return ${n.entCount}(${id})`]),
+    "~ return 0",
+    "",
+    `=== function ${n.pickOne}(${k}, ${h}) ===`,
+    `~ temp ${n.tempPickNo} = 0`,
+    // One entity is no choice (and "1d1" is no die): it is the pick, nothing rolled.
+    ...byKind((id) => [
+      `{ ${h} == "random":`,
+      ...indent([
+        `~ ${n.tempPickNo} = ${n.entCount}(${id})`,
+        `{ ${n.tempPickNo} <= 0:`, `    ~ return ""`, "}",
+        `{ ${n.tempPickNo} == 1:`, `    ~ return ${n.entAt}(${id}, 1)`, "}",
+        `~ return ${n.entAt}(${id}, ${n.dice}("1d" + ${n.tempPickNo}, "pick:${id}"))`,
+      ]),
+      "}",
+      `~ return ${n.entPick}(${id}, ${h})`,
+    ]),
+    `~ return ""`,
+    "",
+    `=== function ${n.nthOne}(${k}, ${a}) ===`,
+    ...byKind((id) => [`~ return ${n.entAt}(${id}, ${a})`]),
+    `~ return ""`,
+    "",
+    `=== function ${n.nameOf}(${w}) ===`,
+    ...byOwner((id) => [`~ return ${n.entName}(${id}, "${id}", ${w})`]),
+    `~ return ${w}`,
+  ];
 }
 
 /**

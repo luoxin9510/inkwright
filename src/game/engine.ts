@@ -1,8 +1,9 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
-import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseUseTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type LocalizedText, type PartyDef } from "./config";
+import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseUseTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type KindDef, type LocalizedText, type PartyDef } from "./config";
 import { boardOf, freeDoors, markRoom, nearestFreeRoom, noteGet, noteSet, parseLayout, placeRoom, placeSecret, startLayout, stepsBetween, wayBetween, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { recordAdd, recordAt, recordDrop, recordEntries } from "./records";
+import { entAt, entCount, entDrop, entGet, entHas, entLabel, entPick, entSet, entSpawn, entities } from "./entities";
 import { chance, formatFormula, parseFormula, resolve, rollFormula, seededDice, tokenId, type Band, type Chance, type CheckResult, type Rng } from "./dice";
 import { rowAt, tableFormula } from "./tables";
 
@@ -215,6 +216,17 @@ export interface HudView {
   turn?: { round: number; phase: string };
   /** Each record's entries, absent when the game has no records. */
   records?: { id: string; name: string; entries: string[] }[];
+  /** Each kind's entities in play, absent when the game has no kinds. */
+  kinds?: { id: string; name: string; entities: EntityView[] }[];
+}
+
+/** An entity in play: its name (numbered among others of its template), its shown stats, whether it is down. */
+export interface EntityView {
+  id: string;
+  template: string;
+  name: string;
+  stats: { id: string; name: string; value: number; max?: number }[];
+  down: boolean;
 }
 
 /**
@@ -260,6 +272,7 @@ export class GameEngine {
     story.BindExternalFunction(inkNames(this.config).dice, (formula: unknown, label: unknown) => this.rollDice(formula, label), true);
     this.bindDungeon(story);
     this.bindRecords(story);
+    this.bindEntities(story);
     // A resource lives in min..max: whatever the story adds, it is clamped once the step is done
     // (inkjs tells observers after a Continue), and the overshoot is kept for the checkers.
     for (const r of this.resourceVariables()) {
@@ -372,6 +385,51 @@ export class GameEngine {
     story.BindExternalFunction(n.recordSize, (store: unknown) => recordEntries(text(store)).length, true);
     story.BindExternalFunction(n.recordAt, (store: unknown, k: unknown) => recordAt(text(store), Number(k)), true);
     story.BindExternalFunction(n.recordText, (store: unknown) => recordEntries(text(store)).join(this.language === "en" ? ", " : "、"), true);
+  }
+
+  /** The entities' functions: pure on a kind's store, so lookahead may call them as often as it likes. */
+  private bindEntities(story: Story): void {
+    const kinds = this.config.kinds ?? [];
+    if (kinds.length === 0) return;
+    const n = inkNames(this.config);
+    const text = (v: unknown) => GameEngine.text(v) ?? "";
+    story.BindExternalFunction(n.entSpawn, (store: unknown, kind: unknown, template: unknown, id: unknown) => {
+      const t = kinds.find((k) => k.id === text(kind))?.templates.find((x) => x.id === text(template));
+      return t ? entSpawn(text(store), text(id), t.id, t.stats ?? {}) : text(store);
+    }, true);
+    story.BindExternalFunction(n.entHas, (store: unknown, id: unknown) => entHas(text(store), text(id)), true);
+    story.BindExternalFunction(n.entGet, (store: unknown, id: unknown, stat: unknown) => entGet(text(store), text(id), text(stat)), true);
+    story.BindExternalFunction(n.entSet, (store: unknown, id: unknown, stat: unknown, value: unknown, remove: unknown) => entSet(text(store), text(id), text(stat), Number(value), text(remove)), true);
+    story.BindExternalFunction(n.entDrop, (store: unknown, id: unknown) => entDrop(text(store), text(id)), true);
+    story.BindExternalFunction(n.entCount, (store: unknown) => entCount(text(store)), true);
+    story.BindExternalFunction(n.entAt, (store: unknown, k: unknown) => entAt(text(store), Number(k)), true);
+    story.BindExternalFunction(n.entPick, (store: unknown, how: unknown) => entPick(text(store), text(how)), true);
+    story.BindExternalFunction(n.entName, (store: unknown, kind: unknown, id: unknown) => {
+      const def = kinds.find((k) => k.id === text(kind));
+      return entLabel(text(store), text(id), (t) => localize(def?.templates.find((x) => x.id === t)?.name, this.language, t)) || text(id);
+    }, true);
+  }
+
+  /** Each kind's entities read from its store. */
+  private kindViews(kinds: KindDef[]): { id: string; name: string; entities: EntityView[] }[] {
+    return kinds.map((k) => {
+      const store = GameEngine.text(this.read(k.id)) ?? "";
+      const templateName = (t: string) => localize(k.templates.find((x) => x.id === t)?.name, this.language, t);
+      return {
+        id: k.id,
+        name: localize(k.name, this.language, k.id),
+        entities: entities(store).map((e) => ({
+          id: e.id,
+          template: e.template,
+          name: entLabel(store, e.id, templateName),
+          stats: k.stats.filter((st) => !st.hidden).map((st) => {
+            const max = typeof st.max === "number" ? st.max : typeof st.max === "string" ? e.stats[st.max] ?? 0 : undefined;
+            return { id: st.id, name: localize(st.name, this.language, st.id), value: e.stats[st.id] ?? 0, ...(max !== undefined ? { max } : {}) };
+          }),
+          down: k.down !== undefined && (e.stats[k.down] ?? 0) <= 0,
+        })),
+      };
+    });
   }
 
   /** The growing dungeon's functions: pure on the layout text, so lookahead may call them as often as it likes and back/load/replay keep the map. */
@@ -682,6 +740,7 @@ export class GameEngine {
       ...(this.config.hands?.length ? { hands: this.config.hands.map((h) => ({ id: h.id, name: name(h), cards: this.cardsIn(h.id) })) } : {}),
       ...(this.config.party ? { party: this.party(this.config.party) } : {}),
       ...(this.config.turn ? { turn: this.turn(this.config.turn) } : {}),
+      ...(this.config.kinds?.length ? { kinds: this.kindViews(this.config.kinds) } : {}),
       ...(this.config.records?.length ? { records: this.config.records.filter(shown).map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
     };
   }

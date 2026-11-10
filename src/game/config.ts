@@ -225,6 +225,29 @@ export interface PartyMemberDef {
  * (`~ title_m1 = "Cleric"`), stats (bars where they have a maximum) and gear (an items list per
  * member). The story owns every number; the panel only draws them.
  */
+/** A template a kind's entities are spawned from: its name and starting stats (missing stats start at 0). */
+export interface KindTemplate {
+  id: string;
+  name?: LocalizedText;
+  stats?: Record<string, number>;
+}
+
+/**
+ * A kind of dynamic entity (RPG PRD §4.1): monsters, summons, NPCs that come and go. Its entities live in one
+ * string VAR named by the kind's id (`src/game/entities.ts`), numbered by `<id>_n` (InkNames.serialSuffix).
+ */
+export interface KindDef {
+  /** Also the VAR holding the kind's entities, and the name the story passes: `spawn("foe", "goblin")`. */
+  id: string;
+  name?: LocalizedText;
+  stats: PartyStatDef[];
+  templates: KindTemplate[];
+  /** A stat that lays an entity out (drawn faded) at 0 or less. */
+  down?: string;
+  /** A stat that takes an entity out of play when it is set to 0 or less (a monster killed). */
+  remove?: string;
+}
+
 export interface PartyDef {
   name?: LocalizedText;
   stats: PartyStatDef[];
@@ -283,6 +306,8 @@ export interface GameConfig {
   items?: ItemDef[];
   /** Several characters played at once: the panel shows a card per member. */
   party?: PartyDef;
+  /** Kinds of dynamic entities (RPG PRD §4.1). */
+  kinds?: KindDef[];
   /** Random tables the story rolls on (`{table("id")}`). */
   tables?: TableDef[];
   /** Decks the story draws from (`draw("id")`). */
@@ -421,6 +446,35 @@ export interface InkNames {
   roomParam: string;
   doorParam: string;
   markParam: string;
+  /** Entities (RPG PRD §4.1): the pure EXTERNALs on a kind's store, the wrappers taking ids and kinds as strings, the serial suffix and parameter and temp names. */
+  entSpawn: string;
+  entHas: string;
+  entGet: string;
+  entSet: string;
+  entDrop: string;
+  entCount: string;
+  entAt: string;
+  entPick: string;
+  entName: string;
+  spawn: string;
+  stat: string;
+  setStat: string;
+  addStat: string;
+  despawn: string;
+  alive: string;
+  pickOne: string;
+  nthOne: string;
+  nameOf: string;
+  serialSuffix: string;
+  kindParam: string;
+  entityParam: string;
+  statParam: string;
+  amountParam: string;
+  howParam: string;
+  templateParam: string;
+  entStoreParam: string;
+  tempEntity: string;
+  tempPickNo: string;
   /** Party: prefixes of each member's title (text) and gear (an items list) VARs: `title_m1`, `gear_m1`. */
   partyTitle: string;
   partyGear: string;
@@ -451,6 +505,9 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     notesParam: "notes_text", fieldParam: "field", valueParam: "value", kParam2: "nth",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
     partyTitle: "title", partyGear: "gear",
+    entSpawn: "ent_spawn", entHas: "ent_has", entGet: "ent_get", entSet: "ent_set", entDrop: "ent_drop", entCount: "ent_count", entAt: "ent_at", entPick: "ent_pick", entName: "ent_name",
+    spawn: "spawn", stat: "stat", setStat: "set_stat", addStat: "add_stat", despawn: "despawn", alive: "alive", pickOne: "pick_one", nthOne: "nth_one", nameOf: "name_of",
+    serialSuffix: "_n", kindParam: "kind", entityParam: "who_id", statParam: "stat_id", amountParam: "amount", howParam: "how", templateParam: "template", entStoreParam: "kind_store", tempEntity: "new_id", tempPickNo: "pick_no",
     recordAdd: "record_add", recordRemove: "record_remove", recordCount: "record_count", recordPick: "record_pick", recordList: "record_list",
     recordJoin: "record_join", recordDrop: "record_drop", recordSize: "record_size", recordAt: "record_at", recordText: "record_text",
     countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no", tempCard: "drawn_card", tempBefore: "rooms_before",
@@ -470,6 +527,9 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     notesParam: "记事", fieldParam: "项", valueParam: "值", kParam2: "第几间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
     partyTitle: "称号", partyGear: "装备",
+    entSpawn: "实体_生成", entHas: "实体_有", entGet: "实体_取", entSet: "实体_存", entDrop: "实体_去", entCount: "实体_数", entAt: "实体_第几", entPick: "实体_挑", entName: "实体_名",
+    spawn: "生成", stat: "属性", setStat: "设属性", addStat: "加属性", despawn: "移除", alive: "剩几个", pickOne: "挑一个", nthOne: "第几个", nameOf: "名字",
+    serialSuffix: "_号", kindParam: "种类", entityParam: "实体", statParam: "属性名", amountParam: "数值", howParam: "挑法", templateParam: "模板", entStoreParam: "种类存储", tempEntity: "新编号", tempPickNo: "抽到第几",
     recordAdd: "记录_加", recordRemove: "记录_删", recordCount: "记录_数", recordPick: "记录_抽", recordList: "记录_列",
     recordJoin: "记录_并", recordDrop: "记录_去", recordSize: "记录_长", recordAt: "记录_取", recordText: "记录_文",
     countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条", tempCard: "抽出的牌", tempBefore: "原房数",
@@ -658,7 +718,7 @@ export const CONFIG_PROBLEM_CODES = [
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
-  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat",
+  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -786,6 +846,28 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
       for (const id of m.items ?? []) if (!itemIds.has(id)) bad("unknownItem", m.id, id);
     }
   }
+  for (const k of config.kinds ?? []) {
+    ident(k.id);
+    ident(`${k.id}${inkNames(config).serialSuffix}`);
+    const stats = new Set<string>();
+    for (const st of k.stats) {
+      if (!IDENT.test(st.id)) bad("ident", st.id);
+      if (stats.has(st.id)) bad("duplicate", st.id);
+      stats.add(st.id);
+    }
+    for (const st of k.stats) if (typeof st.max === "string" && !stats.has(st.max)) bad("kindStat", k.id, st.max);
+    if (k.down !== undefined && !stats.has(k.down)) bad("kindStat", k.id, k.down);
+    if (k.remove !== undefined && !stats.has(k.remove)) bad("kindStat", k.id, k.remove);
+    if (k.templates.length === 0) bad("list", `kinds.${k.id}.templates`);
+    const templates = new Set<string>();
+    for (const t of k.templates) {
+      // Entity ids are a template id and a number: an identifier, so the store needs no escaping.
+      if (!IDENT.test(t.id)) bad("ident", t.id);
+      if (templates.has(t.id)) bad("duplicate", t.id);
+      templates.add(t.id);
+      for (const id of Object.keys(t.stats ?? {})) if (!stats.has(id)) bad("kindStat", t.id, id);
+    }
+  }
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
   // are what must not collide.
@@ -803,7 +885,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   // Temps of the deck and dungeon functions are reserved with those.
   const tempNames = [...(config.decks?.length ? [] : ["tempCard"]), ...(config.dungeon ? [] : ["tempBefore"])];
   const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
-  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
+  const entityNames = ["entSpawn", "entHas", "entGet", "entSet", "entDrop", "entCount", "entAt", "entPick", "entName", "spawn", "stat", "setStat", "addStat", "despawn", "alive", "pickOne", "nthOne", "nameOf", "kindParam", "entityParam", "statParam", "amountParam", "howParam", "templateParam", "entStoreParam", "tempEntity", "tempPickNo"];
+  const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", ...(config.kinds?.length ? [] : entityNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
@@ -929,6 +1012,8 @@ export function readConfig(fm: unknown): LoadedConfig {
   const partyStat = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.max, (v) => isNum(v) || isStr(v)) && opt(e.hidden, isBool);
   const partyMember = (e: unknown) => isObj(e) && isStr(e.id) && opt(e.name, isText) && opt(e.stats, numMap) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr));
   if (!opt(fm.party, (v) => isObj(v) && opt(v.name, isText) && Array.isArray(v.stats) && v.stats.every(partyStat) && Array.isArray(v.members) && v.members.every(partyMember) && opt(v.down, isStr) && opt(v.present, isStr))) shape("party");
+  const template = (t: unknown) => isObj(t) && isStr(t.id) && opt(t.name, isText) && opt(t.stats, numMap);
+  entries("kinds", false, (e) => opt(e.name, isText) && Array.isArray(e.stats) && e.stats.every(partyStat) && Array.isArray(e.templates) && e.templates.every(template) && opt(e.down, isStr) && opt(e.remove, isStr));
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr) && opt(v.live, isBool))) shape("journal");
   const oddsMap = (v: unknown) => isObj(v) && Object.entries(v).every(([k, n]) => (ODDS as readonly string[]).includes(k) && isNum(n));
   if (!opt(fm.oracle, (v) => isObj(v) && opt(v.odds, oddsMap) && opt(v.chaos, isStr) && opt(v.chaosStep, isNum))) shape("oracle");
@@ -964,6 +1049,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     map: isObj(fm.map) ? readMap(fm.map) : undefined,
     dungeon: isObj(fm.dungeon) ? readDungeon(fm.dungeon) : undefined,
     party: isObj(fm.party) ? readParty(fm.party) : undefined,
+    ...(Array.isArray(fm.kinds) && fm.kinds.length > 0 ? { kinds: fm.kinds.filter(isObj).map(readKind) } : {}),
     attributes: isObj(fm.attributes) ? (fm.attributes as Record<string, LocalizedText>) : undefined,
     modifiers: (fm.modifiers ?? []) as ModifierRule[],
     journal: isObj(fm.journal) ? { ...(isStr(fm.journal.path) ? { path: fm.journal.path } : {}), ...(typeof fm.journal.live === "boolean" ? { live: fm.journal.live } : {}) } : undefined,
@@ -987,6 +1073,17 @@ function readParty(p: Record<string, unknown>): PartyDef {
     id: String(m.id), ...(isText(m.name) ? { name: m.name } : {}), ...(numMap(m.stats) ? { stats: m.stats } : {}), ...(Array.isArray(m.items) ? { items: m.items.filter(isStr) } : {}),
   }));
   return { ...(isText(p.name) ? { name: p.name } : {}), stats, members, ...(isStr(p.down) ? { down: p.down } : {}), ...(isStr(p.present) ? { present: p.present } : {}) };
+}
+
+/** A kind of entity from the frontmatter, field by field (the shape was checked already). */
+function readKind(k: Record<string, unknown>): KindDef {
+  const stats = (k.stats as Record<string, unknown>[]).map((st): PartyStatDef => ({
+    id: String(st.id), ...(isText(st.name) ? { name: st.name } : {}), ...(isNum(st.max) || isStr(st.max) ? { max: st.max } : {}), ...(st.hidden === true ? { hidden: true } : {}),
+  }));
+  const templates = (k.templates as Record<string, unknown>[]).map((t): KindTemplate => ({
+    id: String(t.id), ...(isText(t.name) ? { name: t.name } : {}), ...(numMap(t.stats) ? { stats: t.stats } : {}),
+  }));
+  return { id: String(k.id), ...(isText(k.name) ? { name: k.name } : {}), stats, templates, ...(isStr(k.down) ? { down: k.down } : {}), ...(isStr(k.remove) ? { remove: k.remove } : {}) };
 }
 
 /** The map entry from the frontmatter, field by field (the shape was checked already). */
