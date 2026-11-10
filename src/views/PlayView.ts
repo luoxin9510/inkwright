@@ -5,11 +5,13 @@ import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { inputOf, isWrite } from "../play/input";
 import { STORY_LANGUAGES, type Choice, type Paragraph, type PlacedAside } from "../play/session";
-import { ODDS, type Odds, type OracleResult, type TrayRoll } from "../play/oracle";
+import { ODDS, type Odds } from "../play/oracle";
 import { mergeAsides } from "../play/journal";
 import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, GridView, MapView, RollRecord } from "../game/engine";
-import { fxOf, type Fx } from "../game/config";
-import { tokenText } from "../game/dice";
+import { fxOf } from "../game/config";
+import { describeStop, noteText, pickHint } from "../play/describe";
+import { animateRolls, playFx, renderAside, renderRoll } from "./cards";
+import { renderDiceLog, renderDungeon, renderHud, renderMap } from "./status";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
 export interface GameView {
@@ -142,7 +144,7 @@ export class PlayView extends ItemView {
   /** Player mode: the problems the story has, shown when its badge is clicked. */
   private problemsOpen = false;
   /** A record an entry was just added to: its add box is focused again after the redraw. */
-  private focusRecord: string | null = null;
+  private focus: { record: string | null } = { record: null };
   /** The dice tray is unfolded; what was typed in it is kept across redraws. */
   private trayOpen = false;
   private trayQuestion = "";
@@ -262,11 +264,20 @@ export class PlayView extends ItemView {
     this.fitSide();
 
     if (s.flows.length > 0 && !player) this.renderStartFrom(main, s);
-    if (s.hasStory && s.game) this.renderHud(side, s.game);
-    if (s.hasStory && s.game?.map) this.renderMap(side, s.game.map, s.game.mapImage);
-    if (s.hasStory && s.game?.dungeon) this.renderDungeon(side, s.game.dungeon);
+    if (s.hasStory && s.game) renderHud(side, s.game, { adjust: (id, d) => this.controller.adjustResource(id, d), changeRecord: (id, op, e) => this.controller.changeRecord(id, op, e) }, this.focus);
+    if (s.hasStory && s.game?.map) {
+      renderMap(side, s.game.map, s.game.mapImage, (index) => {
+        this.afterChoice = true;
+        this.controller.choose(index);
+      });
+    }
+    if (s.hasStory && s.game?.dungeon) renderDungeon(side, s.game.dungeon);
     if (s.inspection && !player) this.renderInspector(main, s.inspection);
-    if (s.hasStory && s.game) this.renderDice(side, s.game);
+    if (s.hasStory && s.game) {
+      renderDiceLog(side, s.game, this.diceOpen, (open) => {
+        this.diceOpen = open;
+      });
+    }
     if (s.hasStory && s.saves.length > 0) this.renderSaves(main, s);
 
     // Player mode: the story's problems are one small badge until asked for.
@@ -337,7 +348,7 @@ export class PlayView extends ItemView {
     const asidesBefore = (i: number) => {
       while (nextAside < asides.length && asides[nextAside].at <= i) {
         const a = asides[nextAside++];
-        if (a.at >= first) newCards.push(this.renderAside(story, a));
+        if (a.at >= first) newCards.push(renderAside(story, a, s.game));
       }
     };
     s.log.forEach((p, i) => {
@@ -347,7 +358,7 @@ export class PlayView extends ItemView {
       const turn = s.game?.turns[i] ?? null;
       if (s.game && turn !== null && (i === first || turn !== lastTurn)) {
         for (const r of rollsByTurn.get(turn) ?? []) {
-          const card = this.renderRoll(story, r, s.game);
+          const card = renderRoll(story, r, s.game);
           if (fresh && i >= from) newCards.push(card);
         }
       }
@@ -417,9 +428,7 @@ export class PlayView extends ItemView {
       }
       // A #play choice waits for a card from its hand; with no card to play it is locked like a missing item.
       if (play && !ready) {
-        const enough = play.known && play.cards.length >= play.min;
-        const hint = !enough ? `${play.use ? T().inventory : play.name} · ${T().nothingCarried}` : play.use ? T().pickItem : play.max > 1 ? (play.min === play.max ? T().pickCardsN : T().pickCardsRange).split("{min}").join(String(play.min)).split("{max}").join(String(play.max)) : T().pickCard;
-        button.createSpan({ cls: "inkwright-choice-pick", text: hint });
+        button.createSpan({ cls: "inkwright-choice-pick", text: pickHint(play) });
       }
       const locked = needs.some((n) => !n.has) || (play !== null && !ready);
       if (locked) {
@@ -456,44 +465,11 @@ export class PlayView extends ItemView {
     this.shownAsides = asked;
     if (fresh) {
       (line ?? newCards[0] ?? paras[from] ?? paras.find(Boolean))?.scrollIntoView({ block: "start" });
-      this.animateRolls(newCards);
-      this.playFx(story, s.log.slice(from).flatMap((p) => fxOf(p.tags)));
+      for (const timer of animateRolls(newCards)) this.registerInterval(timer);
+      playFx(story, s.log.slice(from).flatMap((p) => fxOf(p.tags)));
     } else if (changed) {
       choices.scrollIntoView({ block: "end" });
     }
-  }
-
-  /** One question or roll from the dice tray, as a card in the text. */
-  private renderAside(parent: HTMLElement, a: PlacedAside): HTMLElement {
-    const t = T();
-    if (a.kind === "record") {
-      const name = this.state?.game?.hud.records?.find((x) => x.id === a.var)?.name ?? a.var ?? "";
-      return parent.createDiv({ cls: "inkwright-manual", text: `📝 ${name} ${a.op === "remove" ? "−" : "+"} ${a.entry ?? ""}` });
-    }
-    if (a.kind === "adjust" || a.kind === "set") {
-      const r = a.result as { from: unknown; to: unknown } | null;
-      const name = this.state?.game?.hud.resources.find((x) => x.id === a.var)?.name ?? a.var ?? "";
-      const change = a.kind === "adjust" ? `${(a.delta ?? 0) > 0 ? "+" : ""}${a.delta ?? 0}` : `= ${String(a.value)}`;
-      return parent.createDiv({ cls: "inkwright-manual", text: `✎ ${name} ${change}${r ? `(${String(r.from)} → ${String(r.to)})` : ""}` });
-    }
-    if (a.kind === "oracle") {
-      const r = a.result as OracleResult;
-      const answer = t.answers[r.answer === "yes" ? (r.extreme ? "yesAnd" : "yes") : r.extreme ? "noAnd" : "no"];
-      const card = parent.createDiv({ cls: `inkwright-roll inkwright-oracle inkwright-oracle-${r.answer}` });
-      card.createSpan({ cls: "inkwright-roll-skill", text: `🔮 ${a.question ?? ""}` });
-      card.createSpan({ cls: "inkwright-oracle-odds", text: `${t.oddsNames[a.odds ?? "even"] ?? ""} · d100 ${r.roll} / ${r.threshold}` });
-      card.createSpan({ cls: "inkwright-roll-band", text: answer });
-      return card;
-    }
-    const r = a.result as TrayRoll;
-    const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free inkwright-tray-roll" });
-    card.createSpan({ cls: "inkwright-roll-skill", text: r.table ? `${r.table.name} ${r.formula}` : r.formula });
-    const dice = card.createSpan({ cls: "inkwright-roll-dice" });
-    const out = new Set(r.dropped ?? []);
-    r.rolls.forEach((face, i) => dice.createSpan({ cls: `inkwright-die${out.has(i) ? " inkwright-die-dropped" : ""}`, text: String(face) }));
-    card.createSpan({ cls: "inkwright-roll-sum", text: `= ${r.total}` });
-    if (r.table) card.createSpan({ cls: "inkwright-roll-band", text: r.table.text });
-    return card;
   }
 
   /** The dice tray: ask the oracle, roll a formula or a common die, roll an inspiration table. Folded until opened. */
@@ -545,21 +521,13 @@ export class PlayView extends ItemView {
 
   /** Says where and why a saved run stopped short of where it had got to, and that the rest is kept. */
   private renderStopped(el: HTMLElement, st: NonNullable<PlayState["stopped"]>): void {
-    const note = el.createDiv({ cls: "inkwright-run-note inkwright-stopped" });
     const t = T();
-    const text =
-      st.reason === "start" ? t.stoppedStart(st.detail ?? "")
-      : st.reason === "character" ? t.stoppedCharacter(st.detail ?? "")
-      : st.reason === "budget" ? t.stoppedBudget(st.step, st.pending)
-      : st.reason === "error" ? t.stoppedError(st.step, st.pending)
-      : st.reason === "chosen" ? t.stoppedHere(st.step, st.pending)
-      : t.stoppedMismatch(st.step, st.pending);
-    note.createSpan({ text });
+    const stop = describeStop(st);
+    const note = el.createDiv({ cls: "inkwright-run-note inkwright-stopped" });
+    note.createSpan({ text: stop.text });
     const buttons = note.createDiv({ cls: "inkwright-run-note-buttons" });
-    if (st.pending > 0 && (st.reason === "mismatch" || st.reason === "chosen")) {
-      buttons.createEl("button", { text: t.continueByIndex }).onclick = () => this.controller.continueByIndex();
-    }
-    if (st.older) buttons.createEl("button", { text: t.useOlder }).onclick = () => this.controller.useOlder();
+    if (stop.byIndex) buttons.createEl("button", { text: t.continueByIndex }).onclick = () => this.controller.continueByIndex();
+    if (stop.older) buttons.createEl("button", { text: t.useOlder }).onclick = () => this.controller.useOlder();
     buttons.createEl("button", { text: t.dismiss }).onclick = () => this.controller.dismissStop();
   }
 
@@ -567,8 +535,7 @@ export class PlayView extends ItemView {
   private renderNote(el: HTMLElement, n: NonNullable<PlayState["note"]>): void {
     const t = T();
     const note = el.createDiv({ cls: "inkwright-run-note inkwright-stopped" });
-    const parts = [n.guesses > 0 ? t.guessed(n.guesses) : "", n.skipped > 0 ? t.skippedChanges(n.skipped) : "", n.drift !== null ? t.drifted(n.drift) : ""].filter(Boolean);
-    note.createSpan({ text: parts.join(" ") });
+    note.createSpan({ text: noteText(n) });
     const buttons = note.createDiv({ cls: "inkwright-run-note-buttons" });
     if (n.drift !== null) buttons.createEl("button", { text: t.stopAt(n.drift) }).onclick = () => this.controller.stopAtDrift();
     buttons.createEl("button", { text: t.dismiss }).onclick = () => this.controller.dismissNote();
@@ -582,75 +549,6 @@ export class PlayView extends ItemView {
     note.createDiv({ cls: "inkwright-run-note-buttons" }).createEl("button", { text: t.useNewest }).onclick = () => this.controller.useNewest();
   }
 
-  /** One roll as a card in the text: a check (skill and difficulty, faces, sum, outcome) or free dice (formula or table, faces, total, the row). */
-  private renderRoll(parent: HTMLElement, r: RollRecord, game: GameView): HTMLElement {
-    if (r.kind === "dice") {
-      const card = parent.createDiv({ cls: "inkwright-roll inkwright-roll-free" });
-      card.createSpan({ cls: "inkwright-roll-skill", text: r.deck ? r.deck.name : r.record ? r.record.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
-      const dice = card.createSpan({ cls: "inkwright-roll-dice" });
-      // Faces that do not count (not kept, or missed in a pool) are faded.
-      const out = new Set(r.dropped ?? []);
-      r.rolls.forEach((face, i) => dice.createSpan({ cls: `inkwright-die${out.has(i) ? " inkwright-die-dropped" : ""}`, text: String(face) }));
-      card.createSpan({ cls: "inkwright-roll-sum", text: r.unknown ? T().badFormula : `= ${r.total}` });
-      const result = r.deck ? r.deck.card : r.record ? r.record.entry : r.table?.text;
-      if (result !== undefined) card.createSpan({ cls: "inkwright-roll-band", text: result, ...(r.deck?.desc ? { title: r.deck.desc } : {}) });
-      return card;
-    }
-    const card = parent.createDiv({ cls: `inkwright-roll inkwright-roll-${r.band}` });
-    const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
-    card.createSpan({ cls: "inkwright-roll-skill", text: `${name} ${r.difficulty}` });
-    const dice = card.createSpan({ cls: "inkwright-roll-dice" });
-    // A chaos bag draws a token instead of rolling: shown as one chip, named or by its value.
-    if (r.token) dice.createSpan({ cls: `inkwright-die inkwright-chip${r.token.auto ? ` inkwright-chip-${r.token.auto}` : ""}`, text: tokenText(r.token, { fail: T().autoFail, success: T().autoSuccess }) });
-    for (const face of r.rolls) dice.createSpan({ cls: "inkwright-die", text: String(face) });
-    const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
-    card.createSpan({ cls: "inkwright-roll-sum", text: `+${r.level}${mods} = ${r.total}` });
-    card.createSpan({ cls: "inkwright-roll-band", text: T().bands[r.band] });
-    return card;
-  }
-
-  private static get stillMotion(): boolean {
-    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  }
-
-  /** The faces of new cards tumble for a moment before settling; the outcome shows once they have. */
-  private animateRolls(cards: HTMLElement[]): void {
-    if (cards.length === 0 || PlayView.stillMotion) return;
-    for (const card of cards) {
-      const dice = Array.from(card.querySelectorAll<HTMLElement>(".inkwright-die"));
-      const faces = dice.map((d) => d.textContent ?? "");
-      card.addClass("inkwright-rolling");
-      let ticks = 0;
-      const timer = window.setInterval(() => {
-        if (++ticks > 8) {
-          window.clearInterval(timer);
-          dice.forEach((d, i) => d.setText(faces[i]));
-          card.removeClass("inkwright-rolling");
-          return;
-        }
-        // A bag's chip does not show dice faces while it "tumbles": a question mark instead.
-        for (const d of dice) d.setText(d.hasClass("inkwright-chip") ? "?" : String(1 + Math.floor(Math.random() * 6)));
-      }, 70);
-      this.registerInterval(timer);
-    }
-  }
-
-  /** Plays the effects of the new lines on the story, one after another. */
-  private playFx(target: HTMLElement, effects: Fx[]): void {
-    if (effects.length === 0 || PlayView.stillMotion) return;
-    effects.forEach((fx, i) => {
-      const play = () => {
-        const cls = `inkwright-fx-${fx}`;
-        const done = () => target.removeClass(cls);
-        target.addClass(cls);
-        target.addEventListener("animationend", done, { once: true });
-        window.setTimeout(done, 2500);
-      };
-      if (i === 0) play();
-      else window.setTimeout(play, i * 900);
-    });
-  }
-
   /** The skill, difficulty and odds of a check choice, on the button. */
   private renderCheck(button: HTMLElement, check: ChoiceCheck, game: GameView | null): void {
     const name = game?.skills.find((k) => k.id === check.skill)?.name ?? check.skill;
@@ -659,84 +557,6 @@ export class PlayView extends ItemView {
     if (check.red) badge.createSpan({ cls: "inkwright-check-red", text: ` · ${T().redCheck}` });
     const parts = [`${name} ${check.level}`, ...check.modifiers.map((m) => `${m.value > 0 ? "+" : ""}${m.value} ${m.source}`)];
     button.title = parts.join(", ");
-  }
-
-  /** The growing dungeon on its squares: floor per room (the room the party is in lit), walls, doors (free ones bright), a room's note in its middle. */
-  private renderDungeon(el: HTMLElement, d: GridView): void {
-    const S = 24;
-    const { x, y, w, h } = d.box;
-    const svg = el.createSvg("svg", { cls: "inkwright-dungeon", attr: { viewBox: `0 0 ${w * S} ${h * S}`, preserveAspectRatio: "xMidYMin meet" } });
-    svg.setCssProps({ "--inkwright-dungeon-width": `${w * S * 1.6}px` });
-    const px = (c: number) => (c - x) * S, py = (r: number) => (r - y) * S;
-    for (const room of d.rooms) {
-      // createSvg takes several classes as an array.
-      const cls = ["inkwright-dungeon-floor", ...(room.corridor ? ["inkwright-dungeon-corridor"] : []), ...(room.here ? ["inkwright-dungeon-here"] : [])];
-      for (const [r, c] of room.cells) svg.createSvg("rect", { cls, attr: { x: px(c), y: py(r), width: S, height: S } });
-    }
-    for (const [r1, c1, r2, c2] of d.walls) svg.createSvg("line", { cls: "inkwright-dungeon-wall", attr: { x1: px(c1), y1: py(r1), x2: px(c2), y2: py(r2) } });
-    for (const room of d.rooms) {
-      for (const door of room.doors) {
-        if (door.state === "blocked") continue;
-        // A door is a short bar across the edge of its square.
-        const cx = px(door.c) + S / 2, cy = py(door.r) + S / 2;
-        const horizontal = door.side === "top" || door.side === "bottom";
-        const ex = door.side === "left" ? px(door.c) : door.side === "right" ? px(door.c) + S : cx;
-        const ey = door.side === "top" ? py(door.r) : door.side === "bottom" ? py(door.r) + S : cy;
-        const half = S * 0.3;
-        svg.createSvg("line", {
-          cls: ["inkwright-dungeon-door", `inkwright-dungeon-door-${door.state}`],
-          attr: { x1: horizontal ? ex - half : ex, y1: horizontal ? ey : ey - half, x2: horizontal ? ex + half : ex, y2: horizontal ? ey : ey + half },
-        });
-      }
-      if (room.mark !== "" && room.cells.length > 0) {
-        const mid = room.cells[Math.floor(room.cells.length / 2)];
-        svg.createSvg("text", { cls: "inkwright-dungeon-mark", attr: { x: px(mid[1]) + S / 2, y: py(mid[0]) + S / 2, "text-anchor": "middle", "dominant-baseline": "central" } }).setText(room.mark);
-      }
-    }
-  }
-
-  /** The map: the image (or a plain board), lines between linked places, each place (a question mark until revealed, a ring where the player stands, pulsing when a choice goes there), counters and tokens. */
-  private renderMap(el: HTMLElement, map: MapView, image: string | null): void {
-    const box = el.createDiv({ cls: `inkwright-map${image ? "" : " inkwright-map-board"}` });
-    box.setCssProps({ "--inkwright-map-ratio": `${map.width} / ${map.height}` });
-    if (image) box.createEl("img", { cls: "inkwright-map-image", attr: { src: image, alt: "" } });
-    const svg = box.createSvg("svg", { cls: "inkwright-map-links", attr: { viewBox: `0 0 ${map.width} ${map.height}`, preserveAspectRatio: "none" } });
-    const byId = new Map(map.places.map((p) => [p.id, p]));
-    const drawn = new Set<string>();
-    for (const p of map.places) {
-      for (const l of p.links) {
-        const q = byId.get(l);
-        const key = [p.id, l].sort().join("\n");
-        if (!q || drawn.has(key)) continue;
-        drawn.add(key);
-        svg.createSvg("line", { cls: p.revealed && q.revealed ? "" : "inkwright-link-dim", attr: { x1: p.x, y1: p.y, x2: q.x, y2: q.y } });
-      }
-    }
-    const at = (x: number, y: number) => ({ left: `${(x / map.width) * 100}%`, top: `${(y / map.height) * 100}%` });
-    for (const p of map.places) {
-      const cls = `inkwright-place${p.revealed ? "" : " inkwright-place-hidden"}${p.here ? " inkwright-place-here" : ""}${p.go === undefined ? "" : " inkwright-place-go"}`;
-      const place = p.go === undefined ? box.createDiv({ cls }) : box.createEl("button", { cls });
-      place.setCssProps(at(p.x, p.y));
-      place.createSpan({ cls: "inkwright-place-name", text: p.revealed ? p.name : "?" });
-      if (p.revealed && p.counter) place.createSpan({ cls: "inkwright-place-counter", text: String(p.counter.value), attr: { title: p.counter.name } });
-      const go = p.go;
-      if (go !== undefined) {
-        place.onclick = () => {
-          this.afterChoice = true;
-          this.controller.choose(go);
-        };
-      }
-    }
-    // Tokens stand on their place, side by side when several share one.
-    const stacks = new Map<string, number>();
-    for (const t of map.tokens) {
-      const p = t.at === null ? undefined : byId.get(t.at);
-      if (!p) continue;
-      const k = stacks.get(p.id) ?? 0;
-      stacks.set(p.id, k + 1);
-      const token = box.createSpan({ cls: "inkwright-token", text: Array.from(t.name)[0] ?? "", attr: { title: t.name } });
-      token.setCssProps({ left: `calc(${(p.x / map.width) * 100}% + ${k * 14}px)`, top: `calc(${(p.y / map.height) * 100}% - 22px)`, ...(t.color ? { "--inkwright-token": t.color } : {}) });
-    }
   }
 
   /** Each hand as a row of cards (tap to pick one, tap again to put it back); the picked card's description shows under the row. */
@@ -776,146 +596,6 @@ export class PlayView extends ItemView {
         };
       }
       if (on) box.createEl("p", { cls: "inkwright-card-desc", text: on.desc ? T().cardDesc(on.name, on.desc) : on.name });
-    }
-  }
-
-  private renderHud(el: HTMLElement, game: GameView): void {
-    const hud = el.createDiv({ cls: "inkwright-hud" });
-    if (game.hud.turn) hud.createDiv({ cls: "inkwright-hud-turn", text: T().turnLine(game.hud.turn.round, game.hud.turn.phase) });
-    if (game.hud.party) this.renderParty(hud, game.hud.party);
-    for (const r of game.hud.resources) {
-      const row = hud.createDiv({ cls: "inkwright-hud-row" });
-      row.createSpan({ cls: "inkwright-hud-name", text: r.name });
-      if (r.display === "clock") this.renderClock(row, r.value - r.min, r.max - r.min);
-      else if (r.display === "track") this.renderTrack(row, r.value - r.min, (r.max - r.min) / 4);
-      else {
-        const bar = row.createDiv({ cls: "inkwright-hud-bar" });
-        const span = Math.max(1, r.max - r.min);
-        bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(((r.value - r.min) / span) * 100)}%` });
-      }
-      row.createSpan({ cls: "inkwright-hud-value", text: `${r.value}/${r.max}` });
-      // The player is the game master: a resource marked manual can be changed here (a tick on a track).
-      if (r.manual) {
-        const down = row.createEl("button", { cls: "inkwright-hud-adjust", text: "−", attr: { "aria-label": T().adjustDown(r.name), title: T().adjustHint } });
-        down.disabled = r.value <= r.min;
-        down.onclick = () => this.controller.adjustResource(r.id, -1);
-        const up = row.createEl("button", { cls: "inkwright-hud-adjust", text: "+", attr: { "aria-label": T().adjustUp(r.name), title: T().adjustHint } });
-        up.disabled = r.value >= r.max;
-        up.onclick = () => this.controller.adjustResource(r.id, 1);
-      }
-    }
-    // In a party game the gear is on the cards; an empty pack of the protagonist is noise.
-    if (game.hud.items && !(game.hud.party && game.hud.items.length === 0)) {
-      const row = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items" });
-      row.createSpan({ cls: "inkwright-hud-name", text: T().inventory });
-      if (game.hud.items.length === 0) row.createSpan({ cls: "inkwright-hud-value", text: T().nothingCarried });
-      for (const item of game.hud.items) row.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
-    }
-    if (game.hud.decks) {
-      const row = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items" });
-      row.createSpan({ cls: "inkwright-hud-name", text: T().decks });
-      for (const d of game.hud.decks) row.createSpan({ cls: "inkwright-item", text: `${d.name} ${d.left}/${d.total}` });
-    }
-    for (const c of game.hud.companions) {
-      const text = [c.name, ...c.resources.map((r) => `${r.name} ${r.value}`)].join(" · ");
-      hud.createDiv({ cls: "inkwright-hud-companion", text });
-    }
-    // Records: their entries, each with a × to take it out, and a box to add one (the player keeps them too).
-    for (const rec of game.hud.records ?? []) {
-      const box = hud.createDiv({ cls: "inkwright-hud-row inkwright-hud-items inkwright-record" });
-      box.createSpan({ cls: "inkwright-hud-name", text: rec.name });
-      for (const entry of rec.entries) {
-        const chip = box.createSpan({ cls: "inkwright-item" });
-        chip.createSpan({ text: entry });
-        chip.createEl("button", { cls: "inkwright-record-drop", text: "×", attr: { "aria-label": T().recordDrop(entry), title: T().recordDrop(entry) } }).onclick = () => this.controller.changeRecord(rec.id, "remove", entry);
-      }
-      const add = box.createEl("input", { cls: "inkwright-record-add", type: "text", placeholder: T().recordAddHere });
-      add.onkeydown = (e) => {
-        if (e.key !== "Enter" || e.isComposing || add.value.trim() === "") return;
-        // The HUD is drawn again after the change: the box of this record gets the focus back, for the next entry.
-        this.focusRecord = rec.id;
-        this.controller.changeRecord(rec.id, "add", add.value.trim());
-      };
-      if (this.focusRecord === rec.id) {
-        this.focusRecord = null;
-        window.setTimeout(() => add.focus(), 0);
-      }
-    }
-  }
-
-  /** A clock of `segments` slices, `filled` of them filled (Blades-style). */
-  private renderClock(el: HTMLElement, filled: number, segments: number): void {
-    const n = Math.max(1, segments);
-    const svg = el.createSvg("svg", { cls: "inkwright-clock", attr: { viewBox: "-1 -1 2 2", width: "28", height: "28" } });
-    for (let i = 0; i < n; i++) {
-      const a0 = (i / n) * 2 * Math.PI - Math.PI / 2, a1 = ((i + 1) / n) * 2 * Math.PI - Math.PI / 2;
-      const p = (a: number) => `${(0.92 * Math.cos(a)).toFixed(3)} ${(0.92 * Math.sin(a)).toFixed(3)}`;
-      svg.createSvg("path", { cls: i < filled ? "inkwright-clock-on" : "inkwright-clock-off", attr: { d: `M0 0 L${p(a0)} A0.92 0.92 0 0 1 ${p(a1)} Z` } });
-    }
-  }
-
-  /** A track of `boxes` boxes, each four ticks; `ticks` filled (Ironsworn-style progress). */
-  private renderTrack(el: HTMLElement, ticks: number, boxes: number): void {
-    const track = el.createDiv({ cls: "inkwright-track" });
-    for (let b = 0; b < Math.max(1, boxes); b++) {
-      const box = track.createSpan({ cls: "inkwright-track-box" });
-      const t = Math.min(4, Math.max(0, ticks - b * 4));
-      box.setText(["", "╲", "✕", "✕╲", "✱"][t]);
-      if (t === 4) box.addClass("inkwright-track-full");
-    }
-  }
-
-  /** A card per party member: name, title, stats (bars where there is a maximum), gear; a member who is down is faded. */
-  private renderParty(el: HTMLElement, party: NonNullable<GameView["hud"]["party"]>): void {
-    const box = el.createDiv({ cls: "inkwright-party" });
-    if (party.name) box.createDiv({ cls: "inkwright-party-name", text: party.name });
-    const row = box.createDiv({ cls: "inkwright-party-members" });
-    for (const m of party.members) {
-      const card = row.createDiv({ cls: ["inkwright-party-member", ...(m.down ? ["inkwright-party-down"] : [])] });
-      card.createDiv({ cls: "inkwright-party-who", text: m.name });
-      if (m.title) card.createDiv({ cls: "inkwright-party-title", text: m.title });
-      for (const st of m.stats) {
-        const line = card.createDiv({ cls: "inkwright-party-stat" });
-        line.createSpan({ cls: "inkwright-party-stat-name", text: st.name });
-        if (st.max !== undefined) {
-          const bar = line.createDiv({ cls: "inkwright-hud-bar" });
-          const share = st.max > 0 ? Math.max(0, Math.min(1, st.value / st.max)) : 0;
-          bar.createDiv({ cls: "inkwright-hud-fill" }).setCssProps({ width: `${Math.round(share * 100)}%` });
-        }
-        line.createSpan({ cls: "inkwright-party-stat-value", text: st.max !== undefined ? `${st.value}/${st.max}` : String(st.value) });
-      }
-      if (m.gear && m.gear.length > 0) {
-        const gear = card.createDiv({ cls: "inkwright-party-gear" });
-        for (const item of m.gear) gear.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
-      }
-    }
-  }
-
-  private renderDice(el: HTMLElement, game: GameView): void {
-    const box = el.createEl("details", { cls: "inkwright-inspector inkwright-dice" });
-    box.open = this.diceOpen;
-    box.addEventListener("toggle", () => {
-      this.diceOpen = box.open;
-    });
-    box.createEl("summary", { text: `${T().diceLog}(${game.rolls.length})` });
-    if (game.rolls.length === 0) {
-      box.createDiv({ cls: "inkwright-inspector-empty", text: T().noRolls });
-      return;
-    }
-    const t = box.createEl("table");
-    for (const r of [...game.rolls].reverse()) {
-      const dice = r.kind === "check" && r.token ? tokenText(r.token, { fail: T().autoFail, success: T().autoSuccess }) : r.rolls.length > 0 ? r.rolls.join("+") : "—";
-      const tr = t.createEl("tr");
-      if (r.kind === "dice") {
-        const result = r.deck ? r.deck.card : r.record ? r.record.entry : r.table?.text;
-        tr.createEl("td", { text: r.deck ? r.deck.name : r.record ? r.record.name : r.table ? `${r.table.name} ${r.formula}` : r.formula });
-        tr.createEl("td", { text: r.unknown ? T().badFormula : `${dice} = ${r.total}${result !== undefined ? ` · ${result}` : ""}` });
-        continue;
-      }
-      const name = r.unknown ? `${r.skill} ${T().unknownSkill}` : game.skills.find((k) => k.id === r.skill)?.name ?? r.skill;
-      const mods = r.modifiers.map((m) => ` ${m.value > 0 ? "+" : ""}${m.value}`).join("");
-      tr.createEl("td", { text: `${name} ${r.difficulty}` });
-      tr.createEl("td", { text: `${dice} +${r.level}${mods} = ${r.total} · ${T().bands[r.band]} (${Math.round(r.chance.success * 100)}%)` });
     }
   }
 
