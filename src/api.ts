@@ -44,6 +44,7 @@ export interface ApiHost {
   runsForRoot(): Promise<Run[]>;
   exportRun(): Promise<{ path: string | null }>;
   importRun(path: string): Promise<{ id: string; name: string } | null>;
+  newJournalGame(folder?: string): Promise<{ path: string | null }>;
 }
 
 export interface ApiDiagnostic {
@@ -163,6 +164,8 @@ Visible play panel (the user sees what you do):
   panel() also has replay ({done,total} while a saved run is being picked up) and stopped (why it stopped short).
   exportRun()          write the panel's run to <save folder>/_exports/<story> <time>.json -> { path }
   importRun(path)      import an exported run file as a save of the current story -> { id, name } | null
+  newJournalGame(folder?)  make a solo journal game from the template in a new folder (default: 旅途日记 / Road journal,
+                       numbered when taken), open its main.ink and the panel -> { path } (the main.ink)
 
 Export:
   exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
@@ -337,6 +340,10 @@ export class InkwrightApi {
 
   importRun(path: string): Promise<{ id: string; name: string } | null> {
     return this.host.importRun(path);
+  }
+
+  newJournalGame(folder?: string): Promise<{ path: string | null }> {
+    return this.host.newJournalGame(folder);
   }
 
   async runs(): Promise<{ id: string; name: string; draft: boolean; updatedAt: string; actions: number; conflictOf?: string }[]> {

@@ -1,9 +1,10 @@
-import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Keymap, setIcon, type WorkspaceLeaf } from "obsidian";
 import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
 import type { Inspection } from "../play/inspect";
 import { inputOf, isWrite } from "../play/input";
+import { splitLinks, withoutLinks } from "../play/links";
 import { STORY_LANGUAGES, type Choice, type Paragraph, type PlacedAside } from "../play/session";
 import { ODDS, type Odds } from "../play/oracle";
 import { mergeAsides } from "../play/journal";
@@ -334,7 +335,7 @@ export class PlayView extends ItemView {
     let line: HTMLElement | null = null;
     const turnLine = () => {
       line = story.createDiv({ cls: "inkwright-turn" });
-      line.createSpan({ cls: "inkwright-turn-text", text: s.chosen?.text ?? "" });
+      line.createSpan({ cls: "inkwright-turn-text", text: withoutLinks(s.chosen?.text ?? "") });
     };
     // A long run draws its latest paragraphs; the earlier ones are behind a button.
     const first = this.showAllFor === s.root ? 0 : Math.max(0, s.log.length - SHOWN_PARAGRAPHS);
@@ -375,7 +376,7 @@ export class PlayView extends ItemView {
         if (skill.color) para.setCssProps({ "--inkwright-voice": skill.color });
         para.createSpan({ cls: "inkwright-voice-name", text: skill.name, ...(skill.stance ? { title: skill.stance } : {}) });
       }
-      para.appendText(p.text);
+      this.appendLinked(para, p.text, s.root ?? "");
       // A paragraph the player wrote (#write) keeps its lines; other text is laid out as before.
       if (p.text.includes("\n")) para.addClass("inkwright-lines");
       // Picked up after a while: a line where the player left off.
@@ -422,7 +423,9 @@ export class PlayView extends ItemView {
       const field: HTMLInputElement | HTMLTextAreaElement | null = variable === null ? null
         : multiline ? choices.createEl("textarea", { cls: "inkwright-input inkwright-write", placeholder: T().writeHere, text: this.typed.get(c.index) ?? "" })
         : choices.createEl("input", { cls: "inkwright-input", type: "text", placeholder: T().typeHere, value: this.typed.get(c.index) ?? "" });
-      const button = choices.createEl("button", { text: ready ? `${c.text} · ${chosen.map((k) => k.name).join(" + ")}` : c.text, cls: "inkwright-choice" });
+      // A [[note]] in a choice shows its text (a button cannot hold a link).
+      const label = withoutLinks(c.text);
+      const button = choices.createEl("button", { text: ready ? `${label} · ${chosen.map((k) => k.name).join(" + ")}` : label, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
       const needs = s.game?.needs[i] ?? [];
@@ -519,6 +522,30 @@ export class PlayView extends ItemView {
     if (tables.length > 0) {
       const row = tray.createDiv({ cls: "inkwright-tray-row" });
       for (const tb of tables) row.createEl("button", { text: `🎲 ${tb.name}` }).onclick = () => this.controller.rollTray("", tb.id);
+    }
+  }
+
+  /** A paragraph's text, its `[[note]]` links drawn as links into the vault: a click opens the note, hovering previews it (desktop). */
+  private appendLinked(para: HTMLElement, text: string, sourcePath: string): void {
+    for (const part of splitLinks(text)) {
+      const target = part.link;
+      if (target === undefined) {
+        para.appendText(part.text);
+        continue;
+      }
+      const a = para.createEl("a", { cls: "internal-link", text: part.text, attr: { "data-href": target, href: target } });
+      // Opened as links in notes are: a click here, Ctrl/Cmd (or a middle click) a new tab, Ctrl/Cmd+Alt a split.
+      const open = (e: MouseEvent) => {
+        e.preventDefault();
+        void this.app.workspace.openLinkText(target, sourcePath, e.button === 1 ? "tab" : Keymap.isModEvent(e));
+      };
+      a.onclick = open;
+      a.addEventListener("auxclick", (e) => {
+        if (e.button === 1) open(e);
+      });
+      a.addEventListener("mouseover", (event) => {
+        this.app.workspace.trigger("hover-link", { event, source: PLAY_VIEW_TYPE, hoverParent: this, targetEl: a, linktext: target, sourcePath });
+      });
     }
   }
 
