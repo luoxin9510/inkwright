@@ -92,4 +92,39 @@ describe("the party", () => {
     expect(engine.hud().party?.members.map((m) => m.id)).toEqual(["甲"]);
     expect(readConfig({ ...solo, party: { ...solo.party, present: "生命上限" } }).config?.party?.present).toBe("生命上限");
   });
+  test("member_get reads a member's variable by number or id, party_count counts the members whose variable equals a value", () => {
+    const fm = {
+      rules: { kind: "sum", dice: [6] }, skills: [{ id: "wits" }], characters: [{ id: "you" }],
+      party: { stats: [{ id: "life" }, { id: "rank" }], members: [{ id: "m1", stats: { life: 3, rank: 2 } }, { id: "m2", stats: { life: 0, rank: 2 } }, { id: "m3", stats: { life: 5, rank: 1 } }] },
+    };
+    const game = readConfig(fm).config as GameConfig;
+    expect(validateConfig(game)).toEqual([]);
+    // Variables the story declares per member (a class as a list value, a flag) are read the same way.
+    const src = `-> main
+${generateInk(game)}
+LIST classes = warrior, cleric
+VAR cls_m1 = warrior
+VAR cls_m2 = cleric
+VAR cls_m3 = warrior
+VAR stone_m2 = true
+=== main ===
+{member_get(1, "life")} {member_get("m3", "life")} {member_get(2, "rank")} {member_get(4, "life")} {member_get(1, "nothing")}.
+{party_count("rank", 2)} {party_count("life", 0)} {party_count("rank", 7)}.
+{member_get(3, "cls") == warrior} {party_count("cls", warrior)} {party_count("cls", cleric)} {member_get(2, "stone")}.
+{member_get(0, "cls") ? warrior} {member_get(9, "stone")} "{member_get(0, "title")}" {member_get(5, "life")}.
+-> END
+`;
+    const engine = new GameEngine(game);
+    const s = new PlaySession(new Compiler(src).Compile(), { setup: (st) => engine.setup(st, "you") });
+    s.start();
+    // Nobody (0, a number past the party): the zero of the variable's type, so `? item` on a list still works.
+    expect(s.log.map((p) => p.text)).toEqual(["3 5 2 0 0.", "2 1 0.", "true 2 1 true.", 'false false "" 0.']);
+    // Without the engine the fallback knows what the generator declares per member (stats, title, gear); variables the story adds read as 0.
+    const bare = new PlaySession(new Compiler(src).Compile(), {});
+    bare.start();
+    expect(bare.log.slice(0, 2).map((p) => p.text)).toEqual(["3 5 2 0 0.", "2 1 0."]);
+    const titled = new PlaySession(new Compiler(`-> main\n${generateInk(game)}\n=== main ===\n~ title_m2 = "Scout"\n{member_get(2, "title")} {party_count("title", "Scout")} "{member_get(7, "title")}".\n-> END\n`).Compile(), {});
+    titled.start();
+    expect(titled.log[0].text).toBe('Scout 1 "".');
+  });
 });

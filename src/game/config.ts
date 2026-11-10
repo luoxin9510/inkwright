@@ -492,6 +492,17 @@ export interface InkNames {
   /** Party: prefixes of each member's title (text) and gear (an items list) VARs: `title_m1`, `gear_m1`. */
   partyTitle: string;
   partyGear: string;
+  /**
+   * Party reads done by the engine (RPG PRD §4.5): `member_get(who, "var")` reads `<var>_<member>` (who = number from 1
+   * or id), `party_count("var", value)` counts the members whose variable equals the value. Much cheaper than an ink
+   * switch per member; the ink fallback knows the party's own stats only.
+   */
+  memberGet: string;
+  partyCount: string;
+  memberParam: string;
+  varNameParam: string;
+  matchParam: string;
+  tempMatches: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -518,7 +529,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     dungeonVia: "dungeon_via", notesVar: "room_notes", noteGet: "dungeon_note_get", noteSet: "dungeon_note_set", roomNote: "room_note", setRoomNote: "set_room_note",
     notesParam: "notes_text", fieldParam: "field", valueParam: "value", kParam2: "nth",
     layoutParam: "dungeon_text", shapeParam: "shape_id", roomParam: "room_no", doorParam: "door_no", markParam: "mark_text",
-    partyTitle: "title", partyGear: "gear",
+    partyTitle: "title", partyGear: "gear", memberGet: "member_get", partyCount: "party_count", memberParam: "member", varNameParam: "var_name", matchParam: "match", tempMatches: "matches",
     entSpawn: "ent_spawn", entHas: "ent_has", entGet: "ent_get", entSet: "ent_set", entDrop: "ent_drop", entCount: "ent_count", entAt: "ent_at", entPick: "ent_pick", entName: "ent_name",
     spawn: "spawn", stat: "stat", setStat: "set_stat", addStat: "add_stat", despawn: "despawn", alive: "alive", pickOne: "pick_one", nthOne: "nth_one", nameOf: "name_of",
     serialSuffix: "_n", kindParam: "kind", entityParam: "who_id", statParam: "stat_id", amountParam: "amount", howParam: "how", templateParam: "template", entStoreParam: "kind_store", tempEntity: "new_id", tempPickNo: "pick_no", partyKind: "party", spawnFrom: "spawn_from", spawnRow: "spawn_row", spawnRowOne: "spawn_row_one", spawnTimes: "spawn_times", tempRowNo: "row_no",
@@ -540,7 +551,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     dungeonVia: "地城_途经", notesVar: "房间记事", noteGet: "地城_取记事", noteSet: "地城_存记事", roomNote: "读房间记事", setRoomNote: "写房间记事",
     notesParam: "记事", fieldParam: "项", valueParam: "值", kParam2: "第几间",
     layoutParam: "布局", shapeParam: "形状", roomParam: "房间号", doorParam: "门号", markParam: "标记文字",
-    partyTitle: "称号", partyGear: "装备",
+    partyTitle: "称号", partyGear: "装备", memberGet: "队员值", partyCount: "队员计数", memberParam: "队员", varNameParam: "变量名", matchParam: "等于", tempMatches: "符合的",
     entSpawn: "实体_生成", entHas: "实体_有", entGet: "实体_取", entSet: "实体_存", entDrop: "实体_去", entCount: "实体_数", entAt: "实体_第几", entPick: "实体_挑", entName: "实体_名",
     spawn: "生成", stat: "属性", setStat: "设属性", addStat: "加属性", despawn: "移除", alive: "剩几个", pickOne: "挑一个", nthOne: "第几个", nameOf: "名字",
     serialSuffix: "_号", kindParam: "种类", entityParam: "实体", statParam: "属性名", amountParam: "数值", howParam: "挑法", templateParam: "模板", entStoreParam: "种类存储", tempEntity: "新编号", tempPickNo: "抽到第几", partyKind: "小队", spawnFrom: "按表生成", spawnRow: "按行生成", spawnRowOne: "按行生成一个", spawnTimes: "生成几次", tempRowNo: "行号",
@@ -918,12 +929,13 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     for (const c of config.characters) ident(`${r.id}_${c.id}`);
   }
   // Generated names are reserved only when they are generated: a game without a map may call a resource `here`.
+  const partyNames = ["memberGet", "partyCount", "memberParam", "varNameParam", "matchParam", "tempMatches"];
   const dungeonNames = ["dungeonVar", "dungeonRoom", "dungeonStart", "dungeonAdd", "dungeonRooms", "dungeonDoors", "dungeonMark", "dungeonShape", "dungeonCorridor", "dungeonSecret", "dungeonSteps", "dungeonNearest", "dungeonVia", "notesVar", "noteGet", "noteSet", "roomNote", "setRoomNote", "notesParam", "fieldParam", "valueParam", "kParam2", "beginDungeon", "addRoom", "markRoom", "secretRoom", "toParam", "layoutParam", "shapeParam", "roomParam", "doorParam", "markParam"];
   // Temps of the deck and dungeon functions are reserved with those.
   const tempNames = [...(config.decks?.length ? [] : ["tempCard"]), ...(config.dungeon ? [] : ["tempBefore"])];
   const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
   const entityNames = ["entSpawn", "entHas", "entGet", "entSet", "entDrop", "entCount", "entAt", "entPick", "entName", "spawn", "stat", "setStat", "addStat", "despawn", "alive", "pickOne", "nthOne", "nameOf", "kindParam", "entityParam", "statParam", "amountParam", "howParam", "templateParam", "entStoreParam", "tempEntity", "tempPickNo", "spawnFrom", "spawnRow", "spawnRowOne", "spawnTimes", "tempRowNo"];
-  const unused = new Set(["partyKind", "pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", ...(config.kinds?.length ? [] : entityNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
+  const unused = new Set(["partyKind", "pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", ...(config.kinds?.length ? [] : entityNames), ...(config.party?.members.length ? [] : partyNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");

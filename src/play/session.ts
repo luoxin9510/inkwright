@@ -3,6 +3,7 @@ import { translateRuntime } from "../compile/diagnostics";
 import { T } from "../i18n";
 import { inspect, type Inspection } from "./inspect";
 import { findChoice, type ReplayMode } from "./match";
+import { speedUpInkjs } from "./inkjs-speed";
 import { isWrite } from "./input";
 import { recordAdd, recordDrop, recordEntries } from "../game/records";
 
@@ -191,6 +192,8 @@ export function findLanguageVar(story: Story): string | null {
 export class PlaySession {
   private story: Story;
   private readonly json: string;
+  /** The story JSON parsed, for new Stories (inkjs does not change it). */
+  private readonly parsed: Record<string, unknown>;
   private readonly budget: number;
   private errors: string[] = [];
   private halted = false;
@@ -224,6 +227,8 @@ export class PlaySession {
 
   constructor(story: Story, options: SessionOptions = {}) {
     this.json = story.ToJson() as string;
+    // Parsed once: inkjs reads a JSON string with its own slow reader on every new Story (each restart, back, load).
+    this.parsed = JSON.parse(this.json) as Record<string, unknown>;
     this.budget = options.timeBudgetMs ?? 2000;
     this.setup = options.setup;
     this.prepare = options.prepare;
@@ -252,7 +257,7 @@ export class PlaySession {
     const picks = this.picks;
     const seqs = this.takenList.map((t) => t.seq);
     const asides = this.asideList;
-    this.story = this.attach(new Story(this.json));
+    this.story = this.attach(new Story(this.parsed));
     this.story.state.LoadJson(this.startState);
     this.applyLanguage();
     this.startState = this.story.state.ToJson();
@@ -493,7 +498,7 @@ export class PlaySession {
   back(): Step | null {
     const prev = this.history.pop();
     if (!prev) return null;
-    this.story = this.attach(new Story(this.json));
+    this.story = this.attach(new Story(this.parsed));
     this.story.state.LoadJson(prev.state);
     this.log = this.log.slice(0, prev.logLength);
     this.turnOf = this.turnOf.slice(0, prev.logLength);
@@ -520,7 +525,7 @@ export class PlaySession {
 
   /** Resumes from a save. If it does not fit this story, reports an error and keeps the current state. */
   load(save: SaveData): Step {
-    const story = this.attach(new Story(this.json));
+    const story = this.attach(new Story(this.parsed));
     try {
       story.state.LoadJson(save.state);
     } catch (e) {
@@ -572,7 +577,7 @@ export class PlaySession {
    * the state carries its own seeds. A state that does not fit the story is reported and nothing starts.
    */
   startFrom(state: string): Step {
-    const story = this.attach(new Story(this.json));
+    const story = this.attach(new Story(this.parsed));
     try {
       story.state.LoadJson(state);
     } catch (e) {
@@ -603,7 +608,7 @@ export class PlaySession {
   /** Starts over from a knot or stitch ("knot" / "knot.stitch"), or from the beginning when null. */
   startAt(path: string | null): Step {
     this.startPoint = path;
-    this.story = this.attach(new Story(this.json));
+    this.story = this.attach(new Story(this.parsed));
     this.log = [];
     this.turnOf = [];
     this.history = [];
@@ -636,6 +641,7 @@ export class PlaySession {
   }
 
   private attach(story: Story): Story {
+    speedUpInkjs(story);
     // Like Inky: an EXTERNAL without a binding falls back to an ink function of the same name.
     story.allowExternalFunctionFallbacks = true;
     story.onError = (message: string) => {
