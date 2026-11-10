@@ -95,3 +95,23 @@ ${generateInk(RECORDS)}
     expect(s.choose(0).paragraphs[0].text).toBe("线索 2:门外的车、一封信。");
   });
 });
+
+describe("when: a resource or record shown only in one mode", () => {
+  test("hidden while the variable is false, 0 or empty; shown once the story turns it on", () => {
+    const fm = { rules: { kind: "sum", dice: [6, 6] }, skills: [{ id: "wits" }], characters: [{ id: "you" }],
+      resources: [{ id: "dusk", min: 0, max: 3, initial: 0, display: "clock", when: "story" }, { id: "hp", min: 0, max: 5, initial: 5 }],
+      records: [{ id: "people", when: "story" }] };
+    const { config, problems } = readConfig(fm);
+    expect(problems).toEqual([]);
+    expect(config?.records).toEqual([{ id: "people", when: "story" }]);
+    expect(readConfig({ ...fm, records: [{ id: "people", when: 1 }] }).problems).toContainEqual({ code: "shape", args: ["records[0]"] });
+    const engine = new GameEngine(config!);
+    const session = new PlaySession(new Compiler(`VAR story = false\n-> main\n${generateInk(config!)}\n=== main ===\n.\n+ [on]\n    ~ story = true\n    -> END\n`).Compile(), { setup: (s) => engine.setup(s, "you") });
+    session.start();
+    expect(engine.hud().resources.map((r) => r.id)).toEqual(["hp"]);
+    expect(engine.hud().records).toEqual([]);
+    session.choose(0);
+    expect(engine.hud().resources.map((r) => r.id)).toEqual(["dusk", "hp"]);
+    expect(engine.hud().records?.map((r) => r.id)).toEqual(["people"]);
+  });
+});
