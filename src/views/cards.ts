@@ -1,4 +1,5 @@
 import { T } from "../i18n";
+import type { Fx } from "../game/config";
 import type { RollRecord } from "../game/engine";
 import type { OracleResult, TrayRoll } from "../play/oracle";
 import type { PlacedAside } from "../play/session";
@@ -89,7 +90,7 @@ export function animateRolls(cards: HTMLElement[]): number[] {
 }
 
 /** Plays the effects of the new lines on the story, one after another. */
-export function playFx(target: HTMLElement, effects: string[]): void {
+export function playFx(target: HTMLElement, effects: Fx[]): void {
   if (effects.length === 0 || stillMotion()) return;
   effects.forEach((fx, i) => {
     const play = () => {
