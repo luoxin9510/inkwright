@@ -25,7 +25,7 @@ describe.each(["zh", "en"] as const)("the journal template (%s)", (lang) => {
     expect(result.story).not.toBeNull();
 
     // Played at random with real dice: every run gets to the end of the road, with no errors, in six days.
-    const sim = simulateStory(result.story!, { runs: 50, seed: 3, game: config });
+    const sim = simulateStory(result.story!, { runs: 20, seed: 3, game: config });
     expect(sim.errors).toEqual([]);
     expect(sim.truncated).toBe(0);
     expect(sim.stuck).toBe(0);

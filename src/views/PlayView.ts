@@ -1,4 +1,4 @@
-import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Keymap, setIcon, type WorkspaceLeaf } from "obsidian";
 import type { Flow } from "../compile/compile";
 import type { Diagnostic } from "../compile/diagnostics";
 import { T, getLanguage } from "../i18n";
@@ -423,7 +423,9 @@ export class PlayView extends ItemView {
       const field: HTMLInputElement | HTMLTextAreaElement | null = variable === null ? null
         : multiline ? choices.createEl("textarea", { cls: "inkwright-input inkwright-write", placeholder: T().writeHere, text: this.typed.get(c.index) ?? "" })
         : choices.createEl("input", { cls: "inkwright-input", type: "text", placeholder: T().typeHere, value: this.typed.get(c.index) ?? "" });
-      const button = choices.createEl("button", { text: ready ? `${c.text} · ${chosen.map((k) => k.name).join(" + ")}` : c.text, cls: "inkwright-choice" });
+      // A [[note]] in a choice shows its text (a button cannot hold a link).
+      const label = withoutLinks(c.text);
+      const button = choices.createEl("button", { text: ready ? `${label} · ${chosen.map((k) => k.name).join(" + ")}` : label, cls: "inkwright-choice" });
       const check = s.game?.checks[i] ?? null;
       if (check) this.renderCheck(button, check, s.game);
       const needs = s.game?.needs[i] ?? [];
@@ -532,10 +534,15 @@ export class PlayView extends ItemView {
         continue;
       }
       const a = para.createEl("a", { cls: "internal-link", text: part.text, attr: { "data-href": target, href: target } });
-      a.onclick = (e) => {
+      // Opened as links in notes are: a click here, Ctrl/Cmd (or a middle click) a new tab, Ctrl/Cmd+Alt a split.
+      const open = (e: MouseEvent) => {
         e.preventDefault();
-        void this.app.workspace.openLinkText(target, sourcePath, e.ctrlKey || e.metaKey);
+        void this.app.workspace.openLinkText(target, sourcePath, e.button === 1 ? "tab" : Keymap.isModEvent(e));
       };
+      a.onclick = open;
+      a.addEventListener("auxclick", (e) => {
+        if (e.button === 1) open(e);
+      });
       a.addEventListener("mouseover", (event) => {
         this.app.workspace.trigger("hover-link", { event, source: PLAY_VIEW_TYPE, hoverParent: this, targetEl: a, linktext: target, sourcePath });
       });

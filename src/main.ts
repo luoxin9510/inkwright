@@ -406,19 +406,39 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   async newJournalGame(folder: string = T().templateFolder): Promise<{ path: string | null }> {
     const vault = this.app.vault;
     const base = normalizePath(folder.trim() || T().templateFolder);
+    // A folder inside the vault, with names a file system takes.
+    if (base.split("/").some((part) => part === "" || part === "." || part === ".." || /[\\:*?"<>|]/.test(part))) {
+      new Notice(T().templateBadFolder(folder));
+      return { path: null };
+    }
     let dir = base;
     for (let n = 2; vault.getAbstractFileByPath(dir); n++) dir = `${base} ${n}`;
     const t = journalTemplate(getLanguage() === "en" ? "en" : "zh", dir.slice(dir.lastIndexOf("/") + 1));
     // Read from the text just made: the metadata cache has not seen the note yet.
     const config = readConfig(splitNote(t.files["game.md"], parseYaml).frontmatter).config;
-    if (!config) return { path: null };
-    let made = "";
-    for (const part of dir.split("/")) {
-      made = made === "" ? part : `${made}/${part}`;
-      if (!vault.getAbstractFileByPath(made)) await vault.createFolder(made);
+    if (!config) {
+      new Notice(T().templateFailed("game.md"));
+      return { path: null };
     }
-    for (const [name, text] of Object.entries(t.files)) await vault.create(`${dir}/${name}`, text);
-    await vault.create(`${dir}/${engineFile(config)}`, generateInk(config));
+    // Folders made here, deepest last: on a failure the new game's own folder goes to the trash, so no half-made game is left.
+    const made: string[] = [];
+    try {
+      let at = "";
+      for (const part of dir.split("/")) {
+        at = at === "" ? part : `${at}/${part}`;
+        if (!vault.getAbstractFileByPath(at)) {
+          await vault.createFolder(at);
+          made.push(at);
+        }
+      }
+      for (const [name, text] of Object.entries(t.files)) await vault.create(`${dir}/${name}`, text);
+      await vault.create(`${dir}/${engineFile(config)}`, generateInk(config));
+    } catch (e) {
+      const first = made[0] === undefined ? null : vault.getAbstractFileByPath(made[0]);
+      if (first) await this.app.fileManager.trashFile(first).catch(() => undefined);
+      new Notice(T().templateFailed(e instanceof Error ? e.message : String(e)));
+      return { path: null };
+    }
     const main = vault.getAbstractFileByPath(`${dir}/main.ink`);
     if (main instanceof TFile) await this.app.workspace.getLeaf("tab").openFile(main);
     await this.openPlay();
