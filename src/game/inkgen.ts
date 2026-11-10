@@ -580,12 +580,6 @@ function entityInk(config: GameConfig): string[] {
   ];
 }
 
-/**
- * Records (solo PRD §4.5): one string VAR per record holding its entries and a counter VAR; the pure
- * EXTERNALs on a store (the engine escapes; the fallback joins with a plain ";"), and wrappers that take the
- * record's id as a string. A pick rolls through the dice EXTERNAL with the label "record:<id>", so it follows the
- * run's seed and shows as a roll; without the engine it reads the whole store.
- */
 /** Levels (RPG PRD §4.4): the level, the experience the next one needs, whether it can be taken, taking it. */
 function levelInk(config: GameConfig): string[] {
   const n = inkNames(config);
@@ -690,6 +684,12 @@ function statusInk(config: GameConfig): string[] {
   ];
 }
 
+/**
+ * Records (solo PRD §4.5): one string VAR per record holding its entries and a counter VAR; the pure
+ * EXTERNALs on a store (the engine escapes; the fallback joins with a plain ";"), and wrappers that take the
+ * record's id as a string. A pick rolls through the dice EXTERNAL with the label "record:<id>", so it follows the
+ * run's seed and shows as a roll; without the engine it reads the whole store.
+ */
 function recordInk(config: GameConfig): string[] {
   const n = inkNames(config);
   const records = config.records ?? [];

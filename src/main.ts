@@ -90,9 +90,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     now: () => new Date(),
     wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
     replayBudget: Platform.isMobile ? 10000 : 5000,
-    afterMove: () => {
-      this.liveJournal();
-      this.sheetAfterMove();
+    afterMove: () => this.liveJournal(),
+    // A line tagged #sheet among the text a choice produced writes the character sheet, that line as the epilogue.
+    afterChoose: (paragraphs) => {
+      const line = paragraphs.find((p) => p.tags.some((t) => t.trim() === "sheet"));
+      if (line) void this.saveSheet(line.text);
     },
     // A journal begun earlier gets what was played since it was last written (the app was closed before it could be).
     afterResume: () => {
@@ -544,26 +546,6 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   }
 
   /**
-   * The live journal (solo PRD §4.7): appends what was done since it was last written to the run's journal note
-   * (made on the first move, in player mode or once a choice was made). Only appended, never rewritten; the
-   * run records how far it got, so a write that did not happen (the app closed) is made up for next time.
-   */
-  /** Choices already looked at for a `#sheet` line, per session (a back lowers it without writing). */
-  private sheetSeen = new WeakMap<object, number>();
-
-  /** After a choice: a line tagged `#sheet` among the text it produced writes the character sheet, with that line as the epilogue. */
-  private sheetAfterMove(): void {
-    const session = this.runs.session;
-    if (!session || !this.runs.game) return;
-    const made = session.choicesMade.length, seen = this.sheetSeen.get(session) ?? made;
-    this.sheetSeen.set(session, made);
-    if (made <= seen) return;
-    const from = session.lastChoice?.at ?? session.log.length;
-    const line = session.log.slice(from).find((p) => p.tags.some((t) => t.trim() === "sheet"));
-    if (line) void this.saveSheet(line.text);
-  }
-
-  /**
    * Writes the character being played as a sheet note (RPG PRD §4.6) into the game's `sheets` folder (relative to the
    * story's folder; default 角色/Characters): frontmatter replaced, the body kept, this adventure's epilogue added.
    */
@@ -599,6 +581,11 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { path };
   }
 
+  /**
+   * The live journal (solo PRD §4.7): appends what was done since it was last written to the run's journal note
+   * (made on the first move, in player mode or once a choice was made). Only appended, never rewritten; the
+   * run records how far it got, so a write that did not happen (the app closed) is made up for next time.
+   */
   private liveJournal(): void {
     const session = this.runs.session, root = this.runs.root;
     const live = this.runs.game?.config.journal?.live ?? this.config.liveJournal ?? false;

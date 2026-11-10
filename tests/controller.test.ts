@@ -32,6 +32,8 @@ interface Rig {
   settings: { playerMode: boolean };
   /** How many times a run read from the folder replayed all the way. */
   resumed: { count: number };
+  /** The text each choice the player took produced (afterChoose). */
+  chosen: string[][];
 }
 
 function rig(fs = new MemoryFiles(), device = "A", playerMode = false): Rig {
@@ -40,6 +42,7 @@ function rig(fs = new MemoryFiles(), device = "A", playerMode = false): Rig {
   const settings = { playerMode };
   let t = Date.parse("2026-11-10T10:00:00Z");
   const resumed = { count: 0 };
+  const chosen: string[][] = [];
   const host: RunHost = {
     store: () => store,
     playerMode: () => settings.playerMode,
@@ -50,8 +53,9 @@ function rig(fs = new MemoryFiles(), device = "A", playerMode = false): Rig {
     wait: () => Promise.resolve(),
     replayBudget: 5000,
     afterResume: () => resumed.count++,
+    afterChoose: (paragraphs) => chosen.push(paragraphs.map((p) => p.text.trim())),
   };
-  return { run: new RunController(host), fs, notes, settings, resumed };
+  return { run: new RunController(host), fs, notes, settings, resumed, chosen };
 }
 
 /** Waits for a replay under way, then for the writes queued. */
@@ -78,6 +82,22 @@ describe("run controller", () => {
     expect(text(run)).toContain("At the fork.");
     const draft = await new RunStore(fs, { folder: "存档", device: "B", sync: "icloud" }).read(ROOT, "draft");
     expect(draft?.actions.map((a) => ("text" in a ? a.text : a.kind))).toEqual(["Go", "Left"]);
+  });
+
+  test("afterChoose gets the text of each choice the player takes, and nothing on back or when a run is picked up again", async () => {
+    const a = rig();
+    await a.run.compiledVersion(ROOT, version(source()), []);
+    a.run.choose(0);
+    a.run.choose(0);
+    a.run.back();
+    await idle(a.run);
+    expect(a.chosen).toEqual([["At the fork."], ["Near the end."]]);
+    const b = rig(a.fs);
+    await b.run.compiledVersion(ROOT, version(source()), []);
+    await idle(b.run);
+    expect(b.chosen).toEqual([]);
+    b.run.choose(0);
+    expect(b.chosen).toEqual([["Near the end."]]);
   });
 
   test("a story opened again picks the run up where it was", async () => {

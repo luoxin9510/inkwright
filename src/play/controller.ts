@@ -7,7 +7,7 @@ import { T, getLanguage } from "../i18n";
 import { inputOf, inputPayload } from "./input";
 import { askOracle, oracleRules, rollTray, type Odds } from "./oracle";
 import { newRun, replayActions, stepAt, withTaken, type Run } from "./run";
-import { PlaySession, type Chosen, type Payload, type ReplayAction, type Step } from "./session";
+import { PlaySession, type Chosen, type Paragraph, type Payload, type ReplayAction, type Step } from "./session";
 import type { RunStore } from "./store";
 
 /** A compiled story with the engine for its game note, and a hash of both: one version of a story. */
@@ -66,6 +66,8 @@ export interface RunHost {
   afterMove?(): void;
   /** A run read from the save folder replayed all the way (nothing stopped it): the live journal catches up. */
   afterResume?(): void;
+  /** After the player took a choice (not a replay, back or load), with the text it produced: `#sheet` lines. */
+  afterChoose?(paragraphs: readonly Paragraph[]): void;
 }
 
 /**
@@ -273,8 +275,10 @@ export class RunController {
         payload = p;
       }
     }
-    this.apply(this.session.choose(index, payload));
+    const step = this.session.choose(index, payload);
+    this.apply(step);
     this.persist();
+    this.host.afterChoose?.(step.paragraphs);
   }
 
   /** Takes back the latest thing done: a choice, or a question or roll on the dice tray. */
