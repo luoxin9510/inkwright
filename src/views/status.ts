@@ -145,15 +145,41 @@ function renderParty(el: HTMLElement, party: NonNullable<GameView["hud"]["party"
     const card = row.createDiv({ cls: ["inkwright-party-member", ...(m.down ? ["inkwright-party-down"] : [])] });
     card.createDiv({ cls: "inkwright-party-who", text: m.name });
     if (m.title) card.createDiv({ cls: "inkwright-party-title", text: m.title });
-    for (const st of m.stats) {
-      const line = card.createDiv({ cls: "inkwright-party-stat" });
-      line.createSpan({ cls: "inkwright-party-stat-name", text: st.name });
-      if (st.max !== undefined) renderBar(line, st.max > 0 ? st.value / st.max : 0);
-      line.createSpan({ cls: "inkwright-party-stat-value", text: st.max !== undefined ? `${st.value}/${st.max}` : String(st.value) });
-    }
+    for (const st of m.stats) statLine(card, st);
     if (m.gear && m.gear.length > 0) {
       const gear = card.createDiv({ cls: "inkwright-party-gear" });
       for (const item of m.gear) gear.createSpan({ cls: "inkwright-item", text: item.name, ...(item.desc ? { title: item.desc } : {}) });
+    }
+  }
+}
+
+/** A stat on a card: its name, a bar when it has a maximum, the value. */
+function statLine(card: HTMLElement, st: { name: string; value: number; max?: number }): void {
+  const line = card.createDiv({ cls: "inkwright-party-stat" });
+  line.createSpan({ cls: "inkwright-party-stat-name", text: st.name });
+  if (st.max !== undefined) renderBar(line, st.max > 0 ? st.value / st.max : 0);
+  line.createSpan({ cls: "inkwright-party-stat-value", text: st.max !== undefined ? `${st.value}/${st.max}` : String(st.value) });
+}
+
+/**
+ * The entities in play (RPG PRD §4.1), one row of cards per kind that has any, between the text and the choices:
+ * the foes the choices are about. Each kind folds (a phone has little room); `folded` holds the folded kinds.
+ */
+export function renderKinds(el: HTMLElement, kinds: NonNullable<GameView["hud"]["kinds"]>, folded: Set<string>): void {
+  for (const k of kinds) {
+    if (k.entities.length === 0) continue;
+    const box = el.createEl("details", { cls: "inkwright-kind" });
+    box.open = !folded.has(k.id);
+    box.addEventListener("toggle", () => {
+      if (box.open) folded.delete(k.id);
+      else folded.add(k.id);
+    });
+    box.createEl("summary", { text: `${k.name} · ${k.entities.length}` });
+    const row = box.createDiv({ cls: "inkwright-party-members" });
+    for (const e of k.entities) {
+      const card = row.createDiv({ cls: ["inkwright-party-member", ...(e.down ? ["inkwright-party-down"] : [])] });
+      card.createDiv({ cls: "inkwright-party-who", text: e.name });
+      for (const st of e.stats) statLine(card, st);
     }
   }
 }

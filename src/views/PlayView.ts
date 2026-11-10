@@ -12,7 +12,7 @@ import type { ChoiceCheck, ChoiceNeed, ChoicePlay, HandView, HudView, GridView, 
 import { fxOf } from "../game/config";
 import { describeStop, noteText, pickHint } from "../play/describe";
 import { animateRolls, playFx, renderAside, renderRoll } from "./cards";
-import { renderDiceLog, renderDungeon, renderHud, renderMap } from "./status";
+import { renderDiceLog, renderDungeon, renderHud, renderKinds, renderMap } from "./status";
 
 /** What the game mode adds to the panel; null when the story is a plain story. */
 export interface GameView {
@@ -132,6 +132,8 @@ export class PlayView extends ItemView {
   private state: PlayState | null = null;
   private inspectorOpen = false;
   private savesOpen = false;
+  /** Kinds of entities folded away (by kind id); kept across redraws. */
+  private foldedKinds = new Set<string>();
   /** The save whose name is being edited in the list. */
   private renaming: string | null = null;
   private diceOpen = false;
@@ -400,6 +402,8 @@ export class PlayView extends ItemView {
     // How many cards a choice on screen takes from each hand, so its row lets that many be picked.
     const most: Record<string, number> = {};
     for (const p of s.game?.plays ?? []) if (p) most[p.hand] = Math.max(most[p.hand] ?? 1, p.max);
+    // The entities in play (foes, summons) sit right above the choices that are about them.
+    if (s.game?.hud.kinds) renderKinds(main, s.game.hud.kinds, this.foldedKinds);
     if (s.game && hands.length > 0) this.renderHands(main, hands, s.game.cardImages, most);
 
     // Picking a saved run up: the text grows as it replays; there is nothing to choose until it is done.

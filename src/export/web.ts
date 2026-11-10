@@ -528,6 +528,15 @@ const PLAYER = `(function () {
         if (m.down) hudEl.lastChild.className = "down";
       });
     }
+    // The entities in play (foes, summons): a line each, under their kind.
+    (h.kinds || []).forEach(function (k) {
+      if (!k.entities.length) return;
+      line(k.name, String(k.entities.length));
+      k.entities.forEach(function (e) {
+        line(e.name, e.stats.map(function (st) { return st.name + " " + st.value + (st.max !== undefined ? "/" + st.max : ""); }).join(" · "));
+        if (e.down) hudEl.lastChild.className = "down";
+      });
+    });
   }
 
   function renderDice() {
