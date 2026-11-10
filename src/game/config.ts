@@ -846,6 +846,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
       for (const id of m.items ?? []) if (!itemIds.has(id)) bad("unknownItem", m.id, id);
     }
   }
+  const templates = new Set<string>();
   for (const k of config.kinds ?? []) {
     ident(k.id);
     ident(`${k.id}${inkNames(config).serialSuffix}`);
@@ -859,9 +860,10 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
     if (k.down !== undefined && !stats.has(k.down)) bad("kindStat", k.id, k.down);
     if (k.remove !== undefined && !stats.has(k.remove)) bad("kindStat", k.id, k.remove);
     if (k.templates.length === 0) bad("list", `kinds.${k.id}.templates`);
-    const templates = new Set<string>();
     for (const t of k.templates) {
-      // Entity ids are a template id and a number: an identifier, so the store needs no escaping.
+      // Entity ids are a template id, `_` and a number: an identifier, so the store needs no escaping, and the
+      // number after the last `_` is the serial, so two templates of a kind never make the same id. The id
+      // functions take an id alone, so a template belongs to one kind (`templates` spans every kind).
       if (!IDENT.test(t.id)) bad("ident", t.id);
       if (templates.has(t.id)) bad("duplicate", t.id);
       templates.add(t.id);

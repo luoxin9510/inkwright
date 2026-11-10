@@ -347,7 +347,7 @@ function entityInk(config: GameConfig): string[] {
     `~ temp ${n.tempEntity} = ""`,
     ...byKind((id) => [
       `~ ${id}${n.serialSuffix} = ${id}${n.serialSuffix} + 1`,
-      `~ ${n.tempEntity} = ${tp} + ${id}${n.serialSuffix}`,
+      `~ ${n.tempEntity} = ${tp} + "_" + ${id}${n.serialSuffix}`,
       `~ ${id} = ${n.entSpawn}(${id}, "${id}", ${tp}, ${n.tempEntity})`,
       `{ ${n.entHas}(${id}, ${n.tempEntity}):`, `    ~ return ${n.tempEntity}`, "}",
     ]),

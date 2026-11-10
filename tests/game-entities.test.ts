@@ -89,9 +89,9 @@ describe("entities", () => {
     expect(step.choices.map((c) => c.text)).toEqual(["Hit Goblin 1", "Run"]);
     expect(engine.hud().kinds).toEqual([{
       id: "foe", name: "Foes", entities: [
-        { id: "goblin1", template: "goblin", name: "Goblin 1", stats: [{ id: "life", name: "Life", value: 2, max: 2 }, { id: "attack", name: "Attack", value: 1 }], down: false },
-        { id: "goblin2", template: "goblin", name: "Goblin 2", stats: [{ id: "life", name: "Life", value: 2, max: 2 }, { id: "attack", name: "Attack", value: 1 }], down: false },
-        { id: "orc3", template: "orc", name: "Orc", stats: [{ id: "life", name: "Life", value: 4, max: 4 }, { id: "attack", name: "Attack", value: 2 }], down: false },
+        { id: "goblin_1", template: "goblin", name: "Goblin 1", stats: [{ id: "life", name: "Life", value: 2, max: 2 }, { id: "attack", name: "Attack", value: 1 }], down: false },
+        { id: "goblin_2", template: "goblin", name: "Goblin 2", stats: [{ id: "life", name: "Life", value: 2, max: 2 }, { id: "attack", name: "Attack", value: 1 }], down: false },
+        { id: "orc_3", template: "orc", name: "Orc", stats: [{ id: "life", name: "Life", value: 4, max: 4 }, { id: "attack", name: "Attack", value: 2 }], down: false },
       ],
     }]);
     step = s.choose(0);
@@ -102,7 +102,7 @@ describe("entities", () => {
     expect(engine.hud().kinds?.[0].entities).toEqual([]);
     // Back puts the last one back, with the life it had.
     s.undo();
-    expect(engine.hud().kinds?.[0].entities.map((e) => [e.id, e.stats[0].value])).toEqual([["orc3", 2]]);
+    expect(engine.hud().kinds?.[0].entities.map((e) => [e.id, e.stats[0].value])).toEqual([["orc_3", 2]]);
   });
 
   test("without the engine the story still compiles and runs: nothing is spawned", () => {
@@ -119,9 +119,34 @@ describe("entities", () => {
       return { text: s.log[0].text, roll: engine.rolls.at(-1) };
     };
     const a = pick();
-    expect(a.text).toMatch(/^Picked (goblin1|orc2|goblin3)\.$/);
+    expect(a.text).toMatch(/^Picked (goblin_1|orc_2|goblin_3)\.$/);
     expect(pick().text).toBe(a.text);
     expect(a.roll).toMatchObject({ kind: "dice", formula: "1d3" });
+  });
+
+  test("entity ids never collide: a separator before the serial, template ids unique across kinds", () => {
+    // Two kinds may not share a template: the id functions take an id alone.
+    const twice = { ...GAME, kinds: [GAME.kinds![0], { id: "ally", stats: [{ id: "life" }], templates: [{ id: "goblin" }] }] };
+    expect(validateConfig(twice)).toContainEqual({ code: "duplicate", args: ["goblin"] });
+    // `goblin` + 11 and `goblin1` + 1 were the same id before the separator.
+    const near = readConfig({ ...FM, kinds: [{ ...FM.kinds[0], templates: [{ id: "goblin", stats: { life: 1 } }, { id: "goblin1", stats: { life: 1 } }] }] }).config as GameConfig;
+    expect(validateConfig(near)).toEqual([]);
+    const src = `-> start
+${generateInk(near)}
+=== start ===
+~ temp a = spawn("foe", "goblin1")
+~ temp i = 0
+~ temp last = ""
+- (loop)
+~ i += 1
+~ last = spawn("foe", "goblin")
+{ i < 10: -> loop }
+{alive("foe")} {a} {last}
+-> END
+`;
+    const s = play(src, new GameEngine(near));
+    s.start();
+    expect(s.log.at(-1)?.text).toBe("11 goblin1_1 goblin_11");
   });
 
   test("the zh ink names", () => {
