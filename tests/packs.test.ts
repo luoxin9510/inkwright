@@ -15,8 +15,11 @@ describe("new games on a pack", () => {
     expect(relativePath("a", "a")).toBe(".");
   });
 
-  test("the bundled packs are listed with their names; dungeon-crawl is one", () => {
+  test("the bundled packs are listed with their names", () => {
     const zh = packList(packs, "zh", fm);
+    expect(zh.map((p) => p.id)).toEqual(["dungeon-crawl", "narrative-check", "turn-battle"]);
+    expect(zh.find((p) => p.id === "turn-battle")).toMatchObject({ name: "回合战斗", version: "1.0" });
+    expect(packList(packs, "en", fm).find((p) => p.id === "narrative-check")?.name).toBe("Narrative checks");
     expect(zh.find((p) => p.id === "dungeon-crawl")).toMatchObject({ name: "地城爬行", version: "1.1" });
     expect(packList(packs, "en", fm).find((p) => p.id === "dungeon-crawl")?.name).toBe("Dungeon crawl");
     // The template's generated engine is not bundled: the plugin generates it.

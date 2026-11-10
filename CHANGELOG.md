@@ -4,6 +4,7 @@ Release notes for each version; the GitHub release carries the same text and the
 
 ## Unreleased
 
+- Two more rule packs (RPG R6), both in "New game". **Turn battle**: a knight, a mage and a cleric against a band of foes, everyone acting once a round by speed; attacks, arts (shield bash stuns, fireball hits every foe, mend heals and cures), guarding, potions, poison and stun; the story spawns the foes and calls `-> battle ->`, then reads `battle_result`. **Narrative checks**: the rules of the dorm horror game *302* (2d6 checks on choices, six difficulties, five skills that speak as inner voices, fear and stamina, companions' fear and trust, fear lowering reason) plus `clamp()`; a game adds its own characters, resources and items.
 - Levels and campaigns (RPG R5). `levels: { resource: xp, at: [0, 4, 10] }` gives the story `level`, `next_level_at()`, `level_up_ready()` and `level_up()`; the status bar shows the level and marks when one can be taken. Perks are ordinary items. A line tagged `#sheet` (or the command "Save character sheet", `api.saveSheet()`) writes the character being played as a note in the game's `sheets:` folder: its frontmatter is a `characters` entry (skills, items, what is worn, counts, level, resources, statuses), its body gets the adventure's epilogue. The next adventure reads such notes with `characters: { from: ../角色 }`. Characters written in `game.md` can also set `equipped`, `level`, `resources` and `statuses`.
 
 ## 0.6.0 — 2026-11-10
