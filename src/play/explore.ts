@@ -64,6 +64,8 @@ export interface ExploreResult {
   steps: number;
   /** Spots reached in more states than statesPerSpot; the extra states were not played on. */
   cappedSpots: number;
+  /** Choices that take several cards at once, played as a sample (each card alone, the most at once), not every combination. */
+  sampled: string[];
   /** What the exploration got to. */
   coverage: Coverage;
   /**
@@ -173,7 +175,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     names.recordAdd, names.recordRemove, names.recordCount, names.recordPick, names.recordList] : []);
   shape.places = shape.places.filter((p) => !engineCode.has(p.path.split(".")[0]));
   const result: ExploreResult = {
-    endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0,
+    endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0, sampled: [],
     coverage: { places: { total: shape.places.length, reached: [], missed: [] }, choices: { total: shape.choices.length, offered: 0, taken: 0, missed: [] } },
   };
   if (engine) result.checks = { walked: 0, noConsequence: [], unknownNeeds: [], unknownHands: [], lockedOut: [], outOfRange: [] };
@@ -216,6 +218,7 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
           return payload ? [{ ...base, payload, label: `${choice.text} ▸ ${card.name}` }] : [];
         })
         : [];
+      if (play.max > 1 && !result.sampled.includes(choice.text)) result.sampled.push(choice.text);
       const many = play.cards.slice(0, play.max);
       if (many.length >= Math.max(2, play.min)) {
         const payload = engine.playPayload(play.hand, many.map((c) => c.id), play);

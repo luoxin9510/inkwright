@@ -168,7 +168,7 @@ Export:
   generateEngine(path?) game mode: write the engine ink (variables, character presets, check fallback, dice and
                        tables) from the story's game.md next to it (default _engine.ink) -> { ok, path, problems[] }
   journal()            write the panel's run so far (text, choices, rolls) as a markdown note; the path comes from
-                       game.md's journal.path (default {dir}日志/{date} {time}.md) -> { ok, path }
+                       game.md's journal.path (default {dir}日志/{date} {time}.md, {dir}Journal/… in English) -> { ok, path }
 
 CLI example:
   obsidian vault=ink-games eval code='app.plugins.plugins.inkwright.api.play("游戏/雨夜来客/main.ink",{choices:[1,"油灯"]}).then(JSON.stringify)'`;
@@ -204,7 +204,7 @@ export class InkwrightApi {
     const diagnostics = plainDiagnostics(r.diagnostics);
     if (!r.story) {
       return {
-        ok: false, diagnostics, endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0,
+        ok: false, diagnostics, endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0, sampled: [],
         coverage: { places: { total: 0, reached: [], missed: [] }, choices: { total: 0, offered: 0, taken: 0, missed: [] } },
       };
     }

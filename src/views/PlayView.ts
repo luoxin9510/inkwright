@@ -67,8 +67,8 @@ export interface PlayState {
   replay?: { done: number; total: number } | null;
   /** Why the panel stopped short of where the run had got to; null when it did not. */
   stopped?: { reason: "mismatch" | "error" | "budget" | "start" | "character" | "chosen"; step: number; pending: number; detail?: string; older?: boolean } | null;
-  /** What the replay noticed without stopping: steps found by a guess, the first step (1-based) whose outcome changed. */
-  note?: { guesses: number; drift: number | null } | null;
+  /** What the replay noticed without stopping: steps found by a guess, hand changes skipped (their variable is gone), the first step (1-based) whose outcome changed. */
+  note?: { guesses: number; skipped: number; drift: number | null } | null;
   /** Playing an older version of the story (from before an edit); null when playing the newest. */
   frozen?: { at: string } | null;
   /** Player mode: the author's controls are out of the way, and edits to the story wait until applied. */
@@ -567,7 +567,7 @@ export class PlayView extends ItemView {
   private renderNote(el: HTMLElement, n: NonNullable<PlayState["note"]>): void {
     const t = T();
     const note = el.createDiv({ cls: "inkwright-run-note inkwright-stopped" });
-    const parts = [n.guesses > 0 ? t.guessed(n.guesses) : "", n.drift !== null ? t.drifted(n.drift) : ""].filter(Boolean);
+    const parts = [n.guesses > 0 ? t.guessed(n.guesses) : "", n.skipped > 0 ? t.skippedChanges(n.skipped) : "", n.drift !== null ? t.drifted(n.drift) : ""].filter(Boolean);
     note.createSpan({ text: parts.join(" ") });
     const buttons = note.createDiv({ cls: "inkwright-run-note-buttons" });
     if (n.drift !== null) buttons.createEl("button", { text: t.stopAt(n.drift) }).onclick = () => this.controller.stopAtDrift();
@@ -970,7 +970,23 @@ export class PlayView extends ItemView {
       info.createDiv({ text: slot.name });
       info.createDiv({ cls: "inkwright-save-time", text: new Date(slot.savedAt).toLocaleString(getLanguage() === "zh" ? "zh-CN" : "en") });
       row.createEl("button", { text: T().load }).onclick = () => this.controller.loadGame(slot.id);
-      row.createEl("button", { text: T().delete }).onclick = () => void this.controller.deleteSave(slot.id);
+      // A save cannot be got back: the first tap asks, a second within a few seconds deletes.
+      const del = row.createEl("button", { text: T().delete });
+      let armed = false;
+      del.onclick = () => {
+        if (armed) {
+          void this.controller.deleteSave(slot.id);
+          return;
+        }
+        armed = true;
+        del.setText(T().confirmDelete);
+        del.addClass("mod-warning");
+        window.setTimeout(() => {
+          armed = false;
+          del.setText(T().delete);
+          del.removeClass("mod-warning");
+        }, 3000);
+      };
     }
   }
 }
