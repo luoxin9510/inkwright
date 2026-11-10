@@ -73,7 +73,7 @@ describe("run controller", () => {
     await idle(run);
     expect(text(run)).toContain("At the fork.");
     const draft = await new RunStore(fs, { folder: "存档", device: "B", sync: "icloud" }).read(ROOT, "draft");
-    expect(draft?.actions.map((a) => a.text)).toEqual(["Go", "Left"]);
+    expect(draft?.actions.map((a) => ("text" in a ? a.text : a.kind))).toEqual(["Go", "Left"]);
   });
 
   test("a story opened again picks the run up where it was", async () => {
@@ -98,7 +98,7 @@ describe("run controller", () => {
     await idle(run);
     expect(run.last?.choices.map((c) => c.text)).toEqual(["Left", "Right"]);
     const draft = await new RunStore(fs, { folder: "存档", device: "A", sync: "icloud" }).read(ROOT, "draft");
-    expect(draft?.actions.map((a) => a.text)).toEqual(["Go"]);
+    expect(draft?.actions.map((a) => ("text" in a ? a.text : a.kind))).toEqual(["Go"]);
   });
 
   test("an edit that removes a choice taken stops the run there, without touching the saved run", async () => {

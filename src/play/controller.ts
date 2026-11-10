@@ -97,8 +97,9 @@ export class RunController {
   frozen: { story: string; hash: string; createdAt: string } | null = null;
   /** Saved runs of the current story (not the draft), for the saves list. */
   saves: SaveInfo[] = [];
+  /** The story's start points (knots and stitches), from the latest compile. */
+  flows: Flow[] = [];
 
-  private flows: Flow[] = [];
   /** The compiled story the session plays, so a run can be restarted or loaded without compiling again. */
   private compiled: Story | null = null;
   private replayAbort: AbortController | null = null;
@@ -214,6 +215,11 @@ export class RunController {
   /** Queues work after the writes queued so far (the live journal's). */
   enqueue(task: () => Promise<void>): void {
     this.writing = this.writing.then(task);
+  }
+
+  /** Writes the run again as it is (to a save folder that just changed). */
+  rewrite(): void {
+    if (this.run) this.writeRun();
   }
 
   /** Records how far the live journal got (and where), and writes the run with it. */
