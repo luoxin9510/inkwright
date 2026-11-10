@@ -160,6 +160,15 @@ for (const file of files) {
         notes.push(`${tag}  deck ${d.deck}${d.name !== d.deck ? ` (${d.name})` : ""}: ${d.draws} draw(s), ${per(d.perRun)}${drawn.length ? ` — ${list(drawn, 20)}` : ""}${never.length && d.draws > 0 ? `; never drawn: ${list(never)}` : ""}`);
       }
       for (const c of x.checks ?? []) notes.push(`${tag}  check ${c.skill} ${c.difficulty}: ${c.count} roll(s), ${pct(c.success * c.count, c.count)} success`);
+      for (const k of x.kinds ?? []) {
+        const came = k.templates.filter((t) => t.spawned > 0).map((t) => {
+          const fate = [t.removed > 0 ? `${t.removed} out after ~${Math.round(t.turns * 10) / 10} choices` : "", t.left > 0 ? `${t.left} left at the end` : ""].filter(Boolean);
+          return `${t.name} ${t.spawned} (${fate.join(", ")})`;
+        });
+        const never = k.templates.filter((t) => t.spawned === 0).map((t) => t.name);
+        notes.push(`${tag}  kind ${k.kind}${k.name !== k.kind ? ` (${k.name})` : ""}: ${came.length ? list(came, 20) : "none spawned"}${never.length && came.length ? `; never spawned: ${list(never)}` : ""}; most at once ${range(k.most)}`);
+        if (k.overMax > 0) warnings.push(`${tag}kind ${k.kind}: ${k.overMax} entity stat(s) went above their max in random runs`);
+      }
     }
   }
   const bad = problems.some((d) => d.severity === "error") || runtime.length > 0;

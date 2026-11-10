@@ -1,4 +1,4 @@
-import { tokenId, type Modifier, type RulesConfig } from "./dice";
+import { parseFormula, tokenId, type Modifier, type RulesConfig } from "./dice";
 import { shapeProblem, type DungeonDef, type ShapeDef } from "./dungeon";
 import { tableProblems } from "./tables";
 
@@ -88,6 +88,12 @@ export interface TableRow {
   text: LocalizedText;
   /** For stories that branch on the row: `table_id("encounter", total)`. */
   id?: string;
+  /** A template (of any kind) this row spawns with `spawn_from("encounter")` (RPG PRD §4.1). */
+  spawn?: string;
+  /** How many it spawns: a number or a dice formula (`d3`, `d6+1`); default 1. */
+  count?: number | string;
+  /** Stats the spawned entities start with instead of the template's (only those given). */
+  stats?: Record<string, number>;
 }
 
 /**
@@ -475,6 +481,14 @@ export interface InkNames {
   entStoreParam: string;
   tempEntity: string;
   tempPickNo: string;
+  /** Table rows that spawn: `spawn_from(table)` rolls and spawns, `spawn_row(table, total)` spawns a total's row; the rest are helpers. */
+  /** The kind name the party answers to in `alive`, `pick_one` and `nth_one` (its standing members). */
+  partyKind: string;
+  spawnFrom: string;
+  spawnRow: string;
+  spawnRowOne: string;
+  spawnTimes: string;
+  tempRowNo: string;
   /** Party: prefixes of each member's title (text) and gear (an items list) VARs: `title_m1`, `gear_m1`. */
   partyTitle: string;
   partyGear: string;
@@ -507,7 +521,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     partyTitle: "title", partyGear: "gear",
     entSpawn: "ent_spawn", entHas: "ent_has", entGet: "ent_get", entSet: "ent_set", entDrop: "ent_drop", entCount: "ent_count", entAt: "ent_at", entPick: "ent_pick", entName: "ent_name",
     spawn: "spawn", stat: "stat", setStat: "set_stat", addStat: "add_stat", despawn: "despawn", alive: "alive", pickOne: "pick_one", nthOne: "nth_one", nameOf: "name_of",
-    serialSuffix: "_n", kindParam: "kind", entityParam: "who_id", statParam: "stat_id", amountParam: "amount", howParam: "how", templateParam: "template", entStoreParam: "kind_store", tempEntity: "new_id", tempPickNo: "pick_no",
+    serialSuffix: "_n", kindParam: "kind", entityParam: "who_id", statParam: "stat_id", amountParam: "amount", howParam: "how", templateParam: "template", entStoreParam: "kind_store", tempEntity: "new_id", tempPickNo: "pick_no", partyKind: "party", spawnFrom: "spawn_from", spawnRow: "spawn_row", spawnRowOne: "spawn_row_one", spawnTimes: "spawn_times", tempRowNo: "row_no",
     recordAdd: "record_add", recordRemove: "record_remove", recordCount: "record_count", recordPick: "record_pick", recordList: "record_list",
     recordJoin: "record_join", recordDrop: "record_drop", recordSize: "record_size", recordAt: "record_at", recordText: "record_text",
     countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no", tempCard: "drawn_card", tempBefore: "rooms_before",
@@ -529,7 +543,7 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     partyTitle: "称号", partyGear: "装备",
     entSpawn: "实体_生成", entHas: "实体_有", entGet: "实体_取", entSet: "实体_存", entDrop: "实体_去", entCount: "实体_数", entAt: "实体_第几", entPick: "实体_挑", entName: "实体_名",
     spawn: "生成", stat: "属性", setStat: "设属性", addStat: "加属性", despawn: "移除", alive: "剩几个", pickOne: "挑一个", nthOne: "第几个", nameOf: "名字",
-    serialSuffix: "_号", kindParam: "种类", entityParam: "实体", statParam: "属性名", amountParam: "数值", howParam: "挑法", templateParam: "模板", entStoreParam: "种类存储", tempEntity: "新编号", tempPickNo: "抽到第几",
+    serialSuffix: "_号", kindParam: "种类", entityParam: "实体", statParam: "属性名", amountParam: "数值", howParam: "挑法", templateParam: "模板", entStoreParam: "种类存储", tempEntity: "新编号", tempPickNo: "抽到第几", partyKind: "小队", spawnFrom: "按表生成", spawnRow: "按行生成", spawnRowOne: "按行生成一个", spawnTimes: "生成几次", tempRowNo: "行号",
     recordAdd: "记录_加", recordRemove: "记录_删", recordCount: "记录_数", recordPick: "记录_抽", recordList: "记录_列",
     recordJoin: "记录_并", recordDrop: "记录_去", recordSize: "记录_长", recordAt: "记录_取", recordText: "记录_文",
     countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条", tempCard: "抽出的牌", tempBefore: "原房数",
@@ -718,7 +732,7 @@ export const CONFIG_PROBLEM_CODES = [
   "resourceRange", "difficulty", "unknownSkill", "skillLevel", "unknownCompanionResource", "modifierSkill", "modifierStep", "languages",
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
-  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat",
+  "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat", "rowSpawn",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -846,7 +860,8 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
       for (const id of m.items ?? []) if (!itemIds.has(id)) bad("unknownItem", m.id, id);
     }
   }
-  const templates = new Set<string>();
+  // Each template's kind's stats: a template belongs to one kind.
+  const templates = new Map<string, Set<string>>();
   for (const k of config.kinds ?? []) {
     ident(k.id);
     ident(`${k.id}${inkNames(config).serialSuffix}`);
@@ -866,9 +881,29 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
       // functions take an id alone, so a template belongs to one kind (`templates` spans every kind).
       if (!IDENT.test(t.id)) bad("ident", t.id);
       if (templates.has(t.id)) bad("duplicate", t.id);
-      templates.add(t.id);
+      templates.set(t.id, stats);
       for (const id of Object.keys(t.stats ?? {})) if (!stats.has(id)) bad("kindStat", t.id, id);
     }
+  }
+  // With kinds, party members answer the entity functions by id and the party by the kind name `party`:
+  // a member id must not read like a spawned id (`<template>_<n>`), and no kind may take the party's name.
+  if (config.kinds?.length && config.party) {
+    const partyKind = inkNames(config).partyKind;
+    if (config.kinds.some((k) => k.id === partyKind)) bad("duplicate", partyKind);
+    for (const m of config.party.members) {
+      const at = m.id.lastIndexOf("_");
+      if (at > 0 && /^\d+$/.test(m.id.slice(at + 1)) && templates.has(m.id.slice(0, at))) bad("duplicate", m.id);
+    }
+  }
+  // Table rows that spawn: a template some kind has, stats of that kind, a count that is a number or a formula.
+  for (const t of config.tables ?? []) {
+    (t.rows ?? []).forEach((r, i) => {
+      if (r.spawn === undefined) return;
+      const stats = templates.get(r.spawn);
+      if (!stats) return bad("rowSpawn", t.id, i + 1, r.spawn);
+      for (const id of Object.keys(r.stats ?? {})) if (!stats.has(id)) bad("kindStat", r.spawn, id);
+      if (typeof r.count === "string" && !parseFormula(r.count)) bad("rowSpawn", t.id, i + 1, r.count);
+    });
   }
   // Companion resources only exist as `<resource>_<character>` variables, so their ids may
   // repeat a resource id (fear for the player and for each companion); the generated names
@@ -887,7 +922,7 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   // Temps of the deck and dungeon functions are reserved with those.
   const tempNames = [...(config.decks?.length ? [] : ["tempCard"]), ...(config.dungeon ? [] : ["tempBefore"])];
   const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
-  const entityNames = ["entSpawn", "entHas", "entGet", "entSet", "entDrop", "entCount", "entAt", "entPick", "entName", "spawn", "stat", "setStat", "addStat", "despawn", "alive", "pickOne", "nthOne", "nameOf", "kindParam", "entityParam", "statParam", "amountParam", "howParam", "templateParam", "entStoreParam", "tempEntity", "tempPickNo"];
+  const entityNames = ["entSpawn", "entHas", "entGet", "entSet", "entDrop", "entCount", "entAt", "entPick", "entName", "spawn", "stat", "setStat", "addStat", "despawn", "alive", "pickOne", "nthOne", "nameOf", "kindParam", "entityParam", "statParam", "amountParam", "howParam", "templateParam", "entStoreParam", "tempEntity", "tempPickNo", "spawnFrom", "spawnRow", "spawnRowOne", "spawnTimes", "tempRowNo"];
   const unused = new Set(["pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", ...(config.kinds?.length ? [] : entityNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
@@ -1131,11 +1166,17 @@ function readTable(e: Record<string, unknown>): TableDef {
   if (e.oracle === true) t.oracle = true;
   if (Array.isArray(e.rows)) {
     t.rows = (e.rows as Record<string, unknown>[]).map((r) => {
-      const row: TableRow = { text: isText(r.text) ? r.text : Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== "range" && k !== "id" && isStr(v))) as Record<string, string> };
+      const own = new Set(["range", "id", "spawn", "count"]);
+      const row: TableRow = { text: isText(r.text) ? r.text : Object.fromEntries(Object.entries(r).filter(([k, v]) => !own.has(k) && isStr(v))) as Record<string, string> };
       const range = scalarText(r.range);
       if (range !== undefined) row.range = range;
       const id = scalarText(r.id);
       if (id !== undefined) row.id = id;
+      const spawn = scalarText(r.spawn);
+      if (spawn !== undefined) row.spawn = spawn;
+      if (isNum(r.count)) row.count = Number(r.count);
+      else if (isStr(r.count)) row.count = r.count;
+      if (isObj(r.stats)) row.stats = Object.fromEntries(Object.entries(r.stats).filter(([, v]) => isNum(v)).map(([k, v]) => [k, Number(v)]));
       return row;
     });
   }
