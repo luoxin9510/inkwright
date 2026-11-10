@@ -1,0 +1,12 @@
+{
+  "rule": "an unedited story replays every choice where it was",
+  "choices": [
+    "Right"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "You take Right."
+  }
+}

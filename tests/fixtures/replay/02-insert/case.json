@@ -1,0 +1,12 @@
+{
+  "rule": "a choice inserted before the one taken: found by its text at its new place",
+  "choices": [
+    "Right"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "You take Right."
+  }
+}

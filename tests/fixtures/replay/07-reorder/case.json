@@ -1,0 +1,12 @@
+{
+  "rule": "choices swapped: the one taken is found by its text",
+  "choices": [
+    "Left"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "You take Left."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rule": "a bilingual story played in zh, only the English wording changed: replayed in zh with no guess",
+  "choices": [
+    "向右"
+  ],
+  "language": "zh",
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "你向右走。"
+  }
+}

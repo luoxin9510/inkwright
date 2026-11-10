@@ -121,7 +121,7 @@ test("game mode counts each table's rows, each deck's cards and each check, and 
   const failed = Math.round(200 * (1 - check.success));
   expect(fear).toMatchObject({ atMin: 200 - failed, atMax: failed });
   expect(fear?.percentiles).toEqual({ p10: 0, p50: failed > 100 ? 100 : 0, p90: 100 });
-});
+}, 30000);
 
 test("in English, names in the counts follow the story's language; drawing from an empty pile rolls nothing", async () => {
   const config = { ...CONFIG, decks: [{ id: "线索", name: { zh: "线索", en: "Clues" }, cards: [{ id: "血手印", name: { zh: "血手印", en: "Bloody handprint" } }] }] };

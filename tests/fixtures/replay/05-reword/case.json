@@ -1,0 +1,14 @@
+{
+  "rule": "the one choice reworded on an otherwise unchanged screen: found by a guess",
+  "choices": [
+    "Open the door"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [
+      0
+    ],
+    "last": "You take Push the door open."
+  }
+}
