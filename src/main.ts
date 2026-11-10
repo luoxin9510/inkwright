@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, stringifyYaml, type App, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, requestUrl, stringifyYaml, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -20,7 +20,8 @@ import { folderOf, storyName } from "./paths";
 import { engineFile, localize, playableCharacters, readConfig, type CharacterDef, type ConfigProblem, type GameConfig } from "./game/config";
 import { splitNote } from "./game/frontmatter";
 import { journalTemplate } from "./templates/journal";
-import { packGame, packList } from "./templates/packs";
+import { packGame, packList, type PackBundle } from "./templates/packs";
+import { PACK_SOURCE, downloadPack, indexText, packFiles, parseIndex, type IndexEntry } from "./templates/install";
 import { joinPath, withSystem } from "./game/system";
 import { sheetName, sheetNote } from "./game/sheet";
 import PACKS from "virtual:packs";
@@ -135,7 +136,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "toggle-player-mode", name: T().togglePlayerMode, callback: () => this.togglePlayerMode() });
     this.addCommand({ id: "export-run", name: T().exportRun, callback: () => void this.exportRun() });
     this.addCommand({ id: "import-run", name: T().importRun, callback: () => this.pickRunToImport() });
-    this.addCommand({ id: "new-game", name: T().newGame, callback: () => this.pickNewGame() });
+    this.addCommand({ id: "new-game", name: T().newGame, callback: () => void this.pickNewGame() });
+    this.addCommand({ id: "install-pack", name: T().installPack, callback: () => void this.pickPackToInstall() });
     this.addCommand({ id: "save-sheet", name: T().saveSheet, callback: () => void this.saveSheet() });
     this.addCommand({ id: "new-journal-game", name: T().newJournalGame, callback: () => new FolderModal(this.app, T().templateFolder, (f) => void this.newJournalGame(f)).open() });
 
@@ -428,29 +430,136 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     });
   }
 
+  /** The vault's packs folders, under either language's name (the current one first). */
+  private packsFolders(): string[] {
+    return [...new Set([T().packsFolder, stringsFor("zh").packsFolder, stringsFor("en").packsFolder])];
+  }
+
+  /** Where pack `id` is installed (the folder holding its system.md), or null. */
+  private installedPackDir(id: string): string | null {
+    const dirs = this.packsFolders().map((f) => normalizePath(`${f}/${id}`));
+    return dirs.find((d) => this.app.vault.getAbstractFileByPath(`${d}/system.md`) instanceof TFile) ?? null;
+  }
+
   /**
-   * A new game: `pack` null = the journal template, else a bundled rule-system pack (RPG PRD §5). The pack goes to
-   * `<packs folder>/<id>/` unless a copy is there already (the author may have changed it), the pack's template to the
-   * new folder with `system:` pointing at the pack, and the engine is generated.
+   * The packs to make games from: the bundled ones, and those installed in the vault (by "Install rule pack" or by
+   * hand) whose system.md lists a template; an installed copy with a template wins over the bundled one, since it is
+   * what the game will use.
    */
-  newGame(pack: string | null = null, folder?: string): Promise<{ path: string | null }> {
+  private async packBundle(): Promise<PackBundle> {
+    const out: PackBundle = { ...PACKS };
+    for (const folder of this.packsFolders()) {
+      const root = this.app.vault.getAbstractFileByPath(normalizePath(folder));
+      if (!(root instanceof TFolder)) continue;
+      for (const child of root.children) {
+        if (!(child instanceof TFolder)) continue;
+        const system = await this.readFile(`${child.path}/system.md`).catch(() => null);
+        const list = system === null ? null : packFiles(splitNote(system, parseYaml).frontmatter);
+        if (system === null || !list || !list.includes("template/game.md")) continue;
+        const files: Record<string, string> = { "system.md": system };
+        for (const path of list.slice(1)) {
+          const text = await this.readFile(`${child.path}/${path}`).catch(() => null);
+          if (text !== null) files[path] = text;
+        }
+        if (files["template/game.md"] !== undefined) out[child.name] = files;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * A new game: `pack` null = the journal template, else a rule-system pack (bundled or installed; RPG PRD §5). The
+   * pack goes to `<packs folder>/<id>/` unless a copy is there already (the author may have changed it), the pack's
+   * template to the new folder with `system:` pointing at the pack, and the engine is generated.
+   */
+  async newGame(pack: string | null = null, folder?: string): Promise<{ path: string | null }> {
     if (pack === null) return this.newJournalGame(folder);
-    const info = packList(PACKS, getLanguage(), (t) => splitNote(t, parseYaml).frontmatter).find((p) => p.id === pack);
+    const bundle = await this.packBundle();
+    const info = packList(bundle, getLanguage(), (t) => splitNote(t, parseYaml).frontmatter).find((p) => p.id === pack);
     if (!info) {
       new Notice(T().packUnknown(pack));
-      return Promise.resolve({ path: null });
+      return { path: null };
     }
     // A copy already installed (under either language's folder name) is used as it is; a file of the pack that is
     // missing from it is written, one that is there is left alone.
     const vault = this.app.vault;
-    const dirs = [...new Set([T().packsFolder, stringsFor("zh").packsFolder, stringsFor("en").packsFolder])].map((f) => normalizePath(`${f}/${pack}`));
-    const packDir = dirs.find((d) => vault.getAbstractFileByPath(`${d}/system.md`) instanceof TFile) ?? normalizePath(`${T().packsFolder}/${pack}`);
+    const packDir = this.installedPackDir(pack) ?? normalizePath(`${T().packsFolder}/${pack}`);
     return this.createGame(folder ?? info.name, info.name, (dir) => {
-      const out = packGame(PACKS, pack, packDir, dir);
+      const out = packGame(bundle, pack, packDir, dir);
       if (!out) return null;
       const missing = Object.entries(out.pack).filter(([p]) => !vault.getAbstractFileByPath(p));
       return { ...Object.fromEntries(missing), ...out.game };
     });
+  }
+
+  /** The packs offered for download (`systems/index.json` of the public games repo), or null when it cannot be read. */
+  async availablePacks(source = PACK_SOURCE): Promise<IndexEntry[] | null> {
+    try {
+      const index = parseIndex((await requestUrl({ url: `${source.replace(/\/?$/, "/")}index.json` })).text);
+      return index.length > 0 ? index : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Installs pack `id` from `source` into `<packs folder>/<id>/` (the installed copy's folder when there is one):
+   * after the player says yes (`ask`), system.md and every file it lists are downloaded, then written over the files
+   * of the same name; other files in the folder are left alone. Nothing is written when any download fails.
+   */
+  async installPack(id: string, options: { ask?: boolean; source?: string } = {}): Promise<{ path: string | null }> {
+    const source = options.source ?? PACK_SOURCE;
+    const dir = this.installedPackDir(id) ?? normalizePath(`${T().packsFolder}/${id}`);
+    if (options.ask !== false) {
+      const have = await this.readFile(`${dir}/system.md`).then((t) => {
+        const v = (splitNote(t, parseYaml).frontmatter as { version?: unknown } | null)?.version;
+        return typeof v === "string" || typeof v === "number" ? String(v) : "?";
+      }, () => null);
+      const yes = await new Promise<boolean>((done) => new ConfirmModal(this.app, T().packInstallTitle(id), T().packInstallConfirm(`${source.replace(/\/?$/, "/")}${id}/`, dir, have), T().install, done).open());
+      if (!yes) return { path: null };
+    }
+    const got = await downloadPack(async (url) => (await requestUrl({ url })).text, source, id, (t) => splitNote(t, parseYaml).frontmatter);
+    if (!got.ok) {
+      new Notice(T().packDownloadFailed(id, got.detail));
+      return { path: null };
+    }
+    const vault = this.app.vault;
+    try {
+      for (const [rel, text] of Object.entries(got.files)) {
+        const path = normalizePath(`${dir}/${rel}`);
+        let at = "";
+        for (const part of path.split("/").slice(0, -1)) {
+          at = at === "" ? part : `${at}/${part}`;
+          if (!vault.getAbstractFileByPath(at)) await vault.createFolder(at);
+        }
+        const file = vault.getAbstractFileByPath(path);
+        if (file instanceof TFile) await vault.modify(file, text);
+        else await vault.create(path, text);
+      }
+    } catch (e) {
+      new Notice(T().packDownloadFailed(id, e instanceof Error ? e.message : String(e)));
+      return { path: null };
+    }
+    new Notice(T().packInstalled(dir, got.version));
+    return { path: dir };
+  }
+
+  /** The install picker: the packs on offer, each with the version installed (if any), then the confirmation. */
+  private async pickPackToInstall(): Promise<void> {
+    const index = await this.availablePacks();
+    if (!index) {
+      new Notice(T().packIndexFailed);
+      return;
+    }
+    const lang = getLanguage();
+    const options = await Promise.all(index.map(async (e) => {
+      const dir = this.installedPackDir(e.id);
+      const sys = dir ? await this.readFile(`${dir}/system.md`).catch(() => null) : null;
+      const v = sys === null ? undefined : (splitNote(sys, parseYaml).frontmatter as { version?: unknown } | null)?.version;
+      const { name, description } = indexText(e, lang);
+      return { id: e.id, text: `${name} ${e.version}${sys === null ? "" : ` (${T().packHave(typeof v === "string" || typeof v === "number" ? String(v) : "?")})`}${description ? ` — ${description}` : ""}` };
+    }));
+    new PackPickModal(this.app, options, (id) => void this.installPack(id)).open();
   }
 
   /**
@@ -512,12 +621,12 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     return { path: `${dir}/main.ink` };
   }
 
-  /** The new-game picker: the journal template or a bundled pack, then the folder. */
-  private pickNewGame(): void {
+  /** The new-game picker: the journal template or a pack (bundled or installed), then the folder. */
+  private async pickNewGame(): Promise<void> {
     const lang = getLanguage();
     const options: NewGameOption[] = [
       { pack: null, name: T().newGameJournal, description: T().newGameJournalDesc, folder: T().templateFolder },
-      ...packList(PACKS, lang, (t) => splitNote(t, parseYaml).frontmatter).map((p) => ({ pack: p.id, name: p.name, description: p.description, folder: p.name })),
+      ...packList(await this.packBundle(), lang, (t) => splitNote(t, parseYaml).frontmatter).map((p) => ({ pack: p.id, name: p.name, description: p.description, folder: p.name })),
     ];
     new NewGameModal(this.app, options, (o) => new FolderModal(this.app, o.folder, (f) => void this.newGame(o.pack, f)).open()).open();
   }
@@ -1156,6 +1265,52 @@ class NewGameModal extends FuzzySuggestModal<NewGameOption> {
 
   onChooseItem(o: NewGameOption): void {
     this.onPick(o);
+  }
+}
+
+/** Picks a pack to install (id + the line shown). */
+class PackPickModal extends FuzzySuggestModal<{ id: string; text: string }> {
+  constructor(app: App, private readonly options: { id: string; text: string }[], private readonly onPick: (id: string) => void) {
+    super(app);
+    this.setPlaceholder(T().packPick);
+  }
+
+  getItems(): { id: string; text: string }[] {
+    return this.options;
+  }
+
+  getItemText(o: { id: string; text: string }): string {
+    return o.text;
+  }
+
+  onChooseItem(o: { id: string; text: string }): void {
+    this.onPick(o.id);
+  }
+}
+
+/** Asks before something is done: `done(true)` on the button, `done(false)` when closed any other way. */
+class ConfirmModal extends Modal {
+  private answered = false;
+
+  constructor(app: App, private readonly heading: string, private readonly text: string, private readonly button: string, private readonly done: (yes: boolean) => void) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.setTitle(this.heading);
+    this.contentEl.createEl("p", { text: this.text });
+    new Setting(this.contentEl)
+      .addButton((b) => b.setButtonText(T().cancel).onClick(() => this.close()))
+      .addButton((b) => b.setButtonText(this.button).setCta().onClick(() => {
+        this.answered = true;
+        this.close();
+        this.done(true);
+      }));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.answered) this.done(false);
   }
 }
 

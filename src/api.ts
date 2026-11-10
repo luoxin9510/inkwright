@@ -46,6 +46,8 @@ export interface ApiHost {
   importRun(path: string): Promise<{ id: string; name: string } | null>;
   newJournalGame(folder?: string): Promise<{ path: string | null }>;
   newGame(pack: string | null, folder?: string): Promise<{ path: string | null }>;
+  availablePacks(): Promise<{ id: string; version: string }[] | null>;
+  installPack(id: string, options?: { ask?: boolean }): Promise<{ path: string | null }>;
   saveSheet(epilogue?: string): Promise<{ path: string | null }>;
 }
 
@@ -168,9 +170,12 @@ Visible play panel (the user sees what you do):
   importRun(path)      import an exported run file as a save of the current story -> { id, name } | null
   newJournalGame(folder?)  make a solo journal game from the template in a new folder (default: 旅途日记 / Road journal,
                        numbered when taken), open its main.ink and the panel -> { path } (the main.ink)
-  newGame(pack, folder?)  a game on a bundled rule-system pack ("dungeon-crawl"; null = the journal template): the pack
+  newGame(pack, folder?)  a game on a rule-system pack, bundled or installed ("dungeon-crawl"; null = the journal template): the pack
                        goes to 规则包/<id> / Rule packs/<id> unless already there, its template to the new folder (default:
                        the pack's name), system: pointing at the pack, engine generated -> { path }
+  availablePacks()      the rule packs on offer for download (systems/index.json of luoxin9510/ink-games) -> [{ id, version, name, description }] | null
+  installPack(id, { ask? })  download a pack into 规则包/<id> / Rule packs/<id> (the installed copy's folder if any): asks the
+                       player first unless ask is false, overwrites files of the same names -> { path } | { path: null }
   saveSheet(epilogue?)  game mode: write the character being played as a sheet note in the game's sheets folder
                        (default 角色/Characters next to the story); a line tagged #sheet does it after a choice -> { path }
 
@@ -355,6 +360,14 @@ export class InkwrightApi {
 
   newGame(pack: string | null = null, folder?: string): Promise<{ path: string | null }> {
     return this.host.newGame(pack, folder);
+  }
+
+  availablePacks(): Promise<{ id: string; version: string }[] | null> {
+    return this.host.availablePacks();
+  }
+
+  installPack(id: string, options: { ask?: boolean } = {}): Promise<{ path: string | null }> {
+    return this.host.installPack(id, options);
   }
 
   saveSheet(epilogue?: string): Promise<{ path: string | null }> {

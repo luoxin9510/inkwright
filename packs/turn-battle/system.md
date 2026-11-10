@@ -1,5 +1,7 @@
 ---
 version: "1.0"
+# The pack's files besides this note, for "Install rule pack".
+files: [rules.ink, template/game.md, template/main.ink, 说明.md]
 pack:
   name: { zh: 回合战斗, en: Turn battle }
   description: { zh: "三人小队对一群敌人,按速度轮流出手(攻击、技能、防御、药水,中毒和眩晕)", en: "A party of three against a band of foes, taking turns by speed (attacks, arts, guarding, potions, poison and stun)" }

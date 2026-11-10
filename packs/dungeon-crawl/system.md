@@ -1,5 +1,7 @@
 ---
 version: "1.1"
+# The pack's files besides this note, for "Install rule pack".
+files: [rules.ink, template/game.md, template/main.ink, 说明.md]
 pack:
   name: { zh: 地城爬行, en: Dungeon crawl }
   description: { zh: "四人小队一间一间往下走,最深处是深渊督军(2d6 战斗、火把、药水)", en: "A crew of four goes down room by room to the pit warlord (2d6 fights, torches, potions)" }
