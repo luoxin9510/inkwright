@@ -1,0 +1,12 @@
+{
+  "rule": "a choice inside a condition, another conditional choice added before it: found by its text",
+  "choices": [
+    "Unlock the cellar"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "The cellar opens."
+  }
+}

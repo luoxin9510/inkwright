@@ -1,0 +1,12 @@
+{
+  "rule": "another choice deleted: the one taken is found by its text",
+  "choices": [
+    "Right"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "You take Right."
+  }
+}

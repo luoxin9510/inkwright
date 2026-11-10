@@ -1,0 +1,12 @@
+{
+  "rule": "two choices with the same text, story unchanged: taken at its index",
+  "choices": [
+    "Wait"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "You wait by the first."
+  }
+}

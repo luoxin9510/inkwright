@@ -1,0 +1,12 @@
+{
+  "rule": "two choices reworded on the same screen: no guess, the replay stops",
+  "choices": [
+    "Open the door"
+  ],
+  "expect": {
+    "done": 0,
+    "stop": "mismatch",
+    "guesses": [],
+    "last": "At the fork."
+  }
+}
