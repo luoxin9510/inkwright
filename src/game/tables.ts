@@ -171,12 +171,15 @@ export function parseMarkdownTable(md: string): { header: string[]; rows: string
 
 const RANGE_HEADERS = new Set(["range", "roll", "dice", "d", "范围", "骰", "骰子", "点数", "掷"]);
 const ID_HEADERS = new Set(["id", "编号"]);
+const SPAWN_HEADERS = new Set(["spawn", "生成"]);
+const COUNT_HEADERS = new Set(["count", "数量"]);
 
 /**
  * Rows from a note's markdown table. The range column is the one headed `range`/`roll`/`骰`… or by a
  * formula (`1d6`, `d66`: that becomes the table's dice), else the first column when every cell in it
  * is a range. Text comes from the columns headed by the game's language codes (`zh`, `en`), else
- * from the first other column; an `id` column gives each row an id. Null when the note has no table.
+ * from the first other column; an `id` column gives each row an id, `spawn`/`count` columns the template a row
+ * spawns and how many (RPG PRD §4.1). Null when the note has no table.
  */
 export function rowsFromMarkdown(md: string, languages: string[]): { rows: TableRow[]; dice?: string } | null {
   const table = parseMarkdownTable(md);
@@ -185,8 +188,10 @@ export function rowsFromMarkdown(md: string, languages: string[]): { rows: Table
   let rangeCol = header.findIndex((h) => RANGE_HEADERS.has(h) || parseFormula(h) !== null);
   if (rangeCol < 0 && table.rows.length > 0 && table.rows.every((r) => parseRange(r[0]) !== null)) rangeCol = 0;
   const idCol = header.findIndex((h) => ID_HEADERS.has(h));
+  const spawnCol = header.findIndex((h) => SPAWN_HEADERS.has(h));
+  const countCol = header.findIndex((h) => COUNT_HEADERS.has(h));
   const langCols = languages.map((l) => header.indexOf(l.toLowerCase())).filter((i) => i >= 0);
-  const textCol = header.findIndex((_, i) => i !== rangeCol && i !== idCol);
+  const textCol = header.findIndex((_, i) => i !== rangeCol && i !== idCol && i !== spawnCol && i !== countCol);
   if (langCols.length === 0 && textCol < 0) return null;
   const rows: TableRow[] = table.rows.map((cells) => {
     const text: LocalizedText = langCols.length > 0
@@ -195,6 +200,9 @@ export function rowsFromMarkdown(md: string, languages: string[]): { rows: Table
     const row: TableRow = { text };
     if (rangeCol >= 0 && cells[rangeCol] !== undefined && cells[rangeCol] !== "") row.range = cells[rangeCol];
     if (idCol >= 0 && cells[idCol]) row.id = cells[idCol];
+    if (spawnCol >= 0 && cells[spawnCol]) row.spawn = cells[spawnCol];
+    const count = countCol >= 0 ? (cells[countCol] ?? "").trim() : "";
+    if (count !== "") row.count = /^\d+$/.test(count) ? Number(count) : count;
     return row;
   });
   const dice = rangeCol >= 0 && parseFormula(table.header[rangeCol]) !== null ? table.header[rangeCol].trim() : undefined;

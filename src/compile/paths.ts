@@ -1,8 +1,12 @@
+/**
+ * A path with `.` and `x/..` folded away. A `..` past the start is kept (`../packs/x` from a story at the root of
+ * the folder being checked): dropping it would quietly read some other file; kept, the read fails and says so.
+ */
 export function normalizePath(p: string): string {
   const out: string[] = [];
   for (const seg of p.replace(/\\/g, "/").split("/")) {
     if (seg === "" || seg === ".") continue;
-    if (seg === "..") out.pop();
+    if (seg === ".." && out.length > 0 && out[out.length - 1] !== "..") out.pop();
     else out.push(seg);
   }
   return out.join("/");

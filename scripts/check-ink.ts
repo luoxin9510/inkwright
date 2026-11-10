@@ -1,5 +1,5 @@
 // Compile every .ink file under a folder (each as its own main story) and
-// auto-play the first choice repeatedly (files INCLUDEd by another are skipped), reporting compile and runtime problems.
+// auto-play the first choice repeatedly (files INCLUDEd by another, and the ink of a rule-system pack, are skipped), reporting compile and runtime problems.
 // With --all, play every branch instead (breadth-first) and list the endings reached, what was never
 // reached (knots, choices) and resources that left their range; --lang zh|en picks the language of a
 // bilingual story. A story with a game note (game.md) next to it is explored in game mode, once per
@@ -23,8 +23,12 @@ import { simulateStory, type Spread } from "../src/play/simulate";
 
 async function inkFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
-  for (const e of await readdir(dir, { withFileTypes: true })) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  // A rule-system pack's folder (it has a system.md): its ink is INCLUDEd by the games on it, never played alone.
+  const pack = entries.some((e) => e.isFile() && e.name === "system.md");
+  for (const e of entries) {
     if (e.name.startsWith(".")) continue;
+    if (pack && e.isFile()) continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) out.push(...(await inkFiles(p)));
     else if (e.name.endsWith(".ink")) out.push(p);

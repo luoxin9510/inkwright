@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 import { engineBundle } from "./scripts/engine-bundle.mjs";
+import { packsBundle } from "./scripts/packs-bundle.mjs";
 
 export default defineConfig({
   plugins: [{
@@ -14,6 +15,10 @@ export default defineConfig({
     name: "game-engine",
     resolveId: (id) => (id === "virtual:game-engine" ? "\0game-engine" : null),
     load: async (id) => (id === "\0game-engine" ? `export default ${JSON.stringify(await engineBundle())};` : null),
+  }, {
+    name: "packs",
+    resolveId: (id) => (id === "virtual:packs" ? "\0packs" : null),
+    load: (id) => (id === "\0packs" ? `export default ${JSON.stringify(packsBundle())};` : null),
   }],
   test: { include: ["tests/**/*.test.ts"], environment: "node" },
 });

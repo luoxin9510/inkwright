@@ -8,6 +8,11 @@ describe("resolveInclude", () => {
   test("collapses .. segments", () => {
     expect(resolveInclude("stories/main.ink", "../shared.ink")).toBe("shared.ink");
   });
+  test("a pack's rules, INCLUDEd by a game's engine from a folder above the game's", () => {
+    expect(resolveInclude("游戏/地城/main.ink", "../../规则包/dungeon-crawl/rules.ink")).toBe("规则包/dungeon-crawl/rules.ink");
+    // Above the vault's top (a story checked from a sub-folder on disk): the leading .. stays.
+    expect(resolveInclude("cave/main.ink", "../../packs/crawl/rules.ink")).toBe("../packs/crawl/rules.ink");
+  });
   test("root at vault top level", () => {
     expect(resolveInclude("main.ink", "a.ink")).toBe("a.ink");
   });

@@ -45,6 +45,7 @@ export interface ApiHost {
   exportRun(): Promise<{ path: string | null }>;
   importRun(path: string): Promise<{ id: string; name: string } | null>;
   newJournalGame(folder?: string): Promise<{ path: string | null }>;
+  newGame(pack: string | null, folder?: string): Promise<{ path: string | null }>;
 }
 
 export interface ApiDiagnostic {
@@ -166,6 +167,9 @@ Visible play panel (the user sees what you do):
   importRun(path)      import an exported run file as a save of the current story -> { id, name } | null
   newJournalGame(folder?)  make a solo journal game from the template in a new folder (default: 旅途日记 / Road journal,
                        numbered when taken), open its main.ink and the panel -> { path } (the main.ink)
+  newGame(pack, folder?)  a game on a bundled rule-system pack ("dungeon-crawl"; null = the journal template): the pack
+                       goes to 规则包/<id> / Rule packs/<id> unless already there, its template to the new folder (default:
+                       the pack's name), system: pointing at the pack, engine generated -> { path }
 
 Export:
   exportWeb(path?)     write the story as one standalone .html next to it (main.ink -> <folder>.html)
@@ -344,6 +348,10 @@ export class InkwrightApi {
 
   newJournalGame(folder?: string): Promise<{ path: string | null }> {
     return this.host.newJournalGame(folder);
+  }
+
+  newGame(pack: string | null = null, folder?: string): Promise<{ path: string | null }> {
+    return this.host.newGame(pack, folder);
   }
 
   async runs(): Promise<{ id: string; name: string; draft: boolean; updatedAt: string; actions: number; conflictOf?: string }[]> {

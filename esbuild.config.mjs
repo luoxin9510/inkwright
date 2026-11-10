@@ -3,6 +3,7 @@ import { builtinModules } from "node:module";
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { engineBundle } from "./scripts/engine-bundle.mjs";
+import { packsBundle } from "./scripts/packs-bundle.mjs";
 
 const production = process.argv[2] === "production";
 const outDir = process.env.OBSIDIAN_PLUGIN_DIR || ".";
@@ -28,9 +29,18 @@ const gameEngine = {
   },
 };
 
+// The first-party rule-system packs (packs/) for the new-game command (src/templates/packs.ts).
+const packs = {
+  name: "packs",
+  setup(build) {
+    build.onResolve({ filter: /^virtual:packs$/ }, () => ({ path: "packs", namespace: "packs" }));
+    build.onLoad({ filter: /.*/, namespace: "packs" }, () => ({ contents: JSON.stringify(packsBundle()), loader: "json", watchDirs: ["packs"] }));
+  },
+};
+
 const ctx = await esbuild.context({
   entryPoints: ["src/main.ts"],
-  plugins: [inkRuntime, gameEngine],
+  plugins: [inkRuntime, gameEngine, packs],
   bundle: true,
   external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
   format: "cjs",

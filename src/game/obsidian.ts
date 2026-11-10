@@ -3,6 +3,7 @@ import { GAME_NOTE_NAMES, readConfig, type GameConfig, type LoadedConfig } from 
 import type { CardNote } from "./cards";
 import { splitNote } from "./frontmatter";
 import type { ConfigSource } from "./resolve";
+import { withSystem } from "./system";
 import { folderOf } from "../paths";
 
 /** The game note next to a main story, if any. */
@@ -16,11 +17,19 @@ export function findGameNote(app: App, rootPath: string): TFile | null {
 }
 
 /**
- * Reads the GameConfig from the note's frontmatter (via the metadata cache, so it works on
- * mobile and needs no YAML parser). Shape and rule problems come back as data for `T()`.
+ * The config with the rule-system pack the note names (`system:`) layered under it: the pack's `system.md` is read
+ * from the file (parsed with Obsidian's YAML), its `rules.ink` noted for the engine's INCLUDE. `files` are the notes
+ * read, so editing the pack recompiles the game.
  */
-export function loadGameConfig(app: App, note: TFile): LoadedConfig {
-  return readConfig(app.metadataCache.getFileCache(note)?.frontmatter);
+export async function loadGameNote(app: App, note: TFile, read: (path: string) => Promise<string>): Promise<LoadedConfig & { files: string[] }> {
+  // From the file, not the metadata cache: the cache lags behind a note just written (a new game, an edit then
+  // "generate engine" straight away).
+  const text = await read(note.path).catch(() => null);
+  const frontmatter = text === null ? app.metadataCache.getFileCache(note)?.frontmatter : splitNote(text, parseYaml).frontmatter;
+  const sys = await withSystem(frontmatter, folderOf(note.path), (p) => read(p).catch(() => null), parseYaml, splitNote);
+  const r = readConfig(sys.frontmatter);
+  if (r.config && sys.rules) r.config.systemRules = sys.rules;
+  return { config: r.config, problems: [...sys.problems, ...r.problems], files: sys.files };
 }
 
 /**
