@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Notice, Platform, Plugin, TFile, TFolder, moment, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -17,7 +17,9 @@ import { buildWebPage, exportFileName, storyTitle } from "./export/web";
 import { GameEngine } from "./game/engine";
 import { GameFiles, findGameNote, loadGameConfig, vaultConfigSource } from "./game/obsidian";
 import { folderOf, storyName } from "./paths";
-import { engineFile, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
+import { engineFile, localize, playableCharacters, readConfig, type ConfigProblem, type GameConfig } from "./game/config";
+import { splitNote } from "./game/frontmatter";
+import { journalTemplate } from "./templates/journal";
 import { generateInk } from "./game/inkgen";
 import { resolveConfig } from "./game/resolve";
 import { liveBlocks, liveHeader, renderJournal } from "./play/journal";
@@ -103,6 +105,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
     this.registerView(INK_VIEW_TYPE, (leaf) => new InkView(leaf));
     this.registerView(PLAY_VIEW_TYPE, (leaf) => new PlayView(leaf, this));
+    // [[note]] links in the story's text preview their note on hover, as links in a note do.
+    this.registerHoverLinkSource(PLAY_VIEW_TYPE, { display: T().playName, defaultMod: false });
     this.registerView(GRAPH_VIEW_TYPE, (leaf) => new GraphView(leaf, this));
     this.registerExtensions(["ink"], INK_VIEW_TYPE);
 
@@ -119,6 +123,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "toggle-player-mode", name: T().togglePlayerMode, callback: () => this.togglePlayerMode() });
     this.addCommand({ id: "export-run", name: T().exportRun, callback: () => void this.exportRun() });
     this.addCommand({ id: "import-run", name: T().importRun, callback: () => this.pickRunToImport() });
+    this.addCommand({ id: "new-journal-game", name: T().newJournalGame, callback: () => new FolderModal(this.app, T().templateFolder, (f) => void this.newJournalGame(f)).open() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
       // Focusing the play panel itself must not restart the story.
@@ -392,6 +397,33 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     const saved = await this.runs.import(run, file.basename);
     if (saved) new Notice(T().runImported(saved.name));
     return saved;
+  }
+
+  /**
+   * A new solo journal game from the template (solo PRD §4.10): game.md, main.ink, the guide note and the engine
+   * generated from game.md, in a new folder (numbered when the name is taken); then the story and the panel are opened.
+   */
+  async newJournalGame(folder: string = T().templateFolder): Promise<{ path: string | null }> {
+    const vault = this.app.vault;
+    const base = normalizePath(folder.trim() || T().templateFolder);
+    let dir = base;
+    for (let n = 2; vault.getAbstractFileByPath(dir); n++) dir = `${base} ${n}`;
+    const t = journalTemplate(getLanguage() === "en" ? "en" : "zh", dir.slice(dir.lastIndexOf("/") + 1));
+    // Read from the text just made: the metadata cache has not seen the note yet.
+    const config = readConfig(splitNote(t.files["game.md"], parseYaml).frontmatter).config;
+    if (!config) return { path: null };
+    let made = "";
+    for (const part of dir.split("/")) {
+      made = made === "" ? part : `${made}/${part}`;
+      if (!vault.getAbstractFileByPath(made)) await vault.createFolder(made);
+    }
+    for (const [name, text] of Object.entries(t.files)) await vault.create(`${dir}/${name}`, text);
+    await vault.create(`${dir}/${engineFile(config)}`, generateInk(config));
+    const main = vault.getAbstractFileByPath(`${dir}/main.ink`);
+    if (main instanceof TFile) await this.app.workspace.getLeaf("tab").openFile(main);
+    await this.openPlay();
+    new Notice(T().templateCreated(dir));
+    return { path: `${dir}/main.ink` };
   }
 
   private pickRunToImport(): void {
@@ -911,6 +943,35 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
         leaf.view.showState({ graph: this.graph, stale: this.graphStale, visited, startPoint: this.runs.startPoint });
       }
     }
+  }
+}
+
+/** Asks for a folder (prefilled) and hands it on. */
+class FolderModal extends Modal {
+  constructor(app: App, private readonly initial: string, private readonly onPick: (folder: string) => void) {
+    super(app);
+  }
+
+  onOpen(): void {
+    let value = this.initial;
+    const go = () => {
+      this.close();
+      this.onPick(value);
+    };
+    new Setting(this.contentEl).setName(T().templateWhere).addText((text) => {
+      text.setValue(value).onChange((v) => {
+        value = v;
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.isComposing) go();
+      });
+      window.setTimeout(() => text.inputEl.select(), 0);
+    });
+    new Setting(this.contentEl).addButton((b) => b.setButtonText(T().create).setCta().onClick(go));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 
