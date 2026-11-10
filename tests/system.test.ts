@@ -27,6 +27,7 @@ describe("rule-system packs", () => {
   test("the pack goes under the game: lists joined by id (the game's entry wins), anything else the game sets replaces the pack's", () => {
     const pack = {
       version: "2.1",
+      files: ["rules.ink"],
       rules: { kind: "sum", dice: [6, 6] },
       languages: ["zh", "en"],
       skills: [{ id: "might" }, { id: "wits" }],
@@ -38,6 +39,7 @@ describe("rule-system packs", () => {
     const game = { system: "../../packs/crawl", skills: [{ id: "wits", name: "Brains" }, { id: "luck" }], rules: { kind: "rollUnder" }, languages: ["en"] };
     const out = layerSystem(pack, game, "../../packs/crawl");
     expect(out.version).toBeUndefined();
+    expect(out.files).toBeUndefined();
     expect(out.system).toBe("../../packs/crawl");
     expect(out.skills).toEqual([{ id: "might" }, { id: "wits", name: "Brains" }, { id: "luck" }]);
     expect(out.rules).toEqual({ kind: "rollUnder" });

@@ -24,14 +24,14 @@ export function systemRef(fm: unknown): SystemRef | null {
 /**
  * The pack's frontmatter under the game's. Lists whose entries all have an `id` (skills, resources, items, tables,
  * kinds…) are joined by id: the pack's first, a game entry with the same id takes its place, new ones follow. Any
- * other value the game sets (rules, party, a map, languages…) replaces the pack's whole. The pack's own `version`
+ * other value the game sets (rules, party, a map, languages…) replaces the pack's whole. The pack's own `version`, `files`
  * and `pack` (its name and description, for the new-game picker) stay out; the game's `system` stays in. `rel` is the pack's folder seen from the game's: the pack's `from:`
  * notes and pictures are written relative to the pack and are moved to be relative to the game.
  */
 export function layerSystem(pack: Record<string, unknown>, game: Record<string, unknown>, rel: string): Record<string, unknown> {
   const moved = movePaths(pack, rel);
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(moved)) if (k !== "version" && k !== "system" && k !== "pack") out[k] = v;
+  for (const [k, v] of Object.entries(moved)) if (k !== "version" && k !== "system" && k !== "pack" && k !== "files") out[k] = v;
   for (const [k, v] of Object.entries(game)) {
     const mine = out[k];
     out[k] = keyed(mine) && keyed(v) ? joinById(mine, v) : v;

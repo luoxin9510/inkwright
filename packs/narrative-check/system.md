@@ -1,5 +1,7 @@
 ---
 version: "1.0"
+# The pack's files besides this note, for "Install rule pack".
+files: [rules.ink, template/game.md, template/main.ink, 说明.md]
 pack:
   name: { zh: 叙事检定, en: Narrative checks }
   description: { zh: "2d6 + 技能对难度的检定,五种技能各是一个内心的声音,恐惧和体力两条血条,同伴的恐惧和信任", en: "2d6 + skill against a difficulty, five skills that are inner voices, fear and stamina, companions' fear and trust" }

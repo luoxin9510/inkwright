@@ -7,7 +7,8 @@
 // random hero; a foe with venom 1 poisons a hero not yet poisoned instead. Damage = attack + 2d6 - 4 - defence, at
 // least 1; 11 or 12 on the dice is a critical (+2). At the end of a round poison bites (-2) and statuses count down.
 // Everything here works on the game's party (stats hp, mp, atk, def, spd, art, acted) and the "foe" kind (hp, atk,
-// def, spd, venom, acted), so a game may change both in its own game.md.
+// def, spd, venom, acted), so a game may change both in its own game.md. Who is a hero is told by art: every party
+// member needs art 1, 2 or 3; one with art 0 (or none) would act and fall like a foe.
 
 VAR battle_result = ""
 VAR battle_round = 0
