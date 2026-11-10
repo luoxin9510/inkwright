@@ -267,6 +267,9 @@ ${generateInk(game)}
     // A member id that reads like an entity id, or a kind named like the party, would be ambiguous.
     expect(validateConfig({ ...game, party: { ...game.party!, members: [{ id: "goblin_1" }] } })).toContainEqual({ code: "duplicate", args: ["goblin_1"] });
     expect(validateConfig({ ...game, kinds: [{ ...game.kinds![0], id: "party" }] })).toContainEqual({ code: "duplicate", args: ["party"] });
+    // The party's kind name is a string the story passes, not an identifier: a character or resource may be called `party`.
+    expect(validateConfig({ ...game, characters: [{ id: "party", skills: { might: 1 } }] })).toEqual([]);
+    expect(validateConfig({ ...game, kinds: undefined, characters: [{ id: "party", skills: { might: 1 } }] })).toEqual([]);
   });
 
   test("the zh ink names", () => {
