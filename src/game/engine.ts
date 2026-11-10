@@ -493,6 +493,13 @@ export class GameEngine {
     if (this.story) this.story.variablesState[name] = value;
   }
 
+  /** A story value that counts as on: true, a number other than 0, text or a list that is not empty. */
+  private static truthy(v: unknown): boolean {
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v !== 0;
+    return (GameEngine.text(v) ?? "") !== "";
+  }
+
   /** Text form of a story value: ink lists print their items, primitives themselves. */
   private static text(v: unknown): string | null {
     switch (typeof v) {
@@ -661,11 +668,12 @@ export class GameEngine {
       id: r.id, name: name(r), value: Number(this.read(variable) ?? 0), min: r.min, max: r.max,
     });
     const character = this.config.characters.find((c) => c.id === current);
+    const shown = (x: { when?: string }) => x.when === undefined || GameEngine.truthy(this.read(x.when));
     return {
       character: character
         ? { id: character.id, name: name(character), skills: this.config.skills.map((s) => ({ id: s.id, name: name(s), level: Number(this.read(s.id) ?? 0) })) }
         : null,
-      resources: this.config.resources.map((r) => ({ ...view(r, r.id), ...(r.display ? { display: r.display } : {}), ...(r.manual ? { manual: true } : {}) })),
+      resources: this.config.resources.filter(shown).map((r) => ({ ...view(r, r.id), ...(r.display ? { display: r.display } : {}), ...(r.manual ? { manual: true } : {}) })),
       companions: this.config.characters
         .filter((c) => c.id !== current)
         .map((c) => ({ id: c.id, name: name(c), resources: (this.config.companionResources ?? []).map((r) => view(r, `${r.id}_${c.id}`)) })),
@@ -674,7 +682,7 @@ export class GameEngine {
       ...(this.config.hands?.length ? { hands: this.config.hands.map((h) => ({ id: h.id, name: name(h), cards: this.cardsIn(h.id) })) } : {}),
       ...(this.config.party ? { party: this.party(this.config.party) } : {}),
       ...(this.config.turn ? { turn: this.turn(this.config.turn) } : {}),
-      ...(this.config.records?.length ? { records: this.config.records.map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
+      ...(this.config.records?.length ? { records: this.config.records.filter(shown).map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
     };
   }
 

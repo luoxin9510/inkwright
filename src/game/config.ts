@@ -54,6 +54,8 @@ export interface ResourceDef {
   display?: "bar" | "clock" | "track";
   /** The player may change it by hand on the HUD (the player is the game master). */
   manual?: boolean;
+  /** A story variable: shown on the HUD only while it is true, non-zero or not empty (e.g. one mode of a game). */
+  when?: string;
 }
 
 export interface CharacterDef {
@@ -117,6 +119,8 @@ export interface RecordDef {
   /** Also the ink variable holding it; `<id>_count` (InkNames.countSuffix) counts its entries. */
   id: string;
   name?: LocalizedText;
+  /** Like a resource's `when`: shown only while that story variable is true, non-zero or not empty. */
+  when?: string;
 }
 
 /** A card: an item of its deck's LIST, so a hand is a list the story keeps (`~ hand += draw("clues")`). */
@@ -898,7 +902,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     });
   };
   const resource = (e: Record<string, unknown>) => isNum(e.min) && isNum(e.max) && isNum(e.initial) && opt(e.name, isText)
-    && opt(e.display, (v) => v === "bar" || v === "clock" || v === "track") && opt(e.manual, isBool);
+    && opt(e.display, (v) => v === "bar" || v === "clock" || v === "track") && opt(e.manual, isBool) && opt(e.when, isStr);
   const voice = (v: unknown) => isObj(v) && opt(v.stance, isText) && opt(v.color, isStr);
   entries("skills", true, (e) => opt(e.name, isText) && opt(e.max, isNum) && opt(e.voice, voice));
   entries("resources", false, resource);
@@ -911,7 +915,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("decks", false, (e) => opt(e.name, isText) && (isStr(e.from) ? opt(e.cards, (v) => Array.isArray(v) && v.every(card)) : Array.isArray(e.cards) && e.cards.every(card)));
   if (!opt(fm.attributes, (v) => isObj(v) && Object.values(v).every(isText))) shape("attributes");
   entries("hands", false, (e) => opt(e.name, isText));
-  entries("records", false, (e) => opt(e.name, isText));
+  entries("records", false, (e) => opt(e.name, isText) && opt(e.when, isStr));
   if (!opt(fm.turn, (v) => isObj(v) && isStr(v.round) && isStr(v.phase) && Array.isArray(v.phases) && v.phases.every((p: unknown) => isObj(p) && isStr(p.id) && opt(p.name, isText)))) shape("turn");
   // A map drawn from a canvas gets its positions there, so its places need only an id.
   const fromCanvas = isObj(fm.map) && isStr(fm.map.from);
@@ -956,7 +960,7 @@ export function readConfig(fm: unknown): LoadedConfig {
     })),
     hands: (fm.hands ?? []) as HandDef[],
     ...(isObj(fm.turn) ? { turn: { round: String(fm.turn.round), phase: String(fm.turn.phase), phases: (fm.turn.phases as Record<string, unknown>[]).map((p) => ({ id: String(p.id), ...(isText(p.name) ? { name: p.name } : {}) })) } } : {}),
-    ...(Array.isArray(fm.records) && fm.records.length > 0 ? { records: (fm.records as Record<string, unknown>[]).map((e) => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}) })) } : {}),
+    ...(Array.isArray(fm.records) && fm.records.length > 0 ? { records: (fm.records as Record<string, unknown>[]).map((e) => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}), ...(isStr(e.when) ? { when: e.when } : {}) })) } : {}),
     map: isObj(fm.map) ? readMap(fm.map) : undefined,
     dungeon: isObj(fm.dungeon) ? readDungeon(fm.dungeon) : undefined,
     party: isObj(fm.party) ? readParty(fm.party) : undefined,
