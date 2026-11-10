@@ -101,6 +101,7 @@
 /* inkwright: saves */
 .inkwright-save-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .inkwright-save-info { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.inkwright-save-rename { width: 100%; }
 .inkwright-save-time { font-size: var(--font-smaller); color: var(--text-faint); }
 .inkwright-bar button:disabled { opacity: 0.4; }
 .inkwright-bar-pinned { position: sticky; top: 0; z-index: 2; margin: -12px 0 12px; padding: 12px 0 8px; background: var(--background-primary); box-shadow: 0 6px 6px -6px var(--background-modifier-box-shadow); }
@@ -132,6 +133,8 @@
 .inkwright-hud-bar { flex: 1; height: 6px; background: var(--background-modifier-border); border-radius: 3px; overflow: hidden; }
 .inkwright-hud-fill { height: 100%; background: var(--interactive-accent); }
 .inkwright-hud-value { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.inkwright-hud-value-set { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.inkwright-hud-set { width: 4.5em; font-variant-numeric: tabular-nums; }
 .inkwright-hud-companion { color: var(--text-muted); }
 .inkwright-party-name { color: var(--text-muted); margin-bottom: 2px; }
 .inkwright-party-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5em, 1fr)); gap: 6px; }

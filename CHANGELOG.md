@@ -4,6 +4,10 @@ Release notes for each version; the GitHub release carries the same text and the
 
 ## Unreleased
 
+- Saves can be renamed: "Rename" in the saves list (Enter keeps the new name, Escape leaves it); the time it was saved stays. `api.renameSave(idOrName, name)`.
+- A resource marked `manual` can be set by typing: click its value on the status bar.
+- Coming back to Obsidian (the window gets the focus again) reads the run again when another device played on meanwhile.
+- A live journal catches up when a run is opened: what was played after its last write (the app closed before it could be written) is appended.
 - Fixes from a review of 0.5.0 against the solo and tabletop PRDs:
   - A change by hand that the story can no longer make (its variable is gone) is skipped on replay as before, and the panel now says so.
   - The dice tray's dice follow how often the tray itself was used; changes by hand and record entries no longer shift them (answers already given are kept in the run and do not change).

@@ -85,6 +85,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
     replayBudget: Platform.isMobile ? 10000 : 5000,
     afterMove: () => this.liveJournal(),
+    // A journal begun earlier gets what was played since it was last written (the app was closed before it could be).
+    afterResume: () => {
+      if (this.runs.run?.journal) this.liveJournal();
+    },
   });
   /** Scriptable API for agents, e.g. via `obsidian eval`. See src/api.ts. */
   readonly api = new InkwrightApi(this);
@@ -144,6 +148,12 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       if (f instanceof TFile && f.extension === "ink") void this.store?.move(oldPath, f.path);
       touch(oldPath);
     }));
+
+    // Coming back to the app (another device may have played on meanwhile): the run is read again if it moved.
+    this.registerDomEvent(window, "focus", () => void this.runFileChanged());
+    this.registerDomEvent(document, "visibilitychange", () => {
+      if (document.visibilityState === "visible") void this.runFileChanged();
+    });
 
     this.app.workspace.onLayoutReady(() => {
       const locked = this.config.locked;
@@ -296,6 +306,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   loadGame(id: string): void {
     void this.runs.load(id);
+  }
+
+  renameSave(id: string, name: string): Promise<void> {
+    return this.runs.rename(id, name);
   }
 
   deleteSave(id: string): Promise<void> {

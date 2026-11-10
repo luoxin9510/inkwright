@@ -31,6 +31,7 @@ export interface ApiHost {
   saveGame(name?: string): Promise<{ id: string; name: string; savedAt: string } | null>;
   loadGame(id: string): void;
   deleteSave(id: string): Promise<void>;
+  renameSave(id: string, name: string): Promise<void>;
   exportWeb(path?: string | null): Promise<{ path: string | null; diagnostics: Diagnostic[] }>;
   generateEngine(path?: string | null): Promise<{ path: string | null; problems: ConfigProblem[] }>;
   /** The usable game config next to a story (its note-kept tables read in), or null. */
@@ -155,6 +156,7 @@ Visible play panel (the user sees what you do):
   saves()              saved runs of the current main story [{ id, name, savedAt }], newest first
   load(idOrName)       load a saved run into the panel (it replays; the save itself is not changed)
   deleteSave(idOrName) delete a saved run
+  renameSave(idOrName, name)  give a saved run a new name -> saves()
   run()                the run the panel plays: { id, story, startPoint, character, seeds, seqNext, actions[{kind, seq, lang, index, text, payload?, fp}], pending? }
                        (saved in the vault: <save folder>/<story>/<run id>/<device>.json; resumed by replaying actions, see docs/solo-prd.md)
   runs()               every run of the current main story, draft included -> [{ id, name, draft, updatedAt, actions, conflictOf? }]
@@ -355,6 +357,12 @@ export class InkwrightApi {
   async deleteSave(idOrName: string): Promise<{ id: string; name: string; savedAt: string }[]> {
     const slot = this.findSave(idOrName);
     if (slot) await this.host.deleteSave(slot.id);
+    return this.saves();
+  }
+
+  async renameSave(idOrName: string, name: string): Promise<{ id: string; name: string; savedAt: string }[]> {
+    const slot = this.findSave(idOrName);
+    if (slot) await this.host.renameSave(slot.id, name);
     return this.saves();
   }
 
