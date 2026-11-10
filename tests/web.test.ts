@@ -638,3 +638,11 @@ test("a game page shows a stack's count, what is worn and statuses", () => {
   expect(hud).toContain("Arrow ×5 · ◆ Bow");
   expect(hud).toContain("StatusesPoisoned 2");
 });
+
+test("a game page shows the level, the next threshold and when it can be taken", () => {
+  setLanguage("en");
+  const config = { ...CONFIG, ink: "en" as const, languages: undefined, resources: [...CONFIG.resources, { id: "xp", min: 0, max: 99, initial: 0 }], levels: { resource: "xp", at: [0, 5, 12] } };
+  const src = `-> start\n${generateInk(config)}\n=== start ===\n~ xp = 6\nReady.\n-> END\n`;
+  mount(buildWebPage({ title: "L", storyJson: compileJson(src), runtime: INK_RUNTIME, id: "lv", game: config, engine: GAME_ENGINE }));
+  expect(document.querySelector("#hud")?.textContent ?? "").toContain("Level 1next at 5 · Level up!");
+});

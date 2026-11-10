@@ -175,7 +175,9 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
     names.recordAdd, names.recordRemove, names.recordCount, names.recordPick, names.recordList,
     // Stacks, equipment and statuses (RPG R4).
     names.give, names.take, names.invCount, names.equip, names.unequip,
-    names.addStatus, names.hasStatus, names.statusTurns, names.clearStatus, names.tickStatuses, names.restStatuses] : []);
+    names.addStatus, names.hasStatus, names.statusTurns, names.clearStatus, names.tickStatuses, names.restStatuses,
+    // Levels (RPG R5).
+    names.levelUpReady, names.levelUp, names.nextLevelAt] : []);
   shape.places = shape.places.filter((p) => !engineCode.has(p.path.split(".")[0]));
   const result: ExploreResult = {
     endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0, sampled: [],

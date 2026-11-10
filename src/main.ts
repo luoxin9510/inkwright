@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, type App, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, moment, normalizePath, parseYaml, stringifyYaml, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -21,7 +21,8 @@ import { engineFile, localize, playableCharacters, readConfig, type ConfigProble
 import { splitNote } from "./game/frontmatter";
 import { journalTemplate } from "./templates/journal";
 import { packGame, packList } from "./templates/packs";
-import { withSystem } from "./game/system";
+import { joinPath, withSystem } from "./game/system";
+import { sheetName, sheetNote } from "./game/sheet";
 import PACKS from "virtual:packs";
 import { generateInk } from "./game/inkgen";
 import { resolveConfig } from "./game/resolve";
@@ -89,7 +90,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     now: () => new Date(),
     wait: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
     replayBudget: Platform.isMobile ? 10000 : 5000,
-    afterMove: () => this.liveJournal(),
+    afterMove: () => {
+      this.liveJournal();
+      this.sheetAfterMove();
+    },
     // A journal begun earlier gets what was played since it was last written (the app was closed before it could be).
     afterResume: () => {
       if (this.runs.run?.journal) this.liveJournal();
@@ -127,6 +131,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
     this.addCommand({ id: "export-run", name: T().exportRun, callback: () => void this.exportRun() });
     this.addCommand({ id: "import-run", name: T().importRun, callback: () => this.pickRunToImport() });
     this.addCommand({ id: "new-game", name: T().newGame, callback: () => this.pickNewGame() });
+    this.addCommand({ id: "save-sheet", name: T().saveSheet, callback: () => void this.saveSheet() });
     this.addCommand({ id: "new-journal-game", name: T().newJournalGame, callback: () => new FolderModal(this.app, T().templateFolder, (f) => void this.newJournalGame(f)).open() });
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
@@ -543,6 +548,57 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
    * (made on the first move, in player mode or once a choice was made). Only appended, never rewritten; the
    * run records how far it got, so a write that did not happen (the app closed) is made up for next time.
    */
+  /** Choices already looked at for a `#sheet` line, per session (a back lowers it without writing). */
+  private sheetSeen = new WeakMap<object, number>();
+
+  /** After a choice: a line tagged `#sheet` among the text it produced writes the character sheet, with that line as the epilogue. */
+  private sheetAfterMove(): void {
+    const session = this.runs.session;
+    if (!session || !this.runs.game) return;
+    const made = session.choicesMade.length, seen = this.sheetSeen.get(session) ?? made;
+    this.sheetSeen.set(session, made);
+    if (made <= seen) return;
+    const from = session.lastChoice?.at ?? session.log.length;
+    const line = session.log.slice(from).find((p) => p.tags.some((t) => t.trim() === "sheet"));
+    if (line) void this.saveSheet(line.text);
+  }
+
+  /**
+   * Writes the character being played as a sheet note (RPG PRD §4.6) into the game's `sheets` folder (relative to the
+   * story's folder; default 角色/Characters): frontmatter replaced, the body kept, this adventure's epilogue added.
+   */
+  async saveSheet(epilogue = ""): Promise<{ path: string | null }> {
+    const engine = this.runs.game, root = this.runs.root;
+    const sheet = engine?.sheet() ?? null;
+    if (!engine || root === null || !sheet) {
+      new Notice(T().sheetNoCharacter);
+      return { path: null };
+    }
+    const folder = joinPath(`${folderOf(root)}${engine.config.sheets ?? T().sheetsFolder}`);
+    if (folder === "" || folder.startsWith("..") || folder.startsWith("/")) {
+      new Notice(T().templateBadFolder(engine.config.sheets ?? ""));
+      return { path: null };
+    }
+    const path = normalizePath(`${folder}/${sheetName(sheet, engine.language || getLanguage())}.md`);
+    try {
+      let at = "";
+      for (const part of folder.split("/")) {
+        at = at === "" ? part : `${at}/${part}`;
+        if (!this.app.vault.getAbstractFileByPath(at)) await this.app.vault.createFolder(at);
+      }
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      const oldBody = existing instanceof TFile ? splitNote(await this.app.vault.read(existing), parseYaml).body : "";
+      const text = sheetNote(stringifyYaml(sheet), oldBody, epilogue, storyName(root, this.app.vault.getName()), stamp(new Date()));
+      if (existing instanceof TFile) await this.app.vault.modify(existing, text);
+      else await this.app.vault.create(path, text);
+    } catch (e) {
+      new Notice(T().sheetFailed(e instanceof Error ? e.message : String(e)));
+      return { path: null };
+    }
+    new Notice(T().sheetWritten(path));
+    return { path };
+  }
+
   private liveJournal(): void {
     const session = this.runs.session, root = this.runs.root;
     const live = this.runs.game?.config.journal?.live ?? this.config.liveJournal ?? false;

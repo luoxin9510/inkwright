@@ -73,6 +73,13 @@ export function renderHud(el: HTMLElement, game: GameView, act: HudActions, focu
     if (game.hud.items.length === 0) row.createSpan({ cls: "inkwright-hud-value", text: t.nothingCarried });
     for (const item of game.hud.items) itemChip(row, item);
   }
+  // The level: the next threshold, and a mark when it can be taken (the story decides what a level gives).
+  if (game.hud.level) {
+    const lv = game.hud.level;
+    const row = chipRow(hud, t.levelLine(lv.level));
+    if (lv.next > 0) row.createSpan({ cls: "inkwright-hud-value", text: t.levelNext(lv.next) });
+    if (lv.ready) row.createSpan({ cls: "inkwright-level-ready", text: t.levelReady });
+  }
   if (game.hud.statuses && game.hud.statuses.length > 0) statusTags(chipRow(hud, t.statuses), game.hud.statuses);
   if (game.hud.decks) {
     const row = chipRow(hud, t.decks);

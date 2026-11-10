@@ -278,6 +278,7 @@ EXTERNAL check(skill, difficulty)
     ~ wits = 0
     ~ inv = (arrow)
     ~ arrow_n = 12
+    ~ statuses = ""
 }
 
 // A skill's current level, by name.
