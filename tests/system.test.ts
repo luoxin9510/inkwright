@@ -105,4 +105,31 @@ describe("rule-system packs", () => {
     }
     expect([...outcomes].every((o) => o === "Won with n left." || o === "Lost.")).toBe(true);
   });
+
+  test("the dungeon-crawl pack: the template's engine is current, it compiles and plays to an ending in both languages", async () => {
+    const dir = join(__dirname, "..", "packs", "dungeon-crawl", "template");
+    const loaded = await loadGameConfig(join(dir, "main.ink"));
+    expect(loaded?.problems).toEqual([]);
+    const config = loaded!.config!;
+    expect(config.systemRules).toBe("../rules.ink");
+    expect(await readFile(join(dir, "_engine.ink"), "utf8")).toBe(generateInk(config));
+    const compiled = await compileStory("main.ink", (p) => readFile(join(dir, p), "utf8"));
+    expect(compiled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    const json = compiled.story!.ToJson() as string;
+    for (const lang of ["zh", "en"]) {
+      for (let seed = 1; seed <= 4; seed++) {
+        const engine = new GameEngine(config);
+        engine.language = lang;
+        const s = new PlaySession(new Story(json), { setup: (st) => engine.setup(st, "crew"), prepare: (st) => engine.seed(st, seed) });
+        let step = s.start();
+        for (let i = 0; i < 300 && step.choices.length > 0; i++) {
+          const back = step.choices.findIndex((c) => /回头|Turn back/.test(c.text));
+          const pick = step.choices.filter((_, k) => k !== back)[(seed + i) % (step.choices.length - (back >= 0 ? 1 : 0))];
+          step = s.choose(pick.index);
+          expect(step.errors).toEqual([]);
+        }
+        expect(step.ended).toBe(true);
+      }
+    }
+  });
 });
