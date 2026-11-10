@@ -520,14 +520,19 @@ function entityInk(config: GameConfig): string[] {
     "",
     `=== function ${n.setStat}(${w}, ${st}, ${a}) ===`,
     ...party.setStat,
-    ...byOwner((id) => [`~ ${id} = ${n.entSet}(${id}, ${w}, ${st}, ${a}, "${kinds.find((x) => x.id === id)?.remove ?? ""}")`, "~ return"]),
+    // An entity taken out by its kind's remove stat takes its statuses with it.
+    ...byOwner((id) => {
+      const remove = kinds.find((x) => x.id === id)?.remove ?? "";
+      const gone = config.statuses?.length && remove ? [`{ not ${n.entHas}(${id}, ${w}):`, `    ~ ${n.clearStatus}(${w}, "")`, "}"] : [];
+      return [`~ ${id} = ${n.entSet}(${id}, ${w}, ${st}, ${a}, "${remove}")`, ...gone, "~ return"];
+    }),
     "",
     `=== function ${n.addStat}(${w}, ${st}, ${a}) ===`,
     `~ ${n.setStat}(${w}, ${st}, ${n.stat}(${w}, ${st}) + ${a})`,
     "",
     `=== function ${n.despawn}(${w}) ===`,
     ...party.despawn,
-    ...byOwner((id) => [`~ ${id} = ${n.entDrop}(${id}, ${w})`, "~ return"]),
+    ...byOwner((id) => [`~ ${id} = ${n.entDrop}(${id}, ${w})`, ...(config.statuses?.length ? [`~ ${n.clearStatus}(${w}, "")`] : []), "~ return"]),
     "",
     `=== function ${n.alive}(${k}) ===`,
     ...party.alive,

@@ -693,6 +693,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
 }
 { ent_has(foe, who_id):
     ~ foe = ent_set(foe, who_id, stat_id, amount, "life")
+    { not ent_has(foe, who_id):
+        ~ clear_status(who_id, "")
+    }
     ~ return
 }
 
@@ -714,6 +717,7 @@ EXTERNAL ent_name(kind_store, kind, who_id)
 }
 { ent_has(foe, who_id):
     ~ foe = ent_drop(foe, who_id)
+    ~ clear_status(who_id, "")
     ~ return
 }
 

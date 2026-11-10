@@ -108,4 +108,13 @@ describe("stacks, slots and statuses", () => {
     const r = exploreStory(compiled(), { game: GAME, character: "you" });
     expect(r.coverage.places.missed).toEqual([]);
   });
+
+  test("an entity's statuses go with it, whether despawned or taken out by its remove stat", () => {
+    const fm = { ...FM, kinds: [{ id: "foe", stats: [{ id: "life" }], templates: [{ id: "rat", stats: { life: 2 } }], remove: "life" }] };
+    const game = readConfig(fm).config as GameConfig;
+    const src = `-> start\n${generateInk(game)}\n=== start ===\n~ temp a = spawn("foe", "rat")\n~ temp b = spawn("foe", "rat")\n~ add_status(a, "poison", 2)\n~ add_status(b, "poison", 2)\n~ add_status("ann", "poison", 0)\n~ set_stat(a, "life", 0)\n~ despawn(b)\n{statuses}\n-> END\n`;
+    const engine = new GameEngine(game);
+    const s = new PlaySession(new Compiler(src).Compile(), { setup: (st) => engine.setup(st, "you"), prepare: (st) => engine.seed(st, 1) });
+    expect(s.start().paragraphs.map((p) => p.text)).toEqual(["ann|poison|0"]);
+  });
 });
