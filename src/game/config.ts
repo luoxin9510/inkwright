@@ -220,11 +220,6 @@ export interface PartyMemberDef {
   items?: string[];
 }
 
-/**
- * Several characters played at once, shown as a row of cards: name, a title the story can set
- * (`~ title_m1 = "Cleric"`), stats (bars where they have a maximum) and gear (an items list per
- * member). The story owns every number; the panel only draws them.
- */
 /** A template a kind's entities are spawned from: its name and starting stats (missing stats start at 0). */
 export interface KindTemplate {
   id: string;
@@ -248,6 +243,11 @@ export interface KindDef {
   remove?: string;
 }
 
+/**
+ * Several characters played at once, shown as a row of cards: name, a title the story can set
+ * (`~ title_m1 = "Cleric"`), stats (bars where they have a maximum) and gear (an items list per
+ * member). The story owns every number; the panel only draws them.
+ */
 export interface PartyDef {
   name?: LocalizedText;
   stats: PartyStatDef[];
