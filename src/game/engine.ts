@@ -1,5 +1,6 @@
 import type { Story } from "inkjs/full";
 import type { Payload } from "../play/session";
+import { statusAdd, statusClear, statusEntries, statusHas, statusRest, statusTick, statusTurns } from "./statuses";
 import { carries, collectModifiers, inkNames, localize, parseCheckTag, parseGoTag, parseNeedsTag, parsePlayTag, parseUseTag, parseVoiceTag, playableCharacters, type CardDef, type CheckTag, type GameConfig, type KindDef, type LocalizedText, type PartyDef } from "./config";
 import { boardOf, freeDoors, markRoom, nearestFreeRoom, noteGet, noteSet, parseLayout, placeRoom, placeSecret, startLayout, stepsBetween, wayBetween, viewBox, wallsOf, type DoorState, type Side, type Wall } from "./dungeon";
 import { recordAdd, recordAt, recordDrop, recordEntries } from "./records";
@@ -75,6 +76,19 @@ export interface ResourceView {
 export interface ItemView {
   id: string;
   name: string;
+  desc?: string;
+  /** A stacking item's count (the character's inventory only). */
+  count?: number;
+  /** Worn in its slot (the character's inventory only); `slot` names the slot. */
+  equipped?: boolean;
+  slot?: string;
+}
+
+/** A status on someone (RPG PRD §4.3): `turns` left, 0 = until cleared. */
+export interface StatusView {
+  id: string;
+  name: string;
+  turns: number;
   desc?: string;
 }
 
@@ -198,6 +212,8 @@ export interface PartyMemberView {
   gear?: ItemView[];
   /** The party's `down` stat is 0 or less. */
   down: boolean;
+  /** Absent when the game has no statuses. */
+  statuses?: StatusView[];
 }
 
 export interface HudView {
@@ -216,6 +232,8 @@ export interface HudView {
   turn?: { round: number; phase: string };
   /** Each record's entries, absent when the game has no records. */
   records?: { id: string; name: string; entries: string[] }[];
+  /** The character's own statuses, absent when the game has no statuses. */
+  statuses?: StatusView[];
   /** Each kind's entities in play, absent when the game has no kinds. */
   kinds?: { id: string; name: string; entities: EntityView[] }[];
 }
@@ -227,6 +245,8 @@ export interface EntityView {
   name: string;
   stats: { id: string; name: string; value: number; max?: number }[];
   down: boolean;
+  /** Absent when the game has no statuses. */
+  statuses?: StatusView[];
 }
 
 /**
@@ -272,6 +292,7 @@ export class GameEngine {
     story.BindExternalFunction(inkNames(this.config).dice, (formula: unknown, label: unknown) => this.rollDice(formula, label), true);
     this.bindDungeon(story);
     this.bindRecords(story);
+    this.bindStatuses(story);
     this.bindEntities(story);
     this.bindParty(story);
     this.bindTables(story);
@@ -491,6 +512,7 @@ export class GameEngine {
             return { id: st.id, name: localize(st.name, this.language, st.id), value: e.stats[st.id] ?? 0, ...(max !== undefined ? { max } : {}) };
           }),
           down: k.down !== undefined && (e.stats[k.down] ?? 0) <= 0,
+          ...this.statusesOf(e.id),
         })),
       };
     });
@@ -805,6 +827,7 @@ export class GameEngine {
       ...(this.config.party ? { party: this.party(this.config.party) } : {}),
       ...(this.config.turn ? { turn: this.turn(this.config.turn) } : {}),
       ...(this.config.kinds?.length ? { kinds: this.kindViews(this.config.kinds) } : {}),
+      ...this.statusesOf(inkNames(this.config).self),
       ...(this.config.records?.length ? { records: this.config.records.filter(shown).map((r) => ({ id: r.id, name: name(r), entries: recordEntries(GameEngine.text(this.read(r.id)) ?? "") })) } : {}),
     };
   }
@@ -827,6 +850,7 @@ export class GameEngine {
           stats,
           ...(this.config.items?.length ? { gear: this.itemsIn(this.read(`${n.partyGear}_${m.id}`)) } : {}),
           down: p.down !== undefined && num(`${p.down}_${m.id}`) <= 0,
+          ...this.statusesOf(m.id),
         };
       }),
     };
@@ -834,7 +858,44 @@ export class GameEngine {
 
   /** The items carried now, in config order. */
   private carried(): ItemView[] {
-    return this.itemsIn(this.read(inkNames(this.config).inventory));
+    const n = inkNames(this.config);
+    const equipped = this.config.slots?.length ? this.read(n.equipped) : null;
+    return this.itemsIn(this.read(n.inventory)).map((v) => {
+      const def = this.config.items?.find((i) => i.id === v.id);
+      const slot = def?.slot === undefined ? undefined : this.config.slots?.find((sl) => sl.id === def.slot);
+      return {
+        ...v,
+        ...(def?.stack ? { count: Number(this.read(`${v.id}${n.stackSuffix}`) ?? 0) } : {}),
+        ...(slot ? { slot: localize(slot.name, this.language, slot.id), equipped: carries(equipped, v.id) } : {}),
+      };
+    });
+  }
+
+  /** `{ statuses }` for one who (absent when the game has none), in the order they were put on. */
+  private statusesOf(who: string): { statuses?: StatusView[] } {
+    if (!this.config.statuses?.length) return {};
+    const store = GameEngine.text(this.read(inkNames(this.config).statusVar)) ?? "";
+    return {
+      statuses: statusEntries(store).filter((e) => e.who === who).map((e) => {
+        const def = this.config.statuses?.find((d) => d.id === e.id);
+        const desc = localize(def?.desc, this.language, "");
+        return { id: e.id, name: localize(def?.name, this.language, e.id), turns: e.turns, ...(desc ? { desc } : {}) };
+      }),
+    };
+  }
+
+  /** The status functions: pure on the store text, so lookahead and replays are safe. */
+  private bindStatuses(story: Story): void {
+    if (!this.config.statuses?.length) return;
+    const n = inkNames(this.config);
+    const text = (v: unknown) => GameEngine.text(v) ?? "";
+    const rested = new Set(this.config.statuses.filter((st) => st.rest).map((st) => st.id));
+    story.BindExternalFunction(n.stPut, (store: unknown, who: unknown, id: unknown, turns: unknown) => statusAdd(text(store), text(who), text(id), Number(turns)), true);
+    story.BindExternalFunction(n.stHas, (store: unknown, who: unknown, id: unknown) => statusHas(text(store), text(who), text(id)), true);
+    story.BindExternalFunction(n.stLeft, (store: unknown, who: unknown, id: unknown) => statusTurns(text(store), text(who), text(id)), true);
+    story.BindExternalFunction(n.stTake, (store: unknown, who: unknown, id: unknown) => statusClear(text(store), text(who), text(id)), true);
+    story.BindExternalFunction(n.stTick, (store: unknown) => statusTick(text(store)), true);
+    story.BindExternalFunction(n.stRest, (store: unknown) => statusRest(text(store), rested), true);
   }
 
   /** The items an ink list holds, in config order. */

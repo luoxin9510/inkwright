@@ -1,6 +1,7 @@
 import { parseFormula, tokenId, type Modifier, type RulesConfig } from "./dice";
 import { shapeProblem, type DungeonDef, type ShapeDef } from "./dungeon";
 import { tableProblems } from "./tables";
+import { statusEntries } from "./statuses";
 
 /** How likely a "yes" from the dice tray's oracle is, most likely first (see src/play/oracle.ts). */
 export const ODDS = ["certain", "likely", "even", "unlikely", "remote"] as const;
@@ -69,6 +70,8 @@ export interface CharacterDef {
   playable?: boolean;
   /** Items carried from the start; ids from `items`. */
   items?: string[];
+  /** Starting counts of stacking items (`arrow: 12`); a count above 0 also puts the item in the inventory. */
+  counts?: Record<string, number>;
 }
 
 /** Something the character can carry: an ink list item, so the story can `~ inv += knife` and `{inv ? knife: …}`. */
@@ -78,8 +81,29 @@ export interface ItemDef {
   name?: LocalizedText;
   /** A line about it, shown with the name. */
   desc?: LocalizedText;
-  /** Skill bonuses while carried; keys are skill ids. */
+  /** Skill bonuses while carried (an item with a `slot`: while equipped); keys are skill ids. */
   modifiers?: Record<string, number>;
+  /** Counted (RPG PRD §4.2): `give("arrow", 3)`, `take("arrow", 1)`, `inv_count("arrow")`; kept in `<id>_n`. */
+  stack?: boolean;
+  /** The slot it is worn in (an id from `slots`); its `modifiers` count only while it is equipped. */
+  slot?: string;
+}
+
+/** An equipment slot (RPG PRD §4.2): one item of that slot is equipped at a time (`equip("sword")`). */
+export interface SlotDef {
+  id: string;
+  name?: LocalizedText;
+}
+
+/** A status effect (RPG PRD §4.3): `add_status(who, "poison", 3)` on the character ("me"), a party member or an entity. */
+export interface StatusDef {
+  id: string;
+  name?: LocalizedText;
+  desc?: LocalizedText;
+  /** Skill bonuses while the character itself has it; keys are skill ids. */
+  modifiers?: Record<string, number>;
+  /** `rest_statuses()` takes it off everyone. */
+  rest?: boolean;
 }
 
 /** One row of a random table: the dice range it covers (`1-3`, `4`, `66`; none = one face per row) and its text. */
@@ -310,6 +334,10 @@ export interface GameConfig {
   characters: CharacterDef[];
   /** Things the character can carry; the generated ink declares them as a LIST and an inventory VAR. */
   items?: ItemDef[];
+  /** Equipment slots; an item names its slot (`slot: weapon`). */
+  slots?: SlotDef[];
+  /** Status effects the story puts on the character, party members and entities. */
+  statuses?: StatusDef[];
   /** Several characters played at once: the panel shows a card per member. */
   party?: PartyDef;
   /** Kinds of dynamic entities (RPG PRD §4.1). */
@@ -508,6 +536,37 @@ export interface InkNames {
   varNameParam: string;
   matchParam: string;
   tempMatches: string;
+  /**
+   * Stacking items, slots and statuses (RPG PRD §4.2–4.3): `give(item, n)`, `take(item, n)` (returns how many were
+   * taken), `inv_count(item)`, counts in `<item><stackSuffix>`; `equip(item)`, `unequip(item)` on the `equipped` list;
+   * the statuses VAR, the pure EXTERNALs on it and the wrappers taking who (an id, or `self` for the character).
+   */
+  give: string;
+  take: string;
+  invCount: string;
+  stackSuffix: string;
+  itemParam: string;
+  tempTaken: string;
+  equipped: string;
+  equip: string;
+  unequip: string;
+  statusVar: string;
+  self: string;
+  addStatus: string;
+  hasStatus: string;
+  statusTurns: string;
+  clearStatus: string;
+  tickStatuses: string;
+  restStatuses: string;
+  stPut: string;
+  stHas: string;
+  stLeft: string;
+  stTake: string;
+  stTick: string;
+  stRest: string;
+  statusParam: string;
+  turnsParam: string;
+  statusStoreParam: string;
   /** Parameter names of the generated functions. */
   skillParam: string;
   difficultyParam: string;
@@ -541,6 +600,10 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     recordAdd: "record_add", recordRemove: "record_remove", recordCount: "record_count", recordPick: "record_pick", recordList: "record_list",
     recordJoin: "record_join", recordDrop: "record_drop", recordSize: "record_size", recordAt: "record_at", recordText: "record_text",
     countSuffix: "_count", recordParam: "record_id", entryParam: "entry_text", storeParam: "record_store", recordNoParam: "record_no", tempCard: "drawn_card", tempBefore: "rooms_before",
+    give: "give", take: "take", invCount: "inv_count", stackSuffix: "_n", itemParam: "item_id", tempTaken: "taken",
+    equipped: "equipped", equip: "equip", unequip: "unequip",
+    statusVar: "statuses", self: "me", addStatus: "add_status", hasStatus: "has_status", statusTurns: "status_turns", clearStatus: "clear_status", tickStatuses: "tick_statuses", restStatuses: "rest_statuses",
+    stPut: "status_put", stHas: "status_in", stLeft: "status_left", stTake: "status_take", stTick: "status_tick", stRest: "status_rest", statusParam: "status_id", turnsParam: "turns", statusStoreParam: "status_store",
     skillParam: "skill", difficultyParam: "difficulty", whoParam: "who", formulaParam: "formula", labelParam: "label", tableParam: "name", totalParam: "total",
     deckParam: "deck", stackParam: "stack", kParam: "k",
   },
@@ -563,6 +626,10 @@ export const INK_PRESETS: Record<InkPreset, InkNames> = {
     recordAdd: "记录_加", recordRemove: "记录_删", recordCount: "记录_数", recordPick: "记录_抽", recordList: "记录_列",
     recordJoin: "记录_并", recordDrop: "记录_去", recordSize: "记录_长", recordAt: "记录_取", recordText: "记录_文",
     countSuffix: "_数", recordParam: "记录名", entryParam: "条目", storeParam: "存储", recordNoParam: "第几条", tempCard: "抽出的牌", tempBefore: "原房数",
+    give: "给", take: "拿走", invCount: "有几个", stackSuffix: "_数量", itemParam: "物品名", tempTaken: "拿走的",
+    equipped: "装备着", equip: "装备上", unequip: "卸下",
+    statusVar: "状态", self: "我", addStatus: "加状态", hasStatus: "有状态", statusTurns: "状态回合", clearStatus: "去状态", tickStatuses: "状态过回合", restStatuses: "休息去状态",
+    stPut: "状态_放", stHas: "状态_有", stLeft: "状态_剩", stTake: "状态_取走", stTick: "状态_过", stRest: "状态_歇", statusParam: "状态名", turnsParam: "回合数", statusStoreParam: "状态存储",
     skillParam: "技能", difficultyParam: "难度", whoParam: "谁", formulaParam: "公式", labelParam: "标签", tableParam: "表名", totalParam: "点数",
     deckParam: "牌堆名", stackParam: "牌叠", kParam: "序号",
   },
@@ -703,11 +770,25 @@ export function collectModifiers(config: GameConfig, skill: string, state: State
     }
   }
   const items = config.items ?? [];
+  const n = inkNames(config);
   if (items.length > 0) {
-    const inventory = state(inkNames(config).inventory);
+    const inventory = state(n.inventory);
+    // An item worn in a slot counts only while equipped (and carried); other items while carried.
+    const equipped = config.slots?.length ? state(n.equipped) : null;
     for (const item of items) {
       const value = item.modifiers?.[skill];
-      if (value !== undefined && value !== 0 && carries(inventory, item.id)) out.push({ source: localize(item.name, lang, item.id), value });
+      if (value === undefined || value === 0 || !carries(inventory, item.id)) continue;
+      if (item.slot !== undefined && !carries(equipped, item.id)) continue;
+      out.push({ source: localize(item.name, lang, item.id), value });
+    }
+  }
+  if (config.statuses?.length) {
+    const store = state(n.statusVar);
+    const mine = statusEntries(typeof store === "string" ? store : "").filter((e) => e.who === n.self);
+    for (const e of mine) {
+      const def = config.statuses.find((d) => d.id === e.id);
+      const value = def?.modifiers?.[skill];
+      if (value !== undefined && value !== 0) out.push({ source: localize(def?.name, lang, e.id), value });
     }
   }
   return out;
@@ -749,6 +830,7 @@ export const CONFIG_PROBLEM_CODES = [
   "unknownItem", "itemSkill", "tableRows", "tableDice", "tableRange", "tableRow", "tableFile", "deckCards",
   "mapPlaces", "mapLink", "mapPlace", "mapFile", "mapCanvasPlace", "deckFolder", "cardAttr", "tokens",
   "dungeonSize", "dungeonShape", "dungeonFile", "partyStat", "kindStat", "rowSpawn", "systemMissing", "systemVersion",
+  "itemSlot", "statusSkill", "countItem",
 ] as const;
 export type ConfigProblemCode = (typeof CONFIG_PROBLEM_CODES)[number];
 
@@ -792,7 +874,10 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   for (const s of config.skills) ident(s.id);
   for (const r of config.resources) ident(r.id);
   for (const c of config.characters) ident(c.id);
-  for (const i of config.items ?? []) ident(i.id);
+  for (const i of config.items ?? []) {
+    ident(i.id);
+    if (i.stack) ident(`${i.id}${inkNames(config).stackSuffix}`);
+  }
   for (const t of config.tables ?? []) ident(t.id);
   for (const d of config.decks ?? []) {
     ident(d.id);
@@ -940,7 +1025,13 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   const tempNames = [...(config.decks?.length ? [] : ["tempCard"]), ...(config.dungeon ? [] : ["tempBefore"])];
   const recordNames = ["recordAdd", "recordRemove", "recordCount", "recordPick", "recordList", "recordJoin", "recordDrop", "recordSize", "recordAt", "recordText", "recordParam", "entryParam", "storeParam", "recordNoParam"];
   const entityNames = ["entSpawn", "entHas", "entGet", "entSet", "entDrop", "entCount", "entAt", "entPick", "entName", "spawn", "stat", "setStat", "addStat", "despawn", "alive", "pickOne", "nthOne", "nameOf", "kindParam", "entityParam", "statParam", "amountParam", "howParam", "templateParam", "entStoreParam", "tempEntity", "tempPickNo", "spawnFrom", "spawnRow", "spawnRowOne", "spawnTimes", "tempRowNo"];
-  const unused = new Set(["partyKind", "pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", ...(config.kinds?.length ? [] : entityNames), ...(config.party?.members.length ? [] : partyNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
+  const stackNames = ["give", "take", "invCount", "itemParam", "tempTaken"];
+  const slotNames = ["equipped", "equip", "unequip"];
+  const statusNames = ["statusVar", "addStatus", "hasStatus", "statusTurns", "clearStatus", "tickStatuses", "restStatuses", "stPut", "stHas", "stLeft", "stTake", "stTick", "stRest", "statusParam", "turnsParam", "statusStoreParam"];
+  const unused = new Set(["partyKind", "pileSuffix", "atSuffix", "cardPrefix", "partyTitle", "partyGear", "countSuffix", "serialSuffix", "stackSuffix", "self",
+    ...(config.items?.some((i) => i.stack) ? [] : stackNames), ...(config.slots?.length ? [] : slotNames), ...(config.statuses?.length ? [] : statusNames), ...(config.kinds?.length ? [] : entityNames), ...(config.party?.members.length ? [] : partyNames), ...(config.map ? [] : ["places", "here", "revealed"]), ...(config.hands?.length || config.items?.length ? [] : ["played"]), ...(config.dungeon ? [] : dungeonNames), ...(config.records?.length ? [] : recordNames), ...tempNames]);
+  // The stack functions share the entities' amount parameter.
+  if (config.items?.some((i) => i.stack)) unused.delete("amountParam");
   for (const [key, n] of Object.entries(inkNames(config)) as [string, string][]) if (!unused.has(key)) ident(n);
   if (config.languages !== undefined && (config.languages.length !== 2 || config.languages[0] === config.languages[1] || !config.languages.every((l) => IDENT.test(l)))) {
     bad("languages");
@@ -956,9 +1047,23 @@ export function validateConfig(config: GameConfig): ConfigProblem[] {
   const items = new Set((config.items ?? []).map((i) => i.id));
   for (const i of config.items ?? []) {
     for (const s of Object.keys(i.modifiers ?? {})) if (!skills.has(s)) bad("itemSkill", i.id, s);
+    if (i.slot !== undefined && !config.slots?.some((sl) => sl.id === i.slot)) bad("itemSlot", i.id, i.slot);
   }
+  const statusIds = new Set<string>();
+  for (const st of config.statuses ?? []) {
+    if (statusIds.has(st.id)) bad("duplicate", st.id);
+    statusIds.add(st.id);
+    for (const sk of Object.keys(st.modifiers ?? {})) if (!skills.has(sk)) bad("statusSkill", st.id, sk);
+  }
+  const slotIds = new Set<string>();
+  for (const sl of config.slots ?? []) {
+    if (slotIds.has(sl.id)) bad("duplicate", sl.id);
+    slotIds.add(sl.id);
+  }
+  const stacks = new Set((config.items ?? []).filter((i) => i.stack).map((i) => i.id));
   for (const c of config.characters) {
     for (const id of c.items ?? []) if (!items.has(id)) bad("unknownItem", c.id, id);
+    for (const id of Object.keys(c.counts ?? {})) if (!stacks.has(id)) bad("countItem", c.id, id);
     for (const [id, level] of Object.entries(c.skills)) {
       const s = skills.get(id);
       if (!s) bad("unknownSkill", c.id, id);
@@ -1044,7 +1149,9 @@ export function readConfig(fm: unknown): LoadedConfig {
   entries("skills", true, (e) => opt(e.name, isText) && opt(e.max, isNum) && opt(e.voice, voice));
   entries("resources", false, resource);
   entries("companionResources", false, resource);
-  entries("items", false, (e) => opt(e.name, isText) && opt(e.desc, isText) && opt(e.modifiers, numMap));
+  entries("items", false, (e) => opt(e.name, isText) && opt(e.desc, isText) && opt(e.modifiers, numMap) && opt(e.stack, isBool) && opt(e.slot, isStr));
+  entries("slots", false, (e) => opt(e.name, isText));
+  entries("statuses", false, (e) => opt(e.name, isText) && opt(e.desc, isText) && opt(e.modifiers, numMap) && opt(e.rest, isBool));
   // A row is `{ range?, text, id? }`, or the shorthand with the text under the language codes: `{ range: 1-3, zh: 狼, en: Wolf }`.
   const row = (r: unknown) => isObj(r) && opt(r.range, (v) => isStr(v) || isNum(v)) && opt(r.id, (v) => isStr(v) || isNum(v)) && (isText(r.text) || Object.keys(r).some((k) => k !== "range" && k !== "id" && isStr(r[k])));
   entries("tables", false, (e) => opt(e.name, isText) && opt(e.dice, (v) => isStr(v) || isNum(v)) && opt(e.from, isStr) && opt(e.rows, (v) => Array.isArray(v) && v.every(row)));
@@ -1071,7 +1178,7 @@ export function readConfig(fm: unknown): LoadedConfig {
   if (!opt(fm.journal, (v) => isObj(v) && opt(v.path, isStr) && opt(v.live, isBool))) shape("journal");
   const oddsMap = (v: unknown) => isObj(v) && Object.entries(v).every(([k, n]) => (ODDS as readonly string[]).includes(k) && isNum(n));
   if (!opt(fm.oracle, (v) => isObj(v) && opt(v.odds, oddsMap) && opt(v.chaos, isStr) && opt(v.chaosStep, isNum))) shape("oracle");
-  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)));
+  entries("characters", true, (e) => opt(e.name, isText) && opt(e.skills, numMap) && opt(e.companion, numMap) && opt(e.playable, isBool) && opt(e.items, (v) => Array.isArray(v) && v.every(isStr)) && opt(e.counts, numMap));
   const mods = fm.modifiers;
   if (mods !== undefined && mods !== null) {
     if (!Array.isArray(mods)) shape("modifiers");
@@ -1092,6 +1199,8 @@ export function readConfig(fm: unknown): LoadedConfig {
     companionResources: (fm.companionResources ?? []) as ResourceDef[],
     characters: (fm.characters as CharacterDef[]).map((c) => ({ ...c, skills: c.skills ?? {} })),
     items: (fm.items ?? []) as ItemDef[],
+    ...(Array.isArray(fm.slots) && fm.slots.length > 0 ? { slots: (fm.slots as Record<string, unknown>[]).map((e) => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}) })) } : {}),
+    ...(Array.isArray(fm.statuses) && fm.statuses.length > 0 ? { statuses: (fm.statuses as Record<string, unknown>[]).map((e): StatusDef => ({ id: String(e.id), ...(isText(e.name) ? { name: e.name } : {}), ...(isText(e.desc) ? { desc: e.desc } : {}), ...(numMap(e.modifiers) ? { modifiers: e.modifiers } : {}), ...(e.rest === true ? { rest: true } : {}) })) } : {}),
     tables: (Array.isArray(fm.tables) ? fm.tables : []).filter(isObj).map(readTable),
     decks: (Array.isArray(fm.decks) ? fm.decks : []).filter(isObj).map((d) => ({
       id: String(d.id), ...(isText(d.name) ? { name: d.name } : {}), ...(isStr(d.from) ? { from: d.from } : {}),
