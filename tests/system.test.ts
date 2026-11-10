@@ -106,8 +106,12 @@ describe("rule-system packs", () => {
     expect([...outcomes].every((o) => o === "Won with n left." || o === "Lost.")).toBe(true);
   });
 
-  test("the dungeon-crawl pack: the template's engine is current, it compiles and plays to an ending in both languages", async () => {
-    const dir = join(__dirname, "..", "packs", "dungeon-crawl", "template");
+  test.each([
+    ["dungeon-crawl", "crew"],
+    ["turn-battle", "party"],
+    ["narrative-check", "me"],
+  ])("the %s pack: the template's engine is current, it compiles and plays to an ending in both languages", async (pack, who) => {
+    const dir = join(__dirname, "..", "packs", pack, "template");
     const loaded = await loadGameConfig(join(dir, "main.ink"));
     expect(loaded?.problems).toEqual([]);
     const config = loaded!.config!;
@@ -120,7 +124,7 @@ describe("rule-system packs", () => {
       for (let seed = 1; seed <= 4; seed++) {
         const engine = new GameEngine(config);
         engine.language = lang;
-        const s = new PlaySession(new Story(json), { setup: (st) => engine.setup(st, "crew"), prepare: (st) => engine.seed(st, seed) });
+        const s = new PlaySession(new Story(json), { setup: (st) => engine.setup(st, who), prepare: (st) => engine.seed(st, seed) });
         let step = s.start();
         for (let i = 0; i < 300 && step.choices.length > 0; i++) {
           const back = step.choices.findIndex((c) => /回头|Turn back/.test(c.text));
@@ -131,5 +135,36 @@ describe("rule-system packs", () => {
         expect(step.ended).toBe(true);
       }
     }
+  });
+
+  test("the turn-battle pack: a 3 on 3 battle, everyone acting once a round, fastest first", async () => {
+    const dir = join(__dirname, "..", "packs", "turn-battle", "template");
+    const config = (await loadGameConfig(join(dir, "main.ink")))!.config!;
+    const compiled = await compileStory("main.ink", (p) => readFile(join(dir, p), "utf8"));
+    const engine = new GameEngine(config);
+    engine.language = "en";
+    const s = new PlaySession(new Story(compiled.story!.ToJson() as string), { language: "en", setup: (st) => engine.setup(st, "party"), prepare: (st) => engine.seed(st, 3) });
+    const texts: string[] = [];
+    const guard = (step: { paragraphs: { text: string }[]; choices: { text: string; index: number }[] }) => {
+      texts.push(...step.paragraphs.map((p) => p.text));
+      const pick = step.choices.find((c) => / guard$/.test(c.text))!;
+      texts.push(`> ${pick.text}`);
+      return s.choose(pick.index);
+    };
+    let step = s.start();
+    expect(engine.hud().kinds?.[0].entities.map((e) => e.name)).toEqual(["Goblin", "Orc", "Shaman"]);
+    // Round 1, by speed: goblin 5, mage 4, knight 3, shaman 3 (a hero first), cleric 2, orc 1.
+    for (let i = 0; i < 3; i++) step = guard(step);
+    texts.push(...step.paragraphs.map((p) => p.text));
+    const turns = texts.filter((t) => /^(— Round|> |Goblin |Orc |Shaman |\w+'s turn)/.test(t)).map((t) => t.replace(/ \(HP.*$/, "").replace(/ at \w+\.$| at \w+: poisoned\.$/, ""));
+    expect(turns.slice(0, 11)).toEqual([
+      "— Round 1 —", "Goblin lunges", "Mage's turn", "> Mage: guard", "Knight's turn", "> Knight: guard",
+      "Shaman breathes green smoke", "Cleric's turn", "> Cleric: guard", "Orc lunges", "— Round 2 —",
+    ]);
+    // Round 2 opens with the goblin again, then the mage: her art is offered, the knight's and the cleric's are not.
+    const offered = step.choices.map((c) => c.text);
+    expect(offered).toContain("Mage: fireball (every foe, 3 MP)");
+    expect(offered.filter((t) => /bash|mend/.test(t))).toEqual([]);
+    expect(offered.filter((t) => /attack/.test(t))).toHaveLength(3);
   });
 });
