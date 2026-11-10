@@ -6,11 +6,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { compileStory } from "../src/compile/compile";
 import { buildWebPage, storyTitle } from "../src/export/web";
-import { readConfig } from "../src/game/config";
 import { setLanguage, T } from "../src/i18n";
 import { findLanguageVar } from "../src/play/session";
 import { engineBundle } from "./engine-bundle.mjs";
-import { gameNote } from "./game-note";
+import { loadGameConfig } from "./game-note";
 
 const [file, out] = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !all[i - 1]?.startsWith("--"));
 const option = (name: string) => {
@@ -28,14 +27,14 @@ const r = await compileStory(basename(file), (p) => readFile(join(dir, p), "utf8
 for (const d of r.diagnostics) console.error(`[${d.severity}] ${d.file}:${d.line ?? "?"} ${d.message}`);
 if (!r.story) process.exit(1);
 
-// Game mode when a usable game note sits next to the story.
-const note = await gameNote(file);
+// Game mode when a usable game note sits next to the story: its pack layered under it and its from: notes read, as
+// check-ink and the plugin do.
+const loaded = await loadGameConfig(file);
 let game = undefined;
-if (note?.error) console.error(`[warning] ${note.name}: ${note.error}`);
-else if (note) {
-  const read = readConfig(note.frontmatter);
-  for (const p of read.problems) console.error(`[warning] ${note.name}: ${T().configProblem(p)}`);
-  game = read.config ?? undefined;
+if (loaded?.note.error) console.error(`[warning] ${loaded.note.name}: ${loaded.note.error}`);
+else if (loaded) {
+  for (const p of loaded.problems) console.error(`[warning] ${loaded.note.name}: ${T().configProblem(p)}`);
+  game = loaded.config ?? undefined;
 }
 
 // Same fallback as the plugin: main.ink is named after its folder.
