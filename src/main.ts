@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, TFile, TFolder, moment, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
+import { FuzzySuggestModal, Notice, Platform, Plugin, TFile, TFolder, moment, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
 import { InkwrightApi } from "./api";
 import { compileStory, type Flow } from "./compile/compile";
 import type { StoryGraph } from "./compile/graph";
@@ -22,7 +22,8 @@ import { folderOf, storyName } from "./paths";
 import { engineFile, inkNames, localize, playableCharacters, type ConfigProblem, type GameConfig } from "./game/config";
 import { generateInk } from "./game/inkgen";
 import { resolveConfig } from "./game/resolve";
-import { journalPath, liveBlocks, liveHeader, renderJournal } from "./play/journal";
+import { liveBlocks, liveHeader, renderJournal } from "./play/journal";
+import { JournalNotes } from "./journal-notes";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
@@ -696,48 +697,38 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       } as const;
       const blocks = liveBlocks(input);
       try {
-        let path = run.journal?.path;
-        let file = path ? this.app.vault.getAbstractFileByPath(path) : null;
-        if (!path || !(file instanceof TFile)) {
+        const notes = new JournalNotes(this.app);
+        const path = run.journal?.path;
+        if (!notes.exists(path)) {
           // The first write (or the note was deleted): a new note with the header and the text so far.
-          const story = storyName(root, this.app.vault.getName());
+          const title = storyName(root, this.app.vault.getName());
           const character = game?.characters.find((c) => c.id === game.current)?.name ?? null;
-          path = await this.newJournalPath(new Date(), story, character);
-          if (isDependency(path, this.files)) {
+          const now = new Date();
+          const fresh = liveBlocks({ ...input, writtenSeq: -1, writtenTop: -1 });
+          const made = await notes.create(
+            { template: this.game?.config.journal?.path, root, title, character, now },
+            liveHeader({ title, date: now, language, character }, input) + fresh.text,
+            (p) => isDependency(p, this.files),
+          );
+          if ("refused" in made) {
             // Said once per story: every later move would come here again.
-            if (this.journalRefused !== root) new Notice(T().journalIsDependency(path));
+            if (this.journalRefused !== root) new Notice(T().journalIsDependency(made.refused));
             this.journalRefused = root;
             return;
           }
-          const fresh = liveBlocks({ ...input, writtenSeq: -1, writtenTop: -1 });
-          file = await this.app.vault.create(path, liveHeader({ title: story, date: new Date(), language, character }, input) + fresh.text);
-          this.run = this.run ? { ...this.run, journal: { path, writtenSeq: fresh.writtenSeq, writtenTop: fresh.writtenTop } } : this.run;
+          this.run = this.run ? { ...this.run, journal: { path: made.path, writtenSeq: fresh.writtenSeq, writtenTop: fresh.writtenTop } } : this.run;
           // The run must know the note and how far it was written before anything else happens: write it again.
           this.writeRun();
           return;
         }
         if (blocks.text === "") return;
-        await this.appendToNote(file, blocks.text);
+        await notes.append(path, blocks.text);
         this.run = this.run ? { ...this.run, journal: { path, writtenSeq: blocks.writtenSeq, writtenTop: blocks.writtenTop } } : this.run;
         this.writeRun();
       } catch (e) {
         console.error("Inkwright: could not write the live journal", e);
       }
     });
-  }
-
-  /** Appends to a note: through the editor when it is open there (so the player's cursor and edits are kept), else the vault. */
-  private async appendToNote(file: TFile, text: string): Promise<void> {
-    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-      const view = leaf.view;
-      if (view instanceof MarkdownView && view.file?.path === file.path && view.getMode() === "source") {
-        const editor = view.editor;
-        const last = editor.lastLine();
-        editor.replaceRange(text, { line: last, ch: editor.getLine(last).length });
-        return;
-      }
-    }
-    await this.app.vault.process(file, (data) => data + text);
   }
 
   /** The version being played is kept (once), so a later edit can go back to it. */
@@ -949,33 +940,10 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       title: story, date: now, language, character, log: session.log, turns: session.turns, choices: session.choicesMade.map((c) => this.withCard(c)),
       rolls: game?.rolls ?? [], voices: game?.voices, skills: game?.skills, asides: session.asides,
     });
-    const path = await this.newJournalPath(now, story, character);
-    await this.app.vault.create(path, text);
-    new Notice(T().journalWritten + path);
-    return { path };
-  }
-
-  /**
-   * A free path for a new journal note from the game note's `journal.path` (`{dir}`, `{story}`, `{date}`, `{time}`,
-   * `{character}`; default `{dir}日志/{date} {time}.md`, `{dir}Journal/…` in English), its folders made; never an existing note's path.
-   */
-  private async newJournalPath(now: Date, story: string, character: string | null): Promise<string> {
-    const root = this.root ?? "";
-    const template = this.game?.config.journal?.path ?? T().journalDefaultPath;
-    const made = journalPath(template, { dir: folderOf(root), story, character, now });
-    if (made.unknown.length > 0) new Notice(T().journalUnknownKey(made.unknown.join(", ")));
-    let path = normalizePath(made.path);
-    const folder = path.slice(0, path.lastIndexOf("/"));
-    let sofar = "";
-    for (const part of folder === "" ? [] : folder.split("/")) {
-      sofar = sofar === "" ? part : `${sofar}/${part}`;
-      if (!this.app.vault.getAbstractFileByPath(sofar)) await this.app.vault.createFolder(sofar);
-    }
-    if (this.app.vault.getAbstractFileByPath(path)) {
-      const base = path.slice(0, -3);
-      for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = `${base} (${n}).md`;
-    }
-    return path;
+    const made = await new JournalNotes(this.app).create({ template: this.game?.config.journal?.path, root, title: story, character, now }, text);
+    if (!("path" in made)) return { path: null };
+    new Notice(T().journalWritten + made.path);
+    return { path: made.path };
   }
 
   /** Writes the game's engine ink (from its game note) next to the main story; defaults to the current one. */
