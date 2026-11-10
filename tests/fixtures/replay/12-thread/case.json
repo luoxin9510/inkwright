@@ -1,0 +1,12 @@
+{
+  "rule": "a threaded-in choice, threads reordered and another added: found by its text",
+  "choices": [
+    "Look out"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "Rain."
+  }
+}

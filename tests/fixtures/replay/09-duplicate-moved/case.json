@@ -1,0 +1,12 @@
+{
+  "rule": "two choices with the same text and the screen changed: not unique, the replay stops",
+  "choices": [
+    "Wait"
+  ],
+  "expect": {
+    "done": 0,
+    "stop": "mismatch",
+    "guesses": [],
+    "last": "Two doors look the same."
+  }
+}

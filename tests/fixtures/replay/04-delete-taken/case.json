@@ -1,0 +1,15 @@
+{
+  "rule": "the choice taken deleted: the replay stops there",
+  "choices": [
+    "Right"
+  ],
+  "expect": {
+    "done": 0,
+    "stop": "mismatch",
+    "guesses": [],
+    "last": "At the fork.",
+    "choices": [
+      "Left"
+    ]
+  }
+}

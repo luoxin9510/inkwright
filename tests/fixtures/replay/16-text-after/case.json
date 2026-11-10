@@ -1,0 +1,12 @@
+{
+  "rule": "only the text after the choices edited: replayed, the new text shown",
+  "choices": [
+    "Right"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [],
+    "last": "You take Right, into the woods."
+  }
+}

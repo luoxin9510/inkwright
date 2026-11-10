@@ -1,0 +1,13 @@
+{
+  "rule": "choices inside a tunnel, only the text around them edited: replayed through the tunnel",
+  "choices": [
+    "Look around",
+    "Sleep"
+  ],
+  "expect": {
+    "done": 2,
+    "stop": null,
+    "guesses": [],
+    "last": "You sleep until noon."
+  }
+}

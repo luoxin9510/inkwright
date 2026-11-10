@@ -1,0 +1,14 @@
+{
+  "rule": "a number in the choice changed (a price): found by a guess",
+  "choices": [
+    "Pay 5 gold"
+  ],
+  "expect": {
+    "done": 1,
+    "stop": null,
+    "guesses": [
+      0
+    ],
+    "last": "You take Pay 3 gold."
+  }
+}
