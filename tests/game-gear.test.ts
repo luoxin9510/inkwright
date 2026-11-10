@@ -4,6 +4,7 @@ import { collectModifiers, readConfig, type GameConfig } from "../src/game/confi
 import { GameEngine } from "../src/game/engine";
 import { generateInk } from "../src/game/inkgen";
 import { PlaySession } from "../src/play/session";
+import { exploreStory } from "../src/play/explore";
 
 // RPG R4: stacking items, equipment slots and statuses.
 const FM = {
@@ -101,5 +102,10 @@ describe("stacks, slots and statuses", () => {
     expect(readConfig({ ...FM, ink: "zh" }).problems).toEqual([]);
     const src = `~ 给(arrow, 2)\n~ 装备上(sword)\n~ 加状态("我", "poison", 1)\n{有几个(arrow)} {有状态("我", "poison")}\n-> END\n${generateInk(zh)}`;
     expect(() => new Compiler(src).Compile()).not.toThrow();
+  });
+
+  test("the explorer does not count the generated functions a story never calls as places never reached", () => {
+    const r = exploreStory(compiled(), { game: GAME, character: "you" });
+    expect(r.coverage.places.missed).toEqual([]);
   });
 });
