@@ -1,5 +1,5 @@
 ---
-version: "1.0"
+version: "1.1"
 pack:
   name: { zh: 地城爬行, en: Dungeon crawl }
   description: { zh: "四人小队一间一间往下走,最深处是深渊督军(2d6 战斗、火把、药水)", en: "A crew of four goes down room by room to the pit warlord (2d6 fights, torches, potions)" }
@@ -8,7 +8,11 @@ languages: [zh, en]
 skills:
   - { id: wits, name: { zh: 机灵, en: Wits } }
 characters:
-  - { id: crew, name: { zh: 探险队, en: The crew }, skills: { wits: 0 } }
+  - { id: crew, name: { zh: 探险队, en: The crew }, skills: { wits: 0 }, counts: { arrow: 12 } }
+items:
+  - { id: arrow, name: { zh: 箭, en: Arrows }, desc: { zh: 远程的人每次攻击用一支, en: "One per shot by a ranged fighter" }, stack: true }
+statuses:
+  - { id: poison, name: { zh: 中毒, en: Poisoned }, desc: { zh: 每回合 -1 生命;祭坛能解, en: "-1 life a turn; a shrine cures it" }, rest: true }
 resources:
   - { id: torches, name: { zh: 火把, en: Torches }, min: 0, max: 12, initial: 6 }
   - { id: potions, name: { zh: 药水, en: Potions }, min: 0, max: 9, initial: 2 }
@@ -20,10 +24,11 @@ party:
     - { id: life_max, hidden: true }
     - { id: might, name: { zh: 力气, en: Might } }
     - { id: guard, name: { zh: 护甲, en: Guard } }
+    - { id: ranged, hidden: true }
   down: life
   members:
     - { id: blade, name: { zh: 剑手, en: Blade }, stats: { life: 6, life_max: 6, might: 2, guard: 1 } }
-    - { id: archer, name: { zh: 弓手, en: Archer }, stats: { life: 5, life_max: 5, might: 2, guard: 0 } }
+    - { id: archer, name: { zh: 弓手, en: Archer }, stats: { life: 5, life_max: 5, might: 2, guard: 0, ranged: 1 } }
     - { id: shield, name: { zh: 盾卫, en: Shield }, stats: { life: 7, life_max: 7, might: 1, guard: 2 } }
     - { id: scholar, name: { zh: 学者, en: Scholar }, stats: { life: 4, life_max: 4, might: 1, guard: 0 } }
 kinds:
@@ -34,13 +39,15 @@ kinds:
       - { id: life_max, hidden: true }
       - { id: attack, name: { zh: 攻击, en: Attack } }
       - { id: guard, name: { zh: 护甲, en: Guard } }
+      - { id: venom, hidden: true }
     remove: life
     templates:
       - { id: rat, name: { zh: 巨鼠, en: Giant rat }, stats: { life: 1, life_max: 1, attack: 0, guard: 0 } }
       - { id: goblin, name: { zh: 地精, en: Goblin }, stats: { life: 2, life_max: 2, attack: 1, guard: 0 } }
       - { id: skeleton, name: { zh: 骷髅, en: Skeleton }, stats: { life: 2, life_max: 2, attack: 1, guard: 1 } }
       - { id: cultist, name: { zh: 邪教徒, en: Cultist }, stats: { life: 3, life_max: 3, attack: 1, guard: 1 } }
-      - { id: ghoul, name: { zh: 食尸鬼, en: Ghoul }, stats: { life: 4, life_max: 4, attack: 2, guard: 1 } }
+      - { id: spider, name: { zh: 洞穴蜘蛛, en: Cave spider }, stats: { life: 2, life_max: 2, attack: 1, guard: 0, venom: 1 } }
+      - { id: ghoul, name: { zh: 食尸鬼, en: Ghoul }, stats: { life: 4, life_max: 4, attack: 2, guard: 1, venom: 1 } }
       - { id: ogre, name: { zh: 食人魔, en: Ogre }, stats: { life: 6, life_max: 6, attack: 2, guard: 1 } }
       - { id: wraith, name: { zh: 怨灵, en: Wraith }, stats: { life: 4, life_max: 4, attack: 2, guard: 2 } }
       - { id: warlord, name: { zh: 深渊督军, en: Pit warlord }, stats: { life: 9, life_max: 9, attack: 3, guard: 2 } }
@@ -61,7 +68,7 @@ tables:
       - { range: 1-2, zh: 一群巨鼠, en: a pack of giant rats, spawn: rat, count: d3+1 }
       - { range: 3-4, zh: 几个地精, en: some goblins, spawn: goblin, count: d2+1 }
       - { range: 5, zh: 两具骷髅, en: two skeletons, spawn: skeleton, count: 2 }
-      - { range: 6, zh: 一个邪教徒, en: a cultist, spawn: cultist }
+      - { range: 6, zh: 两只洞穴蜘蛛, en: two cave spiders, spawn: spider, count: 2 }
   - id: deep
     name: { zh: 深层的怪物, en: Deep monsters }
     dice: d6
@@ -73,6 +80,6 @@ tables:
       - { range: 6, zh: 一个怨灵, en: a wraith, spawn: wraith }
 ---
 
-# 地城爬行(Dungeon crawl)规则包 1.0
+# 地城爬行(Dungeon crawl)规则包 1.1
 
 原创规则,Inkwright 第一方规则系统包。见 `说明.md`。

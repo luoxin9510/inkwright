@@ -12,6 +12,10 @@ VAR torches = 6
 VAR potions = 2
 VAR gold = 0
 
+// Items: what the character carries (`~ inv += arrow`, `{inv ? arrow: …}`)
+LIST items = arrow
+VAR inv = ()
+
 // Dice: the engine sets these; saved with the state, so back/load/replay roll the same
 VAR dice_seed = 0
 VAR dice_rolls = 0
@@ -25,27 +29,35 @@ VAR lang = "zh"
 }
 ~ return zh
 
-// Party: life_blade is a member's life, title_blade a line the panel shows under the name.
+// Party: life_blade is a member's life, title_blade a line the panel shows under the name, gear_blade its gear (`~ gear_blade += arrow`).
 VAR life_blade = 6
 VAR life_max_blade = 6
 VAR might_blade = 2
 VAR guard_blade = 1
+VAR ranged_blade = 0
 VAR title_blade = ""
+VAR gear_blade = ()
 VAR life_archer = 5
 VAR life_max_archer = 5
 VAR might_archer = 2
 VAR guard_archer = 0
+VAR ranged_archer = 1
 VAR title_archer = ""
+VAR gear_archer = ()
 VAR life_shield = 7
 VAR life_max_shield = 7
 VAR might_shield = 1
 VAR guard_shield = 2
+VAR ranged_shield = 0
 VAR title_shield = ""
+VAR gear_shield = ()
 VAR life_scholar = 4
 VAR life_max_scholar = 4
 VAR might_scholar = 1
 VAR guard_scholar = 0
+VAR ranged_scholar = 0
 VAR title_scholar = ""
+VAR gear_scholar = ()
 
 // member_get(1, "life") or member_get("blade", …) reads <var>_<member> (any variable the story declares per member too); party_count("<var>", value) counts the members whose variable equals value. Done by the engine: far cheaper than a switch in ink.
 EXTERNAL member_get(member, var_name)
@@ -64,8 +76,14 @@ EXTERNAL party_count(var_name, match)
     { var_name == "guard":
         ~ return guard_blade
     }
+    { var_name == "ranged":
+        ~ return ranged_blade
+    }
     { var_name == "title":
         ~ return title_blade
+    }
+    { var_name == "gear":
+        ~ return gear_blade
     }
     ~ return 0
 }
@@ -82,8 +100,14 @@ EXTERNAL party_count(var_name, match)
     { var_name == "guard":
         ~ return guard_archer
     }
+    { var_name == "ranged":
+        ~ return ranged_archer
+    }
     { var_name == "title":
         ~ return title_archer
+    }
+    { var_name == "gear":
+        ~ return gear_archer
     }
     ~ return 0
 }
@@ -100,8 +124,14 @@ EXTERNAL party_count(var_name, match)
     { var_name == "guard":
         ~ return guard_shield
     }
+    { var_name == "ranged":
+        ~ return ranged_shield
+    }
     { var_name == "title":
         ~ return title_shield
+    }
+    { var_name == "gear":
+        ~ return gear_shield
     }
     ~ return 0
 }
@@ -118,13 +148,22 @@ EXTERNAL party_count(var_name, match)
     { var_name == "guard":
         ~ return guard_scholar
     }
+    { var_name == "ranged":
+        ~ return ranged_scholar
+    }
     { var_name == "title":
         ~ return title_scholar
+    }
+    { var_name == "gear":
+        ~ return gear_scholar
     }
     ~ return 0
 }
 { var_name == "title":
     ~ return ""
+}
+{ var_name == "gear":
+    ~ return ()
 }
 ~ return 0
 
@@ -186,6 +225,20 @@ EXTERNAL party_count(var_name, match)
         ~ matches = matches + 1
     }
 }
+{ var_name == "ranged":
+    { ranged_blade == match:
+        ~ matches = matches + 1
+    }
+    { ranged_archer == match:
+        ~ matches = matches + 1
+    }
+    { ranged_shield == match:
+        ~ matches = matches + 1
+    }
+    { ranged_scholar == match:
+        ~ matches = matches + 1
+    }
+}
 { var_name == "title":
     { title_blade == match:
         ~ matches = matches + 1
@@ -200,6 +253,20 @@ EXTERNAL party_count(var_name, match)
         ~ matches = matches + 1
     }
 }
+{ var_name == "gear":
+    { gear_blade == match:
+        ~ matches = matches + 1
+    }
+    { gear_archer == match:
+        ~ matches = matches + 1
+    }
+    { gear_shield == match:
+        ~ matches = matches + 1
+    }
+    { gear_scholar == match:
+        ~ matches = matches + 1
+    }
+}
 ~ return matches
 
 EXTERNAL check(skill, difficulty)
@@ -209,6 +276,8 @@ EXTERNAL check(skill, difficulty)
 { who == "crew":
     ~ character = crew
     ~ wits = 0
+    ~ inv = (arrow)
+    ~ arrow_n = 12
 }
 
 // A skill's current level, by name.
@@ -279,7 +348,7 @@ EXTERNAL table_id(name, total)
     ~ return t("两具骷髅", "two skeletons")
 }
 { name == "shallow":
-    ~ return t("一个邪教徒", "a cultist")
+    ~ return t("两只洞穴蜘蛛", "two cave spiders")
 }
 { name == "deep" and total <= 2:
     ~ return t("一队骷髅", "a file of skeletons")
@@ -346,6 +415,85 @@ EXTERNAL table_id(name, total)
 === function table(name) ===
 ~ return table_text(name, table_roll(name))
 
+// A choice tagged #use is taken with something carried, written into played first: { played == arrow: … }.
+VAR played = ()
+
+// Stacking items: give(arrow, 3), take(arrow, 1) (gives back how many it took), inv_count(arrow).
+// An item is in inv while its count is above 0, so {inv ? arrow: …} still works.
+VAR arrow_n = 0
+=== function give(item_id, amount) ===
+{ amount <= 0:
+    ~ return
+}
+{ item_id == arrow:
+    ~ arrow_n = arrow_n + amount
+}
+~ inv += item_id
+=== function take(item_id, amount) ===
+~ temp taken = 0
+{ amount <= 0:
+    ~ return 0
+}
+{ item_id == arrow:
+    ~ taken = MIN(amount, arrow_n)
+    ~ arrow_n = arrow_n - taken
+    { arrow_n <= 0:
+        ~ inv -= arrow
+    }
+    ~ return taken
+}
+{ inv ? item_id:
+    ~ inv -= item_id
+    ~ return 1
+}
+~ return 0
+=== function inv_count(item_id) ===
+{ item_id == arrow:
+    ~ return arrow_n
+}
+{ inv ? item_id:
+    ~ return 1
+}
+~ return 0
+
+// Statuses: add_status(who, "poison", 3) (turns; 0 = until cleared), has_status(who, "poison"), status_turns(who, "poison"),
+// clear_status(who, "poison") ("" = all of who's), tick_statuses() (a turn passes), rest_statuses() (statuses marked rest end).
+// who is an entity or party member id, or "me" for the character.
+VAR statuses = ""
+EXTERNAL status_put(status_store, who, status_id, turns)
+EXTERNAL status_in(status_store, who, status_id)
+EXTERNAL status_left(status_store, who, status_id)
+EXTERNAL status_take(status_store, who, status_id)
+EXTERNAL status_tick(status_store)
+EXTERNAL status_rest(status_store)
+
+// Without the engine nothing takes hold: no one has a status.
+=== function status_put(status_store, who, status_id, turns) ===
+~ return status_store
+=== function status_in(status_store, who, status_id) ===
+~ return false
+=== function status_left(status_store, who, status_id) ===
+~ return 0
+=== function status_take(status_store, who, status_id) ===
+~ return status_store
+=== function status_tick(status_store) ===
+~ return status_store
+=== function status_rest(status_store) ===
+~ return status_store
+
+=== function add_status(who, status_id, turns) ===
+~ statuses = status_put(statuses, who, status_id, turns)
+=== function has_status(who, status_id) ===
+~ return status_in(statuses, who, status_id)
+=== function status_turns(who, status_id) ===
+~ return status_left(statuses, who, status_id)
+=== function clear_status(who, status_id) ===
+~ statuses = status_take(statuses, who, status_id)
+=== function tick_statuses() ===
+~ statuses = status_tick(statuses)
+=== function rest_statuses() ===
+~ statuses = status_rest(statuses)
+
 // Entities: spawn("foe", "<template>") gives the new id; stat(id, "<stat>"), set_stat(id, "<stat>", v), add_stat(id, "<stat>", d),
 // despawn(id), alive("foe"), pick_one("foe", "random" | "first" | "last" | "lowest:<stat>" | "highest:<stat>"), nth_one("foe", k), name_of(id).
 VAR foe = ""
@@ -406,6 +554,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     { stat_id == "guard":
         ~ return guard_blade
     }
+    { stat_id == "ranged":
+        ~ return ranged_blade
+    }
     ~ return 0
 }
 { who_id == "archer":
@@ -420,6 +571,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     }
     { stat_id == "guard":
         ~ return guard_archer
+    }
+    { stat_id == "ranged":
+        ~ return ranged_archer
     }
     ~ return 0
 }
@@ -436,6 +590,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     { stat_id == "guard":
         ~ return guard_shield
     }
+    { stat_id == "ranged":
+        ~ return ranged_shield
+    }
     ~ return 0
 }
 { who_id == "scholar":
@@ -450,6 +607,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     }
     { stat_id == "guard":
         ~ return guard_scholar
+    }
+    { stat_id == "ranged":
+        ~ return ranged_scholar
     }
     ~ return 0
 }
@@ -472,6 +632,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     { stat_id == "guard":
         ~ guard_blade = amount
     }
+    { stat_id == "ranged":
+        ~ ranged_blade = amount
+    }
     ~ return
 }
 { who_id == "archer":
@@ -486,6 +649,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     }
     { stat_id == "guard":
         ~ guard_archer = amount
+    }
+    { stat_id == "ranged":
+        ~ ranged_archer = amount
     }
     ~ return
 }
@@ -502,6 +668,9 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     { stat_id == "guard":
         ~ guard_shield = amount
     }
+    { stat_id == "ranged":
+        ~ ranged_shield = amount
+    }
     ~ return
 }
 { who_id == "scholar":
@@ -517,10 +686,16 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     { stat_id == "guard":
         ~ guard_scholar = amount
     }
+    { stat_id == "ranged":
+        ~ ranged_scholar = amount
+    }
     ~ return
 }
 { ent_has(foe, who_id):
     ~ foe = ent_set(foe, who_id, stat_id, amount, "life")
+    { not ent_has(foe, who_id):
+        ~ clear_status(who_id, "")
+    }
     ~ return
 }
 
@@ -542,6 +717,7 @@ EXTERNAL ent_name(kind_store, kind, who_id)
 }
 { ent_has(foe, who_id):
     ~ foe = ent_drop(foe, who_id)
+    ~ clear_status(who_id, "")
     ~ return
 }
 
@@ -652,6 +828,22 @@ EXTERNAL ent_name(kind_store, kind, who_id)
         }
         ~ return new_id
     }
+    { how == "lowest:ranged":
+        ~ new_id = ""
+        { life_blade > 0 and (new_id == "" or ranged_blade < stat(new_id, "ranged")):
+            ~ new_id = "blade"
+        }
+        { life_archer > 0 and (new_id == "" or ranged_archer < stat(new_id, "ranged")):
+            ~ new_id = "archer"
+        }
+        { life_shield > 0 and (new_id == "" or ranged_shield < stat(new_id, "ranged")):
+            ~ new_id = "shield"
+        }
+        { life_scholar > 0 and (new_id == "" or ranged_scholar < stat(new_id, "ranged")):
+            ~ new_id = "scholar"
+        }
+        ~ return new_id
+    }
     { how == "highest:life":
         ~ new_id = ""
         { life_blade > 0 and (new_id == "" or life_blade > stat(new_id, "life")):
@@ -712,6 +904,22 @@ EXTERNAL ent_name(kind_store, kind, who_id)
             ~ new_id = "shield"
         }
         { life_scholar > 0 and (new_id == "" or guard_scholar > stat(new_id, "guard")):
+            ~ new_id = "scholar"
+        }
+        ~ return new_id
+    }
+    { how == "highest:ranged":
+        ~ new_id = ""
+        { life_blade > 0 and (new_id == "" or ranged_blade > stat(new_id, "ranged")):
+            ~ new_id = "blade"
+        }
+        { life_archer > 0 and (new_id == "" or ranged_archer > stat(new_id, "ranged")):
+            ~ new_id = "archer"
+        }
+        { life_shield > 0 and (new_id == "" or ranged_shield > stat(new_id, "ranged")):
+            ~ new_id = "shield"
+        }
+        { life_scholar > 0 and (new_id == "" or ranged_scholar > stat(new_id, "ranged")):
             ~ new_id = "scholar"
         }
         ~ return new_id
@@ -813,7 +1021,7 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     ~ return spawn_times(name, total, 2)
 }
 { name == "shallow":
-    ~ return spawn_times(name, total, 1)
+    ~ return spawn_times(name, total, 2)
 }
 { name == "deep" and total <= 2:
     ~ return spawn_times(name, total, roll("d2+1"))
@@ -847,7 +1055,7 @@ EXTERNAL ent_name(kind_store, kind, who_id)
     ~ return new_id
 }
 { name == "shallow":
-    ~ new_id = spawn("foe", "cultist")
+    ~ new_id = spawn("foe", "spider")
     ~ return new_id
 }
 { name == "deep" and total <= 2:

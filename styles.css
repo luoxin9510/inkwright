@@ -192,6 +192,9 @@
 /* Items: the inventory row of the HUD, and choices that need one. */
 .inkwright-hud-items { flex-wrap: wrap; }
 .inkwright-item { color: var(--text-normal); }
+.inkwright-item-equipped { font-weight: 600; }
+.inkwright-statuses { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.inkwright-status { padding: 0 6px; border-radius: 8px; font-size: var(--font-smaller); color: var(--text-accent); background: var(--background-modifier-hover); white-space: nowrap; }
 .inkwright-need { display: inline-block; margin-left: 8px; font-size: var(--font-smaller); color: var(--text-muted); white-space: nowrap; }
 .inkwright-need-missing { color: var(--text-error); }
 .inkwright-choice-locked { opacity: 0.6; cursor: default; }

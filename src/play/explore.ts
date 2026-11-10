@@ -172,7 +172,10 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
   const engineCode = new Set(names ? [names.select, names.check, names.dice, names.roll, names.table, names.tableRoll, names.tableText, names.tableId, names.draw, names.shuffle, names.deckLeft, names.nthCard,
     // The wrappers of the growing dungeon and of records are engine code a story may well not call.
     names.beginDungeon, names.addRoom, names.markRoom, names.secretRoom, names.roomNote, names.setRoomNote,
-    names.recordAdd, names.recordRemove, names.recordCount, names.recordPick, names.recordList] : []);
+    names.recordAdd, names.recordRemove, names.recordCount, names.recordPick, names.recordList,
+    // Stacks, equipment and statuses (RPG R4).
+    names.give, names.take, names.invCount, names.equip, names.unequip,
+    names.addStatus, names.hasStatus, names.statusTurns, names.clearStatus, names.tickStatuses, names.restStatuses] : []);
   shape.places = shape.places.filter((p) => !engineCode.has(p.path.split(".")[0]));
   const result: ExploreResult = {
     endings: [], errors: [], truncated: false, steps: 0, cappedSpots: 0, sampled: [],

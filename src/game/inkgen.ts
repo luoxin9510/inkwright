@@ -79,7 +79,17 @@ export function generateInk(config: GameConfig): string {
   for (const c of config.characters) {
     lines.push(`{ ${n.whoParam} == "${c.id}":`, `    ~ ${n.current} = ${c.id}`);
     for (const s of config.skills) lines.push(`    ~ ${s.id} = ${c.skills[s.id] ?? 0}`);
-    if (config.items?.length) lines.push(`    ~ ${n.inventory} = (${(c.items ?? []).join(", ")})`);
+    if (config.items?.length) {
+      // Stacks with a count above 0 are carried too; the first carried item of each slot starts equipped.
+      const counted = Object.entries(c.counts ?? {}).filter(([, k]) => k > 0).map(([id]) => id);
+      const carried = [...new Set([...(c.items ?? []), ...counted])];
+      lines.push(`    ~ ${n.inventory} = (${carried.join(", ")})`);
+      for (const i of config.items.filter((it) => it.stack)) lines.push(`    ~ ${i.id}${n.stackSuffix} = ${Math.max(0, Math.floor(c.counts?.[i.id] ?? 0))}`);
+      if (config.slots?.length) {
+        const worn = config.slots.map((sl) => carried.find((id) => config.items?.find((it) => it.id === id)?.slot === sl.id)).filter((id): id is string => id !== undefined);
+        lines.push(`    ~ ${n.equipped} = (${worn.join(", ")})`);
+      }
+    }
     lines.push("}");
   }
   lines.push("", `// A skill's current level, by name.`, `=== function ${n.skillValue}(${n.skillParam}) ===`);
@@ -287,6 +297,9 @@ export function generateInk(config: GameConfig): string {
     );
   }
   if (config.records?.length) lines.push(...recordInk(config));
+  if (config.items?.some((i) => i.stack)) lines.push(...stackInk(config));
+  if (config.slots?.length && config.items?.length) lines.push(...slotInk(config));
+  if (config.statuses?.length) lines.push(...statusInk(config));
   if (config.kinds?.length) lines.push(...entityInk(config), ...spawnRowInk(config));
   return lines.join("\n") + "\n";
 }
@@ -507,14 +520,19 @@ function entityInk(config: GameConfig): string[] {
     "",
     `=== function ${n.setStat}(${w}, ${st}, ${a}) ===`,
     ...party.setStat,
-    ...byOwner((id) => [`~ ${id} = ${n.entSet}(${id}, ${w}, ${st}, ${a}, "${kinds.find((x) => x.id === id)?.remove ?? ""}")`, "~ return"]),
+    // An entity taken out by its kind's remove stat takes its statuses with it.
+    ...byOwner((id) => {
+      const remove = kinds.find((x) => x.id === id)?.remove ?? "";
+      const gone = config.statuses?.length && remove ? [`{ not ${n.entHas}(${id}, ${w}):`, `    ~ ${n.clearStatus}(${w}, "")`, "}"] : [];
+      return [`~ ${id} = ${n.entSet}(${id}, ${w}, ${st}, ${a}, "${remove}")`, ...gone, "~ return"];
+    }),
     "",
     `=== function ${n.addStat}(${w}, ${st}, ${a}) ===`,
     `~ ${n.setStat}(${w}, ${st}, ${n.stat}(${w}, ${st}) + ${a})`,
     "",
     `=== function ${n.despawn}(${w}) ===`,
     ...party.despawn,
-    ...byOwner((id) => [`~ ${id} = ${n.entDrop}(${id}, ${w})`, "~ return"]),
+    ...byOwner((id) => [`~ ${id} = ${n.entDrop}(${id}, ${w})`, ...(config.statuses?.length ? [`~ ${n.clearStatus}(${w}, "")`] : []), "~ return"]),
     "",
     `=== function ${n.alive}(${k}) ===`,
     ...party.alive,
@@ -558,6 +576,91 @@ function entityInk(config: GameConfig): string[] {
  * record's id as a string. A pick rolls through the dice EXTERNAL with the label "record:<id>", so it follows the
  * run's seed and shows as a roll; without the engine it reads the whole store.
  */
+/** Stacking items (RPG PRD §4.2): a count per item, the item in the inventory while its count is above 0. */
+function stackInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const stacks = (config.items ?? []).filter((i) => i.stack);
+  const it = n.itemParam, amt = n.amountParam, cnt = (id: string) => `${id}${n.stackSuffix}`;
+  const per = (body: (id: string) => string[]) => stacks.flatMap((i) => [`{ ${it} == ${i.id}:`, ...body(i.id).map((l) => `    ${l}`), "}"]);
+  return [
+    "",
+    `// Stacking items: ${n.give}(${stacks[0].id}, 3), ${n.take}(${stacks[0].id}, 1) (gives back how many it took), ${n.invCount}(${stacks[0].id}).`,
+    `// An item is in ${n.inventory} while its count is above 0, so {${n.inventory} ? ${stacks[0].id}: …} still works.`,
+    ...stacks.map((i) => `VAR ${cnt(i.id)} = 0`),
+    `=== function ${n.give}(${it}, ${amt}) ===`,
+    `{ ${amt} <= 0:`, "    ~ return", "}",
+    ...per((id) => [`~ ${cnt(id)} = ${cnt(id)} + ${amt}`]),
+    // Any item, counted or not, is carried after it is given.
+    `~ ${n.inventory} += ${it}`,
+    `=== function ${n.take}(${it}, ${amt}) ===`,
+    `~ temp ${n.tempTaken} = 0`,
+    `{ ${amt} <= 0:`, "    ~ return 0", "}",
+    ...per((id) => [`~ ${n.tempTaken} = MIN(${amt}, ${cnt(id)})`, `~ ${cnt(id)} = ${cnt(id)} - ${n.tempTaken}`, `{ ${cnt(id)} <= 0:`, `    ~ ${n.inventory} -= ${id}`, "}", `~ return ${n.tempTaken}`]),
+    // An item that does not stack: one, if it is carried.
+    `{ ${n.inventory} ? ${it}:`, `    ~ ${n.inventory} -= ${it}`, "    ~ return 1", "}",
+    "~ return 0",
+    `=== function ${n.invCount}(${it}) ===`,
+    ...per((id) => [`~ return ${cnt(id)}`]),
+    `{ ${n.inventory} ? ${it}:`, "    ~ return 1", "}",
+    "~ return 0",
+  ];
+}
+
+/** Equipment slots (RPG PRD §4.2): the equipped list holds one item per slot; equipping also carries it. */
+function slotInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const it = n.itemParam;
+  const items = config.items ?? [];
+  const lines = [
+    "",
+    `// Equipment: ${n.equip}(item) wears it (taking off the other item of its slot), ${n.unequip}(item); {${n.equipped} ? item: …}.`,
+    `// An item with a slot gives its modifiers only while equipped.`,
+    `VAR ${n.equipped} = ()`,
+    `=== function ${n.equip}(${it}) ===`,
+  ];
+  for (const sl of config.slots ?? []) {
+    const of = items.filter((i) => i.slot === sl.id).map((i) => i.id);
+    if (of.length > 0) lines.push(`{ (${of.join(", ")}) ? ${it}:`, `    ~ ${n.equipped} -= (${of.join(", ")})`, "}");
+  }
+  lines.push(`~ ${n.inventory} += ${it}`, `~ ${n.equipped} += ${it}`, `=== function ${n.unequip}(${it}) ===`, `~ ${n.equipped} -= ${it}`);
+  return lines;
+}
+
+/** Status effects (RPG PRD §4.3): one store for everyone, read and written by the engine's pure functions. */
+function statusInk(config: GameConfig): string[] {
+  const n = inkNames(config);
+  const st = n.statusStoreParam, who = n.whoParam, id = n.statusParam, t = n.turnsParam;
+  const first = config.statuses?.[0]?.id ?? "poison";
+  return [
+    "",
+    `// Statuses: ${n.addStatus}(who, "${first}", 3) (turns; 0 = until cleared), ${n.hasStatus}(who, "${first}"), ${n.statusTurns}(who, "${first}"),`,
+    `// ${n.clearStatus}(who, "${first}") ("" = all of who's), ${n.tickStatuses}() (a turn passes), ${n.restStatuses}() (statuses marked rest end).`,
+    `// who is an entity or party member id, or "${n.self}" for the character.`,
+    `VAR ${n.statusVar} = ""`,
+    `EXTERNAL ${n.stPut}(${st}, ${who}, ${id}, ${t})`,
+    `EXTERNAL ${n.stHas}(${st}, ${who}, ${id})`,
+    `EXTERNAL ${n.stLeft}(${st}, ${who}, ${id})`,
+    `EXTERNAL ${n.stTake}(${st}, ${who}, ${id})`,
+    `EXTERNAL ${n.stTick}(${st})`,
+    `EXTERNAL ${n.stRest}(${st})`,
+    "",
+    "// Without the engine nothing takes hold: no one has a status.",
+    `=== function ${n.stPut}(${st}, ${who}, ${id}, ${t}) ===`, `~ return ${st}`,
+    `=== function ${n.stHas}(${st}, ${who}, ${id}) ===`, "~ return false",
+    `=== function ${n.stLeft}(${st}, ${who}, ${id}) ===`, "~ return 0",
+    `=== function ${n.stTake}(${st}, ${who}, ${id}) ===`, `~ return ${st}`,
+    `=== function ${n.stTick}(${st}) ===`, `~ return ${st}`,
+    `=== function ${n.stRest}(${st}) ===`, `~ return ${st}`,
+    "",
+    `=== function ${n.addStatus}(${who}, ${id}, ${t}) ===`, `~ ${n.statusVar} = ${n.stPut}(${n.statusVar}, ${who}, ${id}, ${t})`,
+    `=== function ${n.hasStatus}(${who}, ${id}) ===`, `~ return ${n.stHas}(${n.statusVar}, ${who}, ${id})`,
+    `=== function ${n.statusTurns}(${who}, ${id}) ===`, `~ return ${n.stLeft}(${n.statusVar}, ${who}, ${id})`,
+    `=== function ${n.clearStatus}(${who}, ${id}) ===`, `~ ${n.statusVar} = ${n.stTake}(${n.statusVar}, ${who}, ${id})`,
+    `=== function ${n.tickStatuses}() ===`, `~ ${n.statusVar} = ${n.stTick}(${n.statusVar})`,
+    `=== function ${n.restStatuses}() ===`, `~ ${n.statusVar} = ${n.stRest}(${n.statusVar})`,
+  ];
+}
+
 function recordInk(config: GameConfig): string[] {
   const n = inkNames(config);
   const records = config.records ?? [];

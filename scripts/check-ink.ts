@@ -173,6 +173,7 @@ for (const file of files) {
         notes.push(`${tag}  kind ${k.kind}${k.name !== k.kind ? ` (${k.name})` : ""}: ${came.length ? list(came, 20) : "none spawned"}${never.length && came.length ? `; never spawned: ${list(never)}` : ""}; most at once ${range(k.most)}`);
         if (k.overMax > 0) warnings.push(`${tag}kind ${k.kind}: ${k.overMax} entity stat(s) went above their max in random runs`);
       }
+      for (const st of x.statuses ?? []) notes.push(`${tag}  status ${st.status}${st.name !== st.status ? ` (${st.name})` : ""}: ${st.times > 0 ? `put on ${st.times} time(s), in ${pct(st.runs, x.runs)} of runs` : "never put on"}`);
     }
   }
   const bad = problems.some((d) => d.severity === "error") || runtime.length > 0;
