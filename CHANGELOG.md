@@ -10,6 +10,7 @@ Release notes for each version; the GitHub release carries the same text and the
   - Deleting a save asks first: the button turns into "Delete for good?" and a second tap within three seconds deletes.
   - The default journal folder follows the interface language: `日志/` in Chinese, `Journal/` in English.
   - `check-ink` names the choices that take several cards at once, which it plays as a sample rather than every combination.
+
 ## 0.5.0 — 2026-11-10
 
 Solo play and tabletop games: runs that pick up where you left off, a dice tray and oracle, clocks, records and a live journal; dice formulas, random tables, decks and hands, maps, a chaos bag, a growing dungeon and a party of several characters. Requires Obsidian 1.13.0 or later.

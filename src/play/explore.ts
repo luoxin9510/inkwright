@@ -218,7 +218,9 @@ export function exploreStory(story: Story, options: ExploreOptions = {}): Explor
           return payload ? [{ ...base, payload, label: `${choice.text} ▸ ${card.name}` }] : [];
         })
         : [];
-      if (play.max > 1 && !result.sampled.includes(choice.text)) result.sampled.push(choice.text);
+      // A sample only when some way is left out: a number of cards between two and one short of the hand.
+      const n = play.cards.length;
+      if (Math.max(play.min, 2) <= Math.min(play.max, n - 1) && !result.sampled.includes(choice.text)) result.sampled.push(choice.text);
       const many = play.cards.slice(0, play.max);
       if (many.length >= Math.max(2, play.min)) {
         const payload = engine.playPayload(play.hand, many.map((c) => c.id), play);
