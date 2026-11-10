@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { GAME_NOTE_NAMES, readConfig, type ConfigProblem, type GameConfig } from "../src/game/config";
 import { resolveConfig, type ConfigSource } from "../src/game/resolve";
+import { splitNote } from "../src/game/frontmatter";
 
 export interface GameNote {
   name: string;
@@ -22,12 +23,8 @@ export async function gameNote(storyFile: string): Promise<GameNote | null> {
     } catch {
       continue;
     }
-    const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-    try {
-      return { name, frontmatter: m ? (parseYaml(m[1]) as unknown) : undefined };
-    } catch (e) {
-      return { name, frontmatter: undefined, error: e instanceof Error ? e.message : String(e) };
-    }
+    const note = splitNote(text, parseYaml);
+    return { name, frontmatter: note.raw, ...(note.error !== undefined ? { error: note.error } : {}) };
   }
   return null;
 }
@@ -47,14 +44,8 @@ export function diskSource(dir: string): ConfigSource {
       const out = [];
       for (const name of names.filter((n) => n.endsWith(".md"))) {
         const text = await readFile(join(abs, name), "utf8");
-        const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-        let fm: unknown;
-        try {
-          fm = m ? parseYaml(m[1]) : undefined;
-        } catch {
-          fm = undefined;
-        }
-        out.push({ path: join(abs, name), name: name.slice(0, -3), frontmatter: fm && typeof fm === "object" ? (fm as Record<string, unknown>) : undefined, body: m ? text.slice(m[0].length) : text });
+        const note = splitNote(text, parseYaml);
+        out.push({ path: join(abs, name), name: name.slice(0, -3), frontmatter: note.frontmatter, body: note.body });
       }
       return out;
     },
