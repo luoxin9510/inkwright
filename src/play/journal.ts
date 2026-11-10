@@ -203,3 +203,26 @@ export function liveBlocks(j: LiveInput): { text: string; writtenSeq: number; wr
   return { text: blocks.map((b) => `\n${b}\n`).join(""), writtenSeq, writtenTop: top };
 }
 
+/**
+ * A journal note's path from a template (`{dir}`, `{story}`, `{date}`, `{time}`, `{character}`): names go in cleaned
+ * (no separators, nothing a file system rejects, no ".."), "." and ".." segments are dropped so it stays inside the
+ * vault, and ".md" is added. `unknown` lists placeholders the template has that are not among these.
+ */
+export function journalPath(template: string, at: { dir: string; story: string; character: string | null; now: Date }): { path: string; unknown: string[] } {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const clean = (v: string) => Array.from(v).filter((c) => c.charCodeAt(0) >= 32).join("").replace(/[\\/:*?"<>|]/g, "-").replace(/\.{2,}/g, "-").trim();
+  const { now } = at;
+  const values: Record<string, string> = {
+    dir: at.dir, story: clean(at.story), character: clean(at.character ?? ""),
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}-${pad(now.getMinutes())}`,
+  };
+  const unknown: string[] = [];
+  const filled = template.replace(/\{(\w+)\}/g, (_m, key: string) => {
+    if (Object.prototype.hasOwnProperty.call(values, key)) return values[key];
+    unknown.push(key);
+    return "";
+  });
+  let path = filled.split(/[\\/]/).map((seg) => seg.trim()).filter((seg) => seg !== "" && seg !== "." && seg !== "..").join("/");
+  if (!path.endsWith(".md")) path += ".md";
+  return { path, unknown };
+}

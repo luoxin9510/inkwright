@@ -182,9 +182,9 @@ type Action = { seq: number; lang: string | null } & (   // seq 单调递增,回
 ### 4.5 记录(线索、NPC、悬念)
 
 - 名字叫"记录"(`records:`),不叫 list,免得和 ink 的 `LIST` 混。
-- 一个记录是一个字符串变量(存条目)加一个计数变量 `<id>_count`;生成的 ink 给出 `record_add("clues", "旧磨坊")`、`record_remove`、`record_count`、`record_pick("clues")`。
+- 一个记录是一个字符串变量(存条目)加一个计数变量 `<id>_count`;生成的 ink 给出 `record_add("clues", "旧磨坊")`、`record_remove`、`record_count`、`record_pick("clues")`,以及把条目用顿号连起来的 `record_list`(做的时候加的)。`when: 变量` 让一张记录(资源也可以)只在那个变量为真时显示(为一个游戏里的几种玩法加的)。
   - 增删由引擎的纯函数 EXTERNAL 做,存储格式定义转义(条目里可以有任何字);`record_pick` 走 `roll_dice` 加 `record:<id>` 标签,卡片显示"线索:抽到 旧磨坊"。
-  - 没有引擎时(Inky 里预览):`count` 用计数变量,照常;`add` 只追加不转义;`pick` 返回空字符串。写明只是预览。
+  - 没有引擎时(Inky 里预览):`count` 用计数变量,照常;`add` 只追加不转义;`pick` 和 `list` 返回整串原文(用分号隔开,教程 9.4 这样写明)。写明只是预览。
 - 玩家可以用 `#input` 或手动改记录(`record` 动作)往里加。
 - 面板状态区列出各记录;`ink: zh` 预设另有一套中文名字。
 
@@ -207,7 +207,7 @@ type Action = { seq: number; lang: string | null } & (   // seq 单调递增,回
 
 - **敌人区**:敌人多半是从牌堆里抽出来的,所以敌人区是一个牌区(`kind: foes`),牌面显示牌的属性和伤害。伤害按牌 id 记在一个字符串变量里(和 `room_notes` 同一种做法),生成 `foe_damage(card)`、`set_foe_damage`、`remove_foe`(移出牌区并清掉伤害)。同名的多只敌人用 `copies: n` 生成 `ghoul_1..n` 几张牌。
 - **回合和阶段**:`turn: { round: <变量>, phase: <变量>, phases: [{ id, name }] }`,阶段变量是字符串(不进 LIST,免得和牌、物品、地点撞名),HUD 一行"第 3 轮 · 敌人阶段"。
-- **一次出几张牌**:`#play:hand:1-2`(张数下限和上限),选中的牌一起写进 `played`(payload 的 `items`,逐个转成 ink 列表项)。explore 只走"每张单出"和"全出"并标成抽样;`--random` 随机挑。
+- **一次出几张牌**:`#play:hand:1-2`(张数下限和上限),选中的牌一起写进 `played`(payload 的 `items`,逐个转成 ink 列表项)。explore 只走"每张单出"和"一次出最多张"(上限小于手牌时不是全出),并标成抽样;`--random` 随机挑。
 - **从背包里用东西**:`#use`(选项上),玩家从背包挑一件,写进 `played`(有物品时就生成 `played`)。
 
 ### 4.9 文字冒险补件

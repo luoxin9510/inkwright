@@ -109,6 +109,7 @@ for (const file of files) {
       if (x.truncated) runtime.push(`${tag}stopped exploring after ${maxSteps} choices (endless loop, or raise --max-steps); not every branch was played`);
       endings.push(...x.endings.map((e) => `${tag}${e.lastText}  <- ${e.choices.join(" > ")}`));
       if (x.cappedSpots > 0) notes.push(`${tag}${x.cappedSpots} spot(s) reached in more states than played on (${statesPerSpot} each; raise --states-per-spot, or use --novelty)`);
+      if (x.sampled.length > 0) notes.push(`${tag}sampled, not every combination of cards: ${list(x.sampled.map((t) => `"${t}"`))}`);
       const cov = x.coverage;
       notes.push(`${tag}coverage: ${cov.places.reached.length}/${cov.places.total} places reached, ${cov.choices.taken}/${cov.choices.total} choices taken (${cov.choices.offered} offered); ${x.steps} choices played`);
       if (cov.places.missed.length > 0) warnings.push(`${tag}never reached: ${list(cov.places.missed)}`);

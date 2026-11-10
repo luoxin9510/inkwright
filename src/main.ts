@@ -22,7 +22,7 @@ import { engineFile, inkNames, localize, playableCharacters, type ConfigProblem,
 import { generateInk } from "./game/inkgen";
 import { resolveConfig, type ConfigSource } from "./game/resolve";
 import type { CardNote } from "./game/cards";
-import { liveBlocks, liveHeader, renderJournal } from "./play/journal";
+import { journalPath, liveBlocks, liveHeader, renderJournal } from "./play/journal";
 import { InkwrightSettingTab } from "./views/SettingTab";
 import { INK_VIEW_TYPE, InkView } from "./views/InkView";
 import { PLAY_VIEW_TYPE, PlayView, type GameView, type PlayController, type PlayState } from "./views/PlayView";
@@ -129,8 +129,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private buildHash: string | null = null;
   /** Builds known to be kept (this session), so each is written once. */
   private storedBuilds = new Set<string>();
-  /** What the last replay noticed without stopping: steps found by a guess, the first step whose outcome changed. */
-  private note: { guesses: number; drift: number | null; driftAt: number | null } | null = null;
+  /** What the last replay noticed without stopping: steps found by a guess, hand changes skipped, the first step whose outcome changed. */
+  private note: { guesses: number; skipped: number; drift: number | null; driftAt: number | null } | null = null;
   /** The whole run was saved before the pending steps are dropped: once per stop. */
   private backedUp = false;
   /** Player mode: a newer version of the story is waiting to be applied. */
@@ -501,7 +501,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   private trayDice(): Rng | null {
     const session = this.session, run = this.run;
     if (!session || !run || this.replaying) return null;
-    return seededDice(run.seeds.oracle, session.asides.length);
+    return seededDice(run.seeds.oracle, session.asides.filter((a) => a.kind === "oracle" || a.kind === "roll").length);
   }
 
   /** Asks the oracle a yes/no question (the question is optional); the answer is kept in the run. */
@@ -995,7 +995,7 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
   /**
    * Writes the panel's run so far (text, choices, rolls) as a markdown note. The path comes from the
    * game note's `journal.path` (`{dir}`, `{story}`, `{date}`, `{time}`, `{character}`), default
-   * `{dir}日志/{date} {time}.md`; an existing note is never overwritten.
+   * `{dir}日志/{date} {time}.md` (`Journal/` in English); an existing note is never overwritten.
    */
   async writeJournal(): Promise<{ path: string | null }> {
     const session = this.session;
@@ -1022,34 +1022,19 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
 
   /**
    * A free path for a new journal note from the game note's `journal.path` (`{dir}`, `{story}`, `{date}`, `{time}`,
-   * `{character}`; default `{dir}日志/{date} {time}.md`), its folders made; never an existing note's path.
+   * `{character}`; default `{dir}日志/{date} {time}.md`, `{dir}Journal/…` in English), its folders made; never an existing note's path.
    */
   private async newJournalPath(now: Date, story: string, character: string | null): Promise<string> {
     const root = this.root ?? "";
-    const dir = root.slice(0, root.lastIndexOf("/") + 1);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    // A name goes into a file name: no separators, nothing a file system rejects, no "..".
-    const clean = (v: string) => Array.from(v).filter((c) => c.charCodeAt(0) >= 32).join("").replace(/[\\/:*?"<>|]/g, "-").replace(/\.{2,}/g, "-").trim();
-    const values: Record<string, string> = {
-      dir, story: clean(story), character: clean(character ?? ""),
-      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`, time: `${pad(now.getHours())}-${pad(now.getMinutes())}`,
-    };
-    const template = this.game?.config.journal?.path ?? "{dir}日志/{date} {time}.md";
-    const unknown: string[] = [];
-    const filled = template.replace(/\{(\w+)\}/g, (_m, key: string) => {
-      if (Object.prototype.hasOwnProperty.call(values, key)) return values[key];
-      unknown.push(key);
-      return "";
-    });
-    if (unknown.length > 0) new Notice(T().journalUnknownKey(unknown.join(", ")));
-    // Stays inside the vault: "." and ".." segments are dropped, the rest normalized the way Obsidian wants it.
-    let path = normalizePath(filled.split(/[\\/]/).map((seg) => seg.trim()).filter((seg) => seg !== "" && seg !== "." && seg !== "..").join("/"));
-    if (!path.endsWith(".md")) path += ".md";
+    const template = this.game?.config.journal?.path ?? T().journalDefaultPath;
+    const made = journalPath(template, { dir: root.slice(0, root.lastIndexOf("/") + 1), story, character, now });
+    if (made.unknown.length > 0) new Notice(T().journalUnknownKey(made.unknown.join(", ")));
+    let path = normalizePath(made.path);
     const folder = path.slice(0, path.lastIndexOf("/"));
-    let made = "";
+    let sofar = "";
     for (const part of folder === "" ? [] : folder.split("/")) {
-      made = made === "" ? part : `${made}/${part}`;
-      if (!this.app.vault.getAbstractFileByPath(made)) await this.app.vault.createFolder(made);
+      sofar = sofar === "" ? part : `${sofar}/${part}`;
+      if (!this.app.vault.getAbstractFileByPath(sofar)) await this.app.vault.createFolder(sofar);
     }
     if (this.app.vault.getAbstractFileByPath(path)) {
       const base = path.slice(0, -3);
@@ -1347,8 +1332,8 @@ export default class InkwrightPlugin extends Plugin implements PlayController, G
       void this.offerOlder(this.stopped);
     }
     // The drift is kept as the action's position (to stop there) and shown as the player's step (choices only).
-    if (result.guesses.length > 0 || result.drift !== null) {
-      this.note = { guesses: result.guesses.length, drift: result.drift === null ? null : stepAt(run.actions, result.drift), driftAt: result.drift };
+    if (result.guesses.length > 0 || result.skipped.length > 0 || result.drift !== null) {
+      this.note = { guesses: result.guesses.length, skipped: result.skipped.length, drift: result.drift === null ? null : stepAt(run.actions, result.drift), driftAt: result.drift };
     }
     // Picked up after more than an hour: a line where the player left off.
     if (resuming && Date.now() - Date.parse(run.updatedAt) > 60 * 60 * 1000) this.recap = { at: session.log.length, when: stamp(new Date(run.updatedAt)) };

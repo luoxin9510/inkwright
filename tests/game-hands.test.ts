@@ -155,6 +155,8 @@ describe("hands", () => {
     const paths = x.endings.map((e) => e.choices.join(" > "));
     expect(paths).toContain("打出一张 ▸ 血手印 > 打出一张 ▸ 半张票 > 打出一张 ▸ 钥匙扣");
     expect(paths).toContain("打出一张 ▸ 钥匙扣 > 走");
+    // One card at a time is every way there is: not a sample.
+    expect(x.sampled).toEqual([]);
     expect(x.checks?.unknownHands).toEqual([]);
     const bad = await compileStory("main.ink", async () => STORY("#play:桌面"));
     const y = exploreStory(bad.story!, { game: HANDS, character: "昕" });
@@ -218,6 +220,10 @@ ${generateInk(HANDS)}
     expect(x.endings.map((e) => e.choices.join(" > ")).sort()).toEqual([
       "投入 ▸ 半张票", "投入 ▸ 血手印", "投入 ▸ 血手印 + 半张票 + 钥匙扣", "投入 ▸ 钥匙扣",
     ]);
+    expect(x.sampled).toEqual(["投入"]);
+    // Two of two cards: alone and together is every way there is.
+    const two = await compileStory("main.ink", async () => MANY("#play:手牌:1-2").replace('~ 手牌 += 抽牌("线索")\n', ""));
+    expect(exploreStory(two.story!, { game: HANDS, character: "昕" }).sampled).toEqual([]);
     const s = simulateStory(r.story!, { game: HANDS, character: "昕", runs: 10, seed: 3 });
     expect(s.errors).toEqual([]);
     expect(s.stuck).toBe(0);
